@@ -29,6 +29,20 @@
     });
   }
 
+  // Efeito visual do cabeçalho fixo ao rolar a página
+  var topoEl = document.querySelector(".topo");
+  if (topoEl) {
+    var atualizarTopoScroll = function () {
+      if (window.scrollY > 15) {
+        topoEl.classList.add("topo--rolando");
+      } else {
+        topoEl.classList.remove("topo--rolando");
+      }
+    };
+    window.addEventListener("scroll", atualizarTopoScroll, { passive: true });
+    atualizarTopoScroll();
+  }
+
   // Realce do link de navegação ativo por seção visível
   var secoes = document.querySelectorAll("main section[id]");
   var linksNav = document.querySelectorAll(".nav-desktop a[href^='#']");
