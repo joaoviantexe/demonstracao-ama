@@ -181,7 +181,6 @@
   var modalLightbox = document.getElementById("lightbox-modal");
   if (modalLightbox) {
     var lbImg = document.getElementById("lightbox-img");
-    var lbTitulo = document.getElementById("lightbox-titulo");
     var lbLink = document.getElementById("lightbox-link");
     var btnFecharLb = modalLightbox.querySelector(".lightbox-fechar");
     var backdropLb = modalLightbox.querySelector(".lightbox-backdrop");
@@ -189,15 +188,13 @@
     var abrirLightbox = function (trigger) {
       if (!trigger) return;
       var src = trigger.getAttribute("data-lightbox");
-      var titulo = trigger.getAttribute("data-titulo") || "";
       var link = trigger.getAttribute("data-link") || "";
+      var imgEl = trigger.querySelector("img");
+      var altTxt = imgEl ? imgEl.getAttribute("alt") : "Cartaz do Projeto AMA";
 
       if (lbImg) {
         lbImg.src = src;
-        lbImg.alt = titulo;
-      }
-      if (lbTitulo) {
-        lbTitulo.textContent = titulo;
+        lbImg.alt = altTxt;
       }
       if (lbLink) {
         if (link) {

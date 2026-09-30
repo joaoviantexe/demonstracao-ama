@@ -849,21 +849,16 @@ button.produto-media{
   box-shadow:0 24px 60px -15px rgba(0,0,0,.85);
   border:1.5px solid rgba(255,255,255,.14);
 }
-.lightbox-legenda{
+.lightbox-acoes{
   display:flex;
   align-items:center;
-  justify-content:space-between;
-  gap:16px;
+  justify-content:center;
   width:100%;
-  padding:8px 4px 0;
-  color:#fff;
+  padding-top:4px;
 }
-.lightbox-titulo{
-  font-family:var(--display);
-  font-weight:600;
-  font-size:.95rem;
-  color:rgba(255,255,255,.9);
-  text-shadow:0 2px 8px rgba(0,0,0,.5);
+.lightbox-acoes .botao{
+  padding:10px 32px;
+  font-size:.96rem;
 }
 @media(max-width:640px){
   .lightbox-modal{
@@ -875,17 +870,12 @@ button.produto-media{
     width:36px;
     height:36px;
   }
-  .lightbox-legenda{
-    flex-direction:column;
-    align-items:stretch;
-    gap:10px;
-    text-align:center;
-  }
-  .lightbox-titulo{
-    font-size:.85rem;
-  }
-  .lightbox-legenda .botao{
+  .lightbox-acoes{
     width:100%;
+  }
+  .lightbox-acoes .botao{
+    width:100%;
+    text-align:center;
   }
 }
 
