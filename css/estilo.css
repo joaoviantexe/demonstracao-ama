@@ -513,6 +513,21 @@ main#topo{
   width:100%;
   margin-top:clamp(18px, 2.5vw, 28px);
 }
+.instagram-perfil-rodape .botao{
+  max-width:100%;
+  white-space:normal;
+  text-align:center;
+  word-break:break-word;
+  hyphens:auto;
+}
+@media(max-width:480px){
+  .instagram-perfil-rodape .botao{
+    width:100%;
+    font-size:.82rem;
+    padding:.7em 1em;
+    line-height:1.4;
+  }
+}
 
 /* ---------- Biojoias / catálogo ---------- */
 #biojoias{background:var(--creme-100);border-bottom:1px solid var(--linha)}
