@@ -177,7 +177,73 @@
     });
   }
 
-  // Instagram Embeds processor
+  // Modal Lightbox (ampliação de cartazes/projetos)
+  var modalLightbox = document.getElementById("lightbox-modal");
+  if (modalLightbox) {
+    var lbImg = document.getElementById("lightbox-img");
+    var lbTitulo = document.getElementById("lightbox-titulo");
+    var lbLink = document.getElementById("lightbox-link");
+    var btnFecharLb = modalLightbox.querySelector(".lightbox-fechar");
+    var backdropLb = modalLightbox.querySelector(".lightbox-backdrop");
+
+    var abrirLightbox = function (trigger) {
+      if (!trigger) return;
+      var src = trigger.getAttribute("data-lightbox");
+      var titulo = trigger.getAttribute("data-titulo") || "";
+      var link = trigger.getAttribute("data-link") || "";
+
+      if (lbImg) {
+        lbImg.src = src;
+        lbImg.alt = titulo;
+      }
+      if (lbTitulo) {
+        lbTitulo.textContent = titulo;
+      }
+      if (lbLink) {
+        if (link) {
+          lbLink.href = link;
+          lbLink.style.display = "";
+        } else {
+          lbLink.style.display = "none";
+        }
+      }
+
+      modalLightbox.hidden = false;
+      modalLightbox.offsetHeight; // reflow
+      modalLightbox.classList.add("ativo");
+      document.body.style.overflow = "hidden";
+    };
+
+    var fecharLightbox = function () {
+      modalLightbox.classList.remove("ativo");
+      document.body.style.overflow = "";
+      setTimeout(function () {
+        if (!modalLightbox.classList.contains("ativo")) {
+          modalLightbox.hidden = true;
+          if (lbImg) lbImg.src = "";
+        }
+      }, 300);
+    };
+
+    document.querySelectorAll("[data-lightbox]").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        abrirLightbox(btn);
+      });
+    });
+
+    if (btnFecharLb) {
+      btnFecharLb.addEventListener("click", fecharLightbox);
+    }
+    if (backdropLb) {
+      backdropLb.addEventListener("click", fecharLightbox);
+    }
+    document.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape" && !modalLightbox.hidden) {
+        fecharLightbox();
+      }
+    });
+  }
   if (window.instgrm && window.instgrm.Embeds) {
     window.instgrm.Embeds.process();
   }
