@@ -443,9 +443,6 @@ section{padding-block:clamp(56px,9vw,120px)}
   width:100%;
   margin-top:clamp(20px,3vw,36px);
 }
-.instagram-tabs-mobile{
-  display:none;
-}
 .instagram-feed-grade{
   display:grid;
   grid-template-columns:repeat(3, minmax(280px, 1fr));
@@ -474,57 +471,20 @@ section{padding-block:clamp(56px,9vw,120px)}
   display:block;
 }
 @media (max-width:768px){
-  /* Navegação por abas no celular — sem scroll lateral */
-  .instagram-tabs-mobile{
-    display:flex;
-    justify-content:center;
-    align-items:center;
-    gap:6px;
-    margin-bottom:20px;
-    width:100%;
-    padding-inline:4px;
-  }
-  .insta-tab-btn{
-    flex:1 1 0;
-    max-width:115px;
-    background:var(--creme-50);
-    border:1.5px solid rgba(201,152,43,.35);
-    border-radius:999px;
-    padding:8px 4px;
-    font-family:var(--sans);
-    font-size:.78rem;
-    font-weight:700;
-    color:var(--verde-950);
-    cursor:pointer;
-    transition:all .25s ease;
-    box-shadow:0 2px 8px rgba(0,0,0,.04);
-    text-align:center;
-    white-space:nowrap;
-  }
-  .insta-tab-btn.ativo{
-    background:var(--verde-950);
-    color:var(--ouro-400);
-    border-color:var(--verde-950);
-    box-shadow:0 4px 14px -2px rgba(11,42,28,.35);
-    transform:translateY(-1px);
-  }
+  /* No celular: fluxo vertical das postagens com rolagem natural (sem botões e sem scroll lateral) */
   .instagram-feed-grade{
     display:flex;
     flex-direction:column;
     align-items:center;
     width:100%;
-    gap:0;
+    gap:28px;
     padding:0;
     overflow:visible;
   }
   .instagram-embed-card{
-    display:none;
+    display:flex;
     width:100%;
     max-width:100%;
-    animation:instaFadeIn .28s cubic-bezier(.16,.84,.44,1);
-  }
-  .instagram-embed-card.ativo-mobile{
-    display:flex;
   }
   .instagram-embed-card iframe,
   .instagram-media-iframe{
@@ -533,10 +493,6 @@ section{padding-block:clamp(56px,9vw,120px)}
     max-width:100% !important;
     border-radius:18px !important;
   }
-}
-@keyframes instaFadeIn{
-  from{opacity:0;transform:translateY(8px)}
-  to{opacity:1;transform:translateY(0)}
 }
 .instagram-perfil-rodape{
   display:flex;
