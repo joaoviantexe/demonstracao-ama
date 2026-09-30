@@ -1,0 +1,32 @@
+# Arquivos do Sistema Operacional
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# Editores & IDEs
+.vscode/
+.idea/
+.obsidian/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+
+# Vercel
+.vercel
+
+# Node & Logs (se usados scripts de automação)
+node_modules/
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# Variáveis de ambiente
+.env
+.env*.local
+
+# Arquivos temporários e backups
+*.tmp
+*.bak
+*~

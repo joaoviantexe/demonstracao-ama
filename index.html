@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Associação de Mulheres na Amazônia - AMA</title>
+<meta name="description" content="Associação de Mulheres na Amazônia (AMA) — Fortalecimento feminino, capacitação, biojoias, cosméticos sustentáveis e projetos sociais em Ananindeua e na Amazônia.">
+<meta name="theme-color" content="#0B2A1C">
+<meta property="og:title" content="Associação de Mulheres na Amazônia - AMA">
+<meta property="og:description" content="Fortalecimento feminino, capacitação, biojoias, cosméticos sustentáveis e projetos sociais em Ananindeua e na Amazônia.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="img/logo-ama.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500;1,9..144,600&family=Manrope:wght@400;500;600;700;800&family=Baloo+2:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/estilo.css">
+<link rel="icon" type="image/png" href="img/favicon.png">
+<link rel="apple-touch-icon" href="img/logo-ama-icone.png">
+<noscript><style>.reveal{opacity:1!important;transform:none!important}</style></noscript>
+</head>
+<body>
+
+<header class="topo">
+  <div class="wrap">
+    <a href="#topo" class="marca">
+      <img src="img/logo-ama.png" alt="AMA — Associação de Mulheres na Amazônia" class="marca-logo">
+    </a>
+    <nav class="nav-desktop" aria-label="Navegação principal">
+      <a href="#sobre">Sobre</a>
+      <a href="#redes">Postagens</a>
+      <a href="#cursos">Projetos</a>
+      <a href="#biojoias">Biojoias</a>
+      <a href="#depoimentos">Depoimentos</a>
+    </nav>
+    <div class="topo-acoes">
+      <button class="hamburguer" data-abrir-menu aria-label="Abrir menu" aria-expanded="false" aria-controls="menu-mobile">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<nav id="menu-mobile" class="menu-mobile" aria-label="Menu mobile">
+  <div class="menu-mobile-topo">
+    <img src="img/logo-ama.png" alt="AMA — Associação de Mulheres na Amazônia" class="menu-mobile-logo">
+    <button class="fechar hamburguer" data-fechar-menu aria-label="Fechar menu">
+      <span style="transform:rotate(45deg) translate(1px,1px)"></span>
+      <span style="transform:rotate(-45deg) translate(1px,-1px);margin-top:-7px"></span>
+    </button>
+  </div>
+  <a href="#sobre">Sobre</a>
+  <a href="#redes">Postagens</a>
+  <a href="#cursos">Projetos</a>
+  <a href="#biojoias">Biojoias</a>
+  <a href="#depoimentos">Depoimentos</a>
+  <a href="https://wa.me/5591981056049" class="botao botao--principal" target="_blank" rel="noopener">Falar no WhatsApp</a>
+</nav>
+
+<main id="topo">
+
+  <!-- SOBRE -->
+  <section id="sobre" class="sobre sobre--principal">
+    <div class="wrap">
+      <div class="sobre-cabecalho reveal">
+        <h2>Quem Somos?</h2>
+      </div>
+      <div class="sobre-media reveal">
+        <div class="player-video pausado" id="player-institucional" tabindex="0" role="region" aria-label="Player de vídeo institucional da AMA">
+          <video src="img/sobre-ama-video.mp4" poster="img/sobre-video-poster.jpg" autoplay muted loop playsinline preload="metadata" aria-label="Vídeo institucional da AMA, mostrando encontros e atividades com as mulheres da comunidade"></video>
+
+          <!-- Botão central Play/Pause overlay -->
+          <button type="button" class="pv-overlay-play" aria-label="Reproduzir vídeo">
+            <svg class="pv-icone-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            <svg class="pv-icone-pause" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+          </button>
+
+          <!-- Barra de controles -->
+          <div class="pv-controles" aria-label="Controles do reprodutor">
+            <!-- Barra de progresso -->
+            <div class="pv-barra-progresso" role="slider" aria-label="Progresso do vídeo" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0">
+              <div class="pv-progresso-buffer"></div>
+              <div class="pv-progresso-preenchido"></div>
+              <div class="pv-progresso-marcador"></div>
+            </div>
+
+            <!-- Linha de botões -->
+            <div class="pv-botoes">
+              <div class="pv-grupo-esquerda">
+                <button type="button" class="pv-btn pv-btn-play" aria-label="Reproduzir">
+                  <svg class="pv-icone-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                  <svg class="pv-icone-pause" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                </button>
+
+                <div class="pv-tempo">
+                  <span class="pv-tempo-atual">0:00</span>
+                  <span class="pv-tempo-divisor">/</span>
+                  <span class="pv-tempo-total">0:00</span>
+                </div>
+              </div>
+
+              <div class="pv-grupo-direita">
+                <div class="pv-controle-volume">
+                  <button type="button" class="pv-btn pv-btn-volume" aria-label="Ativar som">
+                    <svg class="pv-icone-vol-alto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                    <svg class="pv-icone-vol-mudo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+                  </button>
+                  <div class="pv-slider-volume-wrapper">
+                    <input type="range" class="pv-slider-volume" min="0" max="1" step="0.05" value="0" aria-label="Controle de volume">
+                  </div>
+                </div>
+
+                <button type="button" class="pv-btn pv-btn-reiniciar" aria-label="Reiniciar vídeo">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                </button>
+
+                <button type="button" class="pv-btn pv-btn-tela-cheia" aria-label="Tela cheia">
+                  <svg class="pv-icone-expandir" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+                  <svg class="pv-icone-reduzir" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6m10-10h-6V4m0 16v-6h6M10 4v6H4"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="sobre-descricao reveal">
+        <p>A Associação de Mulheres na Amazônia (AMA) nasceu no coração da presidente fundadora senhora Mônica Rodrigues de Moura no bairro do Icuí, em Ananindeua, como a primeira associação dedicada exclusivamente às mulheres da comunidade. Fundada com o propósito de promover a igualdade de gênero e empoderar as mulheres em todas as esferas da sociedade, a AMA se tornou uma referência na luta pelos direitos femininos na região.</p>
+        <p>Nossa trajetória inclui a participação ativa na criação e organização do primeiro Conselho da Mulher em Ananindeua, um marco histórico na defesa e valorização do papel das mulheres no município. Ao longo dos anos, fortalecemos nossas ações por meio de projetos que promovem educação, saúde, empreendedorismo, cultura e combate à violência de gênero, sempre priorizando as necessidades e os desafios enfrentados pelas mulheres na Amazônia.</p>
+        <p>Com uma história pautada pela união e resiliência, seguimos firmes em nossa missão de transformar vidas e construir uma sociedade mais justa e inclusiva para todas.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- REDES / INSTAGRAM -->
+  <section id="redes" class="redes">
+    <div class="wrap">
+      <div class="cabecalho-secao reveal">
+        <h2>Postagens</h2>
+      </div>
+      <div class="instagram-feed-container">
+        <div class="instagram-feed-grade">
+          <div class="instagram-embed-card reveal">
+            <iframe 
+              class="instagram-media-iframe" 
+              src="https://www.instagram.com/reel/DdtzBiCNWnB/embed/captioned/" 
+              title="Publicação mais recente do Instagram @oscdemulheres"
+              frameborder="0" 
+              scrolling="no" 
+              allowtransparency="true"
+              allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share">
+            </iframe>
+          </div>
+
+          <div class="instagram-embed-card reveal">
+            <iframe 
+              class="instagram-media-iframe" 
+              src="https://www.instagram.com/reel/DdpIRtTOX9l/embed/captioned/" 
+              title="Publicação do Instagram @oscdemulheres"
+              frameborder="0" 
+              scrolling="no" 
+              allowtransparency="true"
+              allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share">
+            </iframe>
+          </div>
+
+          <div class="instagram-embed-card reveal">
+            <iframe 
+              class="instagram-media-iframe" 
+              src="https://www.instagram.com/reel/DdcUfUYBpy0/embed/captioned/" 
+              title="Publicação do Instagram @oscdemulheres"
+              frameborder="0" 
+              scrolling="no" 
+              allowtransparency="true"
+              allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share">
+            </iframe>
+          </div>
+        </div>
+
+        <div class="instagram-perfil-rodape reveal">
+          <a href="https://www.instagram.com/oscdemulheres/" target="_blank" rel="noopener" class="botao botao--ouro">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1"/></svg>
+            Acompanhe mais publicações no @oscdemulheres
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CURSOS (compacto) -->
+  <section id="cursos" class="cursos">
+    <div class="wrap">
+      <div class="cabecalho-secao reveal">
+        <h2>Nossos projetos</h2>
+        <p>Impactando vidas através das diversificações de conhecimentos!</p>
+      </div>
+      <div class="projetos-carrossel-wrapper">
+        <button type="button" class="projetos-seta projetos-seta--prev" aria-label="Ver projeto anterior">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+
+        <div class="grade-plataforma-scroll" id="carrossel-projetos">
+          <article class="curso-simples reveal">
+            <a href="https://wa.me/5591981056049?text=Ol%C3%A1!%20Quero%20saber%20sobre%20as%20inscri%C3%A7%C3%B5es%20no%20Ela%20Empreende." class="curso-media-link" target="_blank" rel="noopener" aria-label="Saiba mais sobre o Ela Empreende no WhatsApp">
+              <div class="curso-media-box">
+                <img src="img/capa-curso-ela-empreende.jpg" alt="Ela Empreende" loading="lazy">
+              </div>
+            </a>
+            <a href="https://wa.me/5591981056049?text=Ol%C3%A1!%20Quero%20saber%20sobre%20as%20inscri%C3%A7%C3%B5es%20no%20Ela%20Empreende." class="botao botao--ouro botao--sm" target="_blank" rel="noopener">Conhecer</a>
+          </article>
+
+          <article class="curso-simples reveal">
+            <a href="https://wa.me/5591981056049?text=Ol%C3%A1!%20Quero%20saber%20sobre%20o%20Projeto%20Musicaliza%C3%A7%C3%A3o%20Infantil%20da%20AMA." class="curso-media-link" target="_blank" rel="noopener" aria-label="Saiba mais sobre o Projeto Musicalização no WhatsApp">
+              <div class="curso-media-box">
+                <img src="img/capa-curso-musicalizacao-flauta.jpg" alt="Musicalização Infantil Juvenil de Flauta Doce — Projeto AMA" loading="lazy">
+              </div>
+            </a>
+            <a href="https://wa.me/5591981056049?text=Ol%C3%A1!%20Quero%20saber%20sobre%20o%20Projeto%20Musicaliza%C3%A7%C3%A3o%20Infantil%20da%20AMA." class="botao botao--ouro botao--sm" target="_blank" rel="noopener">Conhecer</a>
+          </article>
+
+          <article class="curso-simples reveal">
+            <a href="https://wa.me/5591981056049?text=Ol%C3%A1!%20Quero%20saber%20mais%20sobre%20a%20Linha%20Acredita%20BASA." class="curso-media-link" target="_blank" rel="noopener" aria-label="Saiba mais sobre a Linha Acredita BASA no WhatsApp">
+              <div class="curso-media-box">
+                <img src="img/capa-acredita-basa.jpg" alt="Linha de Crédito Acredita BASA para Microempreendedoras — Banco da Amazônia × AMA" loading="lazy">
+              </div>
+            </a>
+            <a href="https://wa.me/5591981056049?text=Ol%C3%A1!%20Quero%20saber%20mais%20sobre%20a%20Linha%20Acredita%20BASA." class="botao botao--ouro botao--sm" target="_blank" rel="noopener">Conhecer</a>
+          </article>
+
+          <article class="curso-simples reveal">
+            <a href="https://wa.me/5591981056049?text=Ol%C3%A1!%20Quero%20saber%20sobre%20o%20curso%20de%20Idiomas%20(How%20May%20I%20Help%20You)%20da%20AMA." class="curso-media-link" target="_blank" rel="noopener" aria-label="Saiba mais sobre o curso de Idiomas no WhatsApp">
+              <div class="curso-media-box">
+                <img src="img/capa-curso-idiomas.jpg" alt="How May I Help You?" loading="lazy">
+              </div>
+            </a>
+            <a href="https://wa.me/5591981056049?text=Ol%C3%A1!%20Quero%20saber%20sobre%20o%20curso%20de%20Idiomas%20(How%20May%20I%20Help%20You)%20da%20AMA." class="botao botao--ouro botao--sm" target="_blank" rel="noopener">Conhecer</a>
+          </article>
+        </div>
+
+        <button type="button" class="projetos-seta projetos-seta--next" aria-label="Ver próximo projeto">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- BIOJOIAS / CATÁLOGO -->
+  <section id="biojoias">
+    <div class="wrap">
+      <div class="cabecalho-secao reveal">
+        <h2>Biojoias &amp; Cosméticos</h2>
+      </div>
+
+      <div class="grade-produtos">
+
+        <article class="produto reveal" data-categoria="cosmeticos"
+          data-nome="Body Splash 200mL"
+          data-preco="R$ 00,00"
+          data-cat-label=""
+          data-img="img/ama-bioessencia-body-splash.jpg"
+          data-descricao="Em produção."
+          data-wa="https://wa.me/5591981056049?text=Ol%C3%A1!%20Quero%20saber%20sobre%20o%20Body%20Splash%20AMA%20Bioes%C3%AAncia.">
+          <button type="button" class="produto-media produto-abrir" aria-label="Ver detalhes do Body Splash">
+            <img src="img/ama-bioessencia-body-splash.jpg" alt="AMA Bioessência Body Splash 200mL" loading="lazy">
+          </button>
+          <div class="produto-corpo">
+            <h3>Body Splash 200mL</h3>
+            <div class="produto-rodape">
+              <span class="produto-preco">R$ 00,00</span>
+              <button type="button" class="produto-cta produto-abrir" aria-label="Ver produto">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6h2l2 9h9l2-6H8"/><circle cx="9" cy="20" r="1"/><circle cx="17" cy="20" r="1"/></svg>
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <article class="produto reveal" data-categoria="colares"
+          data-nome="Colar 01"
+          data-preco="R$ 00,00"
+          data-cat-label="Biojoia"
+          data-img="img/colar-atelie-verde.jpg"
+          data-descricao="Em produção.">
+          <button type="button" class="produto-media produto-abrir" aria-label="Ver detalhes do Colar 01">
+            <img src="img/colar-atelie-verde.jpg" alt="Colar de sementes verdes com pingentes de madeira em formato de folha" loading="lazy">
+          </button>
+          <div class="produto-corpo">
+            <h3>Colar 01</h3>
+            <div class="produto-rodape">
+              <span class="produto-preco">R$ 00,00</span>
+              <button type="button" class="produto-cta produto-abrir" aria-label="Ver produto">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6h2l2 9h9l2-6H8"/><circle cx="9" cy="20" r="1"/><circle cx="17" cy="20" r="1"/></svg>
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <article class="produto reveal" data-categoria="colares"
+          data-nome="Colar 02"
+          data-preco="R$ 00,00"
+          data-cat-label="Biojoia"
+          data-img="img/colar-floral-rosa-madeira.jpg"
+          data-descricao="Em produção.">
+          <button type="button" class="produto-media produto-abrir" aria-label="Ver detalhes do Colar 02">
+            <img src="img/colar-floral-rosa-madeira.jpg" alt="Colar floral com contas brancas, rosa e detalhes de madeira" loading="lazy">
+          </button>
+          <div class="produto-corpo">
+            <h3>Colar 02</h3>
+            <div class="produto-rodape">
+              <span class="produto-preco">R$ 00,00</span>
+              <button type="button" class="produto-cta produto-abrir" aria-label="Ver produto">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6h2l2 9h9l2-6H8"/><circle cx="9" cy="20" r="1"/><circle cx="17" cy="20" r="1"/></svg>
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <article class="produto reveal" data-categoria="colares"
+          data-nome="Colar 03"
+          data-preco="R$ 00,00"
+          data-cat-label="Biojoia"
+          data-img="img/retrato-colar-preto-branco.jpg"
+          data-descricao="Em produção.">
+          <button type="button" class="produto-media produto-abrir" aria-label="Ver detalhes do Colar 03">
+            <img src="img/retrato-colar-preto-branco.jpg" alt="Mulher usando colar artesanal preto e branco sobre blusa estampada" loading="lazy">
+          </button>
+          <div class="produto-corpo">
+            <h3>Colar 03</h3>
+            <div class="produto-rodape">
+              <span class="produto-preco">R$ 00,00</span>
+              <button type="button" class="produto-cta produto-abrir" aria-label="Ver produto">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6h2l2 9h9l2-6H8"/><circle cx="9" cy="20" r="1"/><circle cx="17" cy="20" r="1"/></svg>
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <article class="produto reveal" data-categoria="brincos"
+          data-nome="Colar 04"
+          data-preco="R$ 00,00"
+          data-cat-label="Biojoia"
+          data-img="img/brinco-flor-madeira-close.jpg"
+          data-descricao="Em produção.">
+          <button type="button" class="produto-media produto-abrir" aria-label="Ver detalhes do Colar 04">
+            <img src="img/brinco-flor-madeira-close.jpg" alt="Close de brinco floral de madeira entalhada com contas claras" loading="lazy">
+          </button>
+          <div class="produto-corpo">
+            <h3>Colar 04</h3>
+            <div class="produto-rodape">
+              <span class="produto-preco">R$ 00,00</span>
+              <button type="button" class="produto-cta produto-abrir" aria-label="Ver produto">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6h2l2 9h9l2-6H8"/><circle cx="9" cy="20" r="1"/><circle cx="17" cy="20" r="1"/></svg>
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <article class="produto reveal" data-categoria="brincos"
+          data-nome="Colar 05"
+          data-preco="R$ 00,00"
+          data-cat-label="Biojoia"
+          data-img="img/brinco-folha-madeira-orelha.jpg"
+          data-descricao="Em produção.">
+          <button type="button" class="produto-media produto-abrir" aria-label="Ver detalhes do Colar 05">
+            <img src="img/brinco-folha-madeira-orelha.jpg" alt="Brinco de folhas de madeira com miçangas creme, em uso" loading="lazy">
+          </button>
+          <div class="produto-corpo">
+            <h3>Colar 05</h3>
+            <div class="produto-rodape">
+              <span class="produto-preco">R$ 00,00</span>
+              <button type="button" class="produto-cta produto-abrir" aria-label="Ver produto">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6h2l2 9h9l2-6H8"/><circle cx="9" cy="20" r="1"/><circle cx="17" cy="20" r="1"/></svg>
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <article class="produto reveal" data-categoria="brincos"
+          data-nome="Colar 06"
+          data-preco="R$ 00,00"
+          data-cat-label="Biojoia"
+          data-img="img/brinco-gota-verde.jpg"
+          data-descricao="Em produção.">
+          <button type="button" class="produto-media produto-abrir" aria-label="Ver detalhes do Colar 06">
+            <img src="img/brinco-gota-verde.jpg" alt="Brinco em formato de gota em resina verde, estilo boho" loading="lazy">
+          </button>
+          <div class="produto-corpo">
+            <h3>Colar 06</h3>
+            <div class="produto-rodape">
+              <span class="produto-preco">R$ 00,00</span>
+              <button type="button" class="produto-cta produto-abrir" aria-label="Ver produto">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6h2l2 9h9l2-6H8"/><circle cx="9" cy="20" r="1"/><circle cx="17" cy="20" r="1"/></svg>
+              </button>
+            </div>
+          </div>
+        </article>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- MODAL DE PRODUTO -->
+  <div id="produto-modal" class="pmodal" role="dialog" aria-modal="true" aria-labelledby="pmodal-nome" hidden>
+    <div class="pmodal-backdrop"></div>
+    <div class="pmodal-painel">
+      <button type="button" class="pmodal-fechar" aria-label="Fechar">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+      <div class="pmodal-conteudo">
+        <div class="pmodal-galeria">
+          <img id="pmodal-img" src="" alt="" class="pmodal-foto">
+        </div>
+        <div class="pmodal-info">
+          <span id="pmodal-cat" class="categoria"></span>
+          <h2 id="pmodal-nome" class="pmodal-titulo"></h2>
+          <p id="pmodal-preco" class="pmodal-preco"></p>
+          <p id="pmodal-descricao" class="pmodal-descricao-txt"></p>
+          <div class="pmodal-acoes">
+            <a id="pmodal-wa" href="#" target="_blank" rel="noopener" class="botao botao--principal">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6h2l2 9h9l2-6H8"/><circle cx="9" cy="20" r="1"/><circle cx="17" cy="20" r="1"/></svg>
+              Adicionar ao carrinho
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONTEÚDOS (desabilitado)
+  <section id="conteudos">
+    <div class="wrap">
+      <div class="cabecalho-secao reveal">
+        <h2>Conteúdos e novidades da AMA</h2>
+        <p>Bastidores do ateliê, parcerias e a trajetória que está virando livro.</p>
+      </div>
+      <div class="grade-conteudo">
+        <article class="conteudo-card reveal">
+          <div class="conteudo-media"><img src="img/retrato-colar-verde-elegante.jpg" alt="Mulher elegante usando colar de sementes verdes e brancas" loading="lazy"></div>
+          <div class="conteudo-corpo">
+            <span class="tag">Bastidores</span>
+            <h3>Como nasce uma biojoia da AMA</h3>
+            <p>Da escolha da semente ao acabamento final: conheça o passo a passo artesanal do nosso ateliê.</p>
+            <span class="link">Ler mais →</span>
+          </div>
+        </article>
+        <article class="conteudo-card reveal">
+          <div class="conteudo-media"><img src="img/capa-conteudo-acredita-basa.jpg" alt="Flyer da linha de crédito Acredita BASA, parceria entre o Banco da Amazônia e a AMA" loading="lazy"></div>
+          <div class="conteudo-corpo">
+            <span class="tag">Crédito &amp; renda</span>
+            <h3>Linha Acredita BASA para microempreendedoras</h3>
+            <p>Em parceria com o Banco da Amazônia, levamos orientação sobre crédito para mulheres que empreendem.</p>
+            <span class="link">Ler mais →</span>
+          </div>
+        </article>
+        <article class="conteudo-card reveal">
+          <div class="conteudo-media"><img src="img/retrato-colar-verde-elegante.jpg" alt="Detalhe de colar artesanal, ilustrando o livro da fundadora da AMA" loading="lazy"></div>
+          <div class="conteudo-corpo">
+            <span class="tag">Em produção</span>
+            <h3>O livro da nossa fundadora</h3>
+            <p>Mônica Rodrigues de Moura foi convidada por uma editora a contar a história da AMA — em breve, à venda.</p>
+            <span class="link">Ler mais →</span>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+  -->
+
+  <!-- DEPOIMENTOS -->
+  <section id="depoimentos" class="depoimentos">
+    <div class="wrap">
+      <div class="cabecalho-secao centro reveal">
+        <h2>Depoimentos</h2>
+      </div>
+      <div class="grade-depoimentos">
+        <div class="depoimento reveal">
+          <span class="aspas">"</span>
+          <p>O curso de artesanato em sandálias é uma oportunidade incrível para quem busca uma nova fonte de renda e um caminho para o empreendedorismo. Obrigado AMA por me oferecer um novo meio de empreender e ajudar minha família!</p>
+          <div class="depoimento-autor">
+            <img src="img/avatar-usuario.png" alt="Doraci Silva" class="avatar" loading="lazy">
+             <div><strong>Doraci Silva</strong></div>
+          </div>
+        </div>
+        <div class="depoimento reveal">
+          <span class="aspas">"</span>
+          <p>A AMA é incrível! Ela oferta projetos que integram educação e cultura, abrindo novas portas para quem participa de seus projetos. É uma chance única para desenvolver novas habilidades e obter novos conhecimentos. Sou grato a esta Associação!</p>
+          <div class="depoimento-autor">
+            <img src="img/avatar-usuario.png" alt="Breno Aquino" class="avatar" loading="lazy">
+             <div><strong>Breno Aquino</strong></div>
+          </div>
+        </div>
+        <div class="depoimento reveal">
+          <span class="aspas">"</span>
+          <p>Admiro muito o trabalho da AMA. Através dos projetos sociais, como o "Sabores Sustentáveis", eles não estão apenas ensinando sobre o reaproveitamento de alimentos mas também incentivando uma alimentação saudável.</p>
+          <div class="depoimento-autor">
+            <img src="img/avatar-usuario.png" alt="Maria Rita" class="avatar" loading="lazy">
+             <div><strong>Maria Rita</strong></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PARCERIAS -->
+  <section id="parcerias" class="parcerias">
+    <div class="wrap">
+      <div class="cabecalho-secao centro reveal">
+        <h2>Colaborações e Parcerias</h2>
+      </div>
+      <div class="lista-parceiros logos reveal">
+        <img src="img/parceiros/moura-marketing.png" alt="Moura Marketing" class="logo-parceiro">
+        <img src="img/parceiros/instituto-federal.png" alt="Instituto Federal" class="logo-parceiro">
+        <img src="img/parceiros/senar.png" alt="SENAR" class="logo-parceiro">
+        <img src="img/parceiros/ideas.png" alt="IDEAS — Transformando vidas" class="logo-parceiro">
+        <img src="img/parceiros/la-salle.png" alt="La Salle" class="logo-parceiro">
+        <img src="img/parceiros/ceasa.png" alt="CEASA" class="logo-parceiro">
+        <img src="img/parceiros/banco-de-alimentos.png" alt="ONG Banco de Alimentos" class="logo-parceiro">
+        <img src="img/parceiros/usipaz.png" alt="UsiPaz — Usina da Paz" class="logo-parceiro">
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="rodape-base">
+      <span>© <span id="ano-atual">2026</span> AMA — Associação de Mulheres na Amazônia.</span>
+      <a href="https://wa.me/5591981056049" class="rodape-social" target="_blank" rel="noopener">(91) 98105-6049</a>
+      <a href="https://www.instagram.com/oscdemulheres/" class="rodape-social" target="_blank" rel="noopener">@oscdemulheres</a>
+    </div>
+  </div>
+</footer>
+
+<a href="https://wa.me/5591981056049" class="wa-flutuante" target="_blank" rel="noopener" aria-label="Falar no WhatsApp">
+  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15L2 22l5.2-1.4A10 10 0 1 0 12 2Zm5.8 14.2c-.2.7-1.4 1.3-2 1.4-.5.1-1.1.2-3.6-.8-3-1.2-4.9-4.2-5-4.4-.1-.2-1.2-1.6-1.2-3.1s.8-2.2 1.1-2.5c.3-.3.6-.4.8-.4h.6c.2 0 .4 0 .6.5.2.5.8 1.9.8 2 .1.2.1.4 0 .6-.1.2-.2.3-.4.5-.2.2-.4.4-.6.6-.2.2-.4.4-.2.7.2.3 1 1.6 2.1 2.6 1.4 1.3 2.6 1.7 3 1.9.3.2.5.1.7-.1l1-1.2c.2-.3.5-.2.8-.1.3.1 1.8.9 2.1 1 .3.1.5.2.6.3.1.2.1.9-.1 1.5Z"/></svg>
+</a>
+
+<script async src="https://www.instagram.com/embed.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
