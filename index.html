@@ -137,8 +137,21 @@
         <h2>Postagens</h2>
       </div>
       <div class="instagram-feed-container">
+        <!-- Navegação intuitiva por abas para celular (substitui o scroll lateral) -->
+        <div class="instagram-tabs-mobile" role="tablist" aria-label="Navegar publicações">
+          <button type="button" class="insta-tab-btn ativo" data-insta-tab="0" role="tab" aria-selected="true">
+            <span>1ª Recente</span>
+          </button>
+          <button type="button" class="insta-tab-btn" data-insta-tab="1" role="tab" aria-selected="false">
+            <span>2ª Post</span>
+          </button>
+          <button type="button" class="insta-tab-btn" data-insta-tab="2" role="tab" aria-selected="false">
+            <span>3ª Post</span>
+          </button>
+        </div>
+
         <div class="instagram-feed-grade">
-          <div class="instagram-embed-card reveal">
+          <div class="instagram-embed-card reveal ativo-mobile" data-card-index="0">
             <iframe 
               class="instagram-media-iframe" 
               src="https://www.instagram.com/reel/DdtzBiCNWnB/embed/captioned/" 
@@ -150,7 +163,7 @@
             </iframe>
           </div>
 
-          <div class="instagram-embed-card reveal">
+          <div class="instagram-embed-card reveal" data-card-index="1">
             <iframe 
               class="instagram-media-iframe" 
               src="https://www.instagram.com/reel/DdpIRtTOX9l/embed/captioned/" 
@@ -162,7 +175,7 @@
             </iframe>
           </div>
 
-          <div class="instagram-embed-card reveal">
+          <div class="instagram-embed-card reveal" data-card-index="2">
             <iframe 
               class="instagram-media-iframe" 
               src="https://www.instagram.com/reel/DdcUfUYBpy0/embed/captioned/" 

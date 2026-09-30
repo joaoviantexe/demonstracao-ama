@@ -177,9 +177,33 @@
     });
   }
 
-  // Instagram Embeds processor
+  // Instagram Embeds processor & Abas para Celular
   if (window.instgrm && window.instgrm.Embeds) {
     window.instgrm.Embeds.process();
+  }
+
+  var abasInsta = document.querySelectorAll(".insta-tab-btn");
+  var cardsInsta = document.querySelectorAll(".instagram-embed-card");
+  if (abasInsta.length && cardsInsta.length) {
+    abasInsta.forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var idx = btn.getAttribute("data-insta-tab");
+        abasInsta.forEach(function (b) {
+          b.classList.remove("ativo");
+          b.setAttribute("aria-selected", "false");
+        });
+        btn.classList.add("ativo");
+        btn.setAttribute("aria-selected", "true");
+        cardsInsta.forEach(function (card) {
+          var cardIdx = card.getAttribute("data-card-index");
+          var mostrar = String(cardIdx) === String(idx);
+          card.classList.toggle("ativo-mobile", mostrar);
+        });
+        if (window.instgrm && window.instgrm.Embeds) {
+          window.instgrm.Embeds.process();
+        }
+      });
+    });
   }
 
   // Carrossel de Projetos (scrollável com setas)
