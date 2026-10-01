@@ -100,6 +100,18 @@
     });
   }
 
+  // A imagem de abertura inicia e conduz a leitura da história.
+  var iniciarHistoria = document.querySelector("[data-historia-iniciar]");
+  var historiaNarrativa = document.querySelector(".historia-narrativa");
+  var historiaStory = historiaNarrativa ? historiaNarrativa.closest(".historia-story") : null;
+  if (iniciarHistoria && historiaStory && historiaNarrativa) {
+    iniciarHistoria.addEventListener("click", function () {
+      historiaStory.classList.add("historia-iniciada");
+      historiaNarrativa.scrollIntoView({ behavior: "smooth", block: "start" });
+      window.setTimeout(function () { historiaNarrativa.focus({ preventScroll: true }); }, 500);
+    });
+  }
+
   // Filtro do catálogo de biojoias
   var botoesFiltro = document.querySelectorAll("[data-filtro]");
   var produtos = document.querySelectorAll("[data-categoria]");
