@@ -46,6 +46,8 @@ api/                         Funções serverless (cada arquivo = uma rota)
   admin/pedido-status.js     POST /api/admin/pedido-status (admin)
   admin/envio.js             POST /api/admin/envio         (admin)
   admin/pagamento.js         POST /api/admin/pagamento     (admin)
+  cron/manter-ativo.js       GET  /api/cron/manter-ativo   (Vercel Cron diário: consulta leve ao banco para o
+                             projeto Supabase gratuito não ser pausado por inatividade)
 lib/                         Código compartilhado do servidor (não vira rota)
   ambiente.js  http.js  supabase.js  dinheiro.js  validacao.js
   mercadopago.js  melhorenvio.js  frete.js  loja.js  email.js  admin.js
@@ -77,7 +79,8 @@ vercel.json  package.json  .env.example
   "outputDirectory": "public",
   "cleanUrls": true,
   "rewrites": [{ "source": "/", "destination": "/api/render" }],
-  "functions": { "api/render.js": { "includeFiles": "templates/**" } }
+  "functions": { "api/render.js": { "includeFiles": "templates/**" } },
+  "crons": [{ "path": "/api/cron/manter-ativo", "schedule": "17 9 * * *" }]
 }
 ```
 
@@ -99,6 +102,7 @@ Não existe `public/index.html`: por isso o rewrite de `/` para `/api/render` fu
 | `MELHOR_ENVIO_AMBIENTE` | `producao` (padrão) ou `sandbox` | — |
 | `MELHOR_ENVIO_EMAIL` | e-mail técnico no User-Agent | — |
 | `RESEND_API_KEY` | e-mails transacionais (opcional) | — |
+| `CRON_SECRET` | protege `/api/cron/manter-ativo` (a Vercel envia `Authorization: Bearer <CRON_SECRET>`) | — |
 | `EMAIL_REMETENTE` | ex.: `AMA <loja@seudominio.com.br>` (opcional) | — |
 | `MP_API_BASE`, `MELHOR_ENVIO_API_BASE`, `RESEND_API_BASE` | só para testes (servidores falsos) | — |
 
@@ -115,6 +119,11 @@ Chamadas REST ao Supabase:
 
 Arquivo único: `supabase/migrations/20261009120000_inicial.sql`. Pode ser colado
 inteiro no SQL Editor do Supabase. Tudo em `public`, RLS ativado em todas as tabelas.
+
+**GRANTs explícitos são obrigatórios**: projetos Supabase novos (desde 30/05/2026, e todos a partir de 30/10/2026)
+não dão mais GRANT automático para `anon`, `authenticated` e `service_role` em tabelas novas — sem GRANT a API
+responde 42501 mesmo com RLS correta. A migração concede `select/insert/update/delete` (e `usage` nas sequências)
+explicitamente a esses papéis em cada tabela; quem limita o acesso é a RLS.
 
 ### 4.1 Tabelas
 
@@ -177,7 +186,7 @@ Produto só é vendável se `ativo` e preço efetivo > 0.
 `entrega jsonb not null` (`{tipo, id, nome, empresa, prazo_dias, preco_centavos, servico_id}`; `tipo` ∈ `melhor_envio|fixo|retirada`),
 `subtotal_centavos int not null`, `desconto_centavos int not null default 0`, `frete_centavos int not null default 0`,
 `total_centavos int not null check (> 0)`, `cupom_codigo text`,
-`codigo_rastreio text`, `url_rastreio text`, `me_ordem_id text`, `etiqueta_url text`,
+`codigo_rastreio text`, `url_rastreio text`, `me_ordens jsonb not null default '[]'` (ids das etiquetas no Melhor Envio), `etiqueta_url text`,
 `observacoes text` (do cliente), `notas_internas text` (do admin),
 `estoque_baixado boolean not null default false`,
 `pago_em`, `enviado_em`, `entregue_em`, `cancelado_em` (timestamptz null), `criado_em`, `atualizado_em`.
@@ -388,6 +397,7 @@ Assinaturas fixas (outras funções internas são livres):
 ```js
 // lib/http.js
 export async function lerCorpo(req, { limiteBytes = 100_000 } = {}) // objeto (JSON) ou {}; lança ErroHttp(400) se inválido
+                                    // (na Vercel, ler req.body com JSON inválido LANÇA exceção: usar try/catch)
 export function lerQuery(req)                                       // objeto simples com os parâmetros da URL
 export function responderJson(res, status, objeto, cabecalhos = {})
 export function responderErro(res, status, erro, mensagem, extra = {}) // { ok:false, erro, mensagem, ...extra }
@@ -479,8 +489,11 @@ Preferência (`lib/mercadopago.js`): itens com `unit_price` em reais; se houver 
 `payer` (nome, sobrenome, e-mail, telefone, CPF); `external_reference = pedido.id`;
 `notification_url = <SITE_URL>/api/webhooks/mercadopago`;
 `back_urls` = `<SITE_URL>/loja/pedido?id=<id>&token=<token>` (as três); `auto_return: "approved"`;
-`statement_descriptor: "AMA"`; `payment_methods.installments = parcelas_max`; se `aceitar_boleto` for false, exclui `ticket`;
-`expires: true` com `expiration_date_to = agora + expiracao_horas`; cabeçalho `X-Idempotency-Key = pedido.id`.
+`statement_descriptor: "AMA"` (máx. 13 caracteres); `payment_methods.installments = min(parcelas_max, 12)`; se `aceitar_boleto` for false, exclui `ticket`;
+`expires: true` com `expiration_date_to = agora + expiracao_horas` (mínimo 72 h, por causa de Pix/boleto); cabeçalho `X-Idempotency-Key = pedido.id`.
+`notification_url` leva `?source_news=webhooks`. O Mercado Pago exige **HTTPS** em `back_urls`/`notification_url`
+e recusa `localhost`: se `SITE_URL` não for https, omitir `auto_return` e `notification_url` (só desenvolvimento).
+`unit_price` com no máximo 2 casas; nunca item com preço negativo. Usar sempre `init_point` (não existe mais sandbox).
 
 ### 6.4 `GET /api/loja/pedido?id=&token=[&payment_id=]`
 Compara o token em tempo constante (senão 404). Se veio `payment_id` e o MP está configurado: busca o pagamento,
@@ -491,10 +504,13 @@ entrega:{tipo, nome, empresa, prazo_dias}, codigo_rastreio, url_rastreio, primei
 `pode_pagar` = status `aguardando_pagamento` e há `mp_init_point`. `Cache-Control: no-store`.
 
 ### 6.5 `POST /api/webhooks/mercadopago`
-1. Lê `type`/`topic` e `data.id` (query string ou corpo). Tópicos diferentes de `payment` → 200 ignorado.
-2. Se `MP_WEBHOOK_SECRET` existe, valida `x-signature` (`ts=…,v1=…`) com HMAC-SHA256 do manifesto
-   `id:<data.id>;request-id:<x-request-id>;ts:<ts>;` (partes ausentes omitidas; `data.id` alfanumérico em minúsculas),
-   comparação em tempo constante. Inválida → 401.
+1. Aceita os dois formatos: Webhooks (`?data.id=123&type=payment`, corpo `{type, action, data:{id}}`) e IPN
+   (`?topic=payment&id=123`). `data.id` vem preferencialmente da **query string**. Tópicos que não são pagamento
+   (`merchant_order` etc.) → 200 ignorado.
+2. Se `MP_WEBHOOK_SECRET` existe **e** veio `x-signature`, valida (`ts=…,v1=…`) com HMAC-SHA256 do manifesto
+   `id:<data.id>;request-id:<x-request-id>;ts:<ts>;` (partes ausentes omitidas por inteiro; usa o `ts` literal),
+   comparação em tempo constante. Inválida → 401. Sem `x-signature` (IPN, ou notificação não assinada) o processamento
+   continua, porque o passo 3 consulta o próprio Mercado Pago — um aviso falso não consegue marcar nada como pago.
 3. Busca `GET /v1/payments/{id}` (fonte da verdade). 404 do MP → 200 ignorado. `external_reference` que não é UUID
    de um pedido existente → 200 ignorado.
 4. `confirmar_pagamento`. Se `virou_pago`: e-mail ao cliente e ao admin (se configurado). Responde 200.
@@ -508,9 +524,14 @@ com a chave de serviço. Sem token/inválido → 401; não admin → 403. Devolv
   melhor_envio: {configurado, ambiente, saldo_centavos|null, erro|null}, email: {configurado}, webhook_assinatura: bool, site_url } }`.
 - `POST /api/admin/pedido-status` `{ pedido_id, status, codigo_rastreio?, url_rastreio?, nota?, repor_estoque?, notificar_cliente? }`
   → `alterar_status_pedido` (autor = e-mail do admin); se `notificar_cliente` e status `enviado`/`entregue`/`cancelado`, envia e-mail.
-- `POST /api/admin/envio` `{ pedido_id, acao }`, `acao` ∈ `adicionar_carrinho | comprar | gerar | imprimir | rastrear`.
-  Usa `frete.origem`, endereço/CPF do pedido, `entrega.servico_id`, volumes somados dos itens. Salva `me_ordem_id`,
-  `etiqueta_url`, `codigo_rastreio`; registra evento `envio`. Só para pedidos com `entrega.tipo = 'melhor_envio'` e status `pago`/`em_separacao`/`enviado`.
+- `POST /api/admin/envio` `{ pedido_id, acao, chave_nfe? }`, `acao` ∈ `adicionar_carrinho | comprar | gerar | imprimir | rastrear`.
+  `adicionar_carrinho` recota o serviço `entrega.servico_id` com os itens do pedido e cria **um item de carrinho por
+  pacote** devolvido em `packages` (Correios não aceita vários volumes por etiqueta), com remetente de `frete.origem`,
+  destinatário do pedido (nome, CPF, telefone, e-mail, endereço). Com `chave_nfe` envia `options.invoice.key` e
+  `non_commercial: false`; sem ela, declaração de conteúdo (`non_commercial: true`). `comprar` confere o saldo
+  (`GET /me/balance`) antes; `imprimir` confere `generated_at` de cada etiqueta (geração é assíncrona) e usa `mode: "public"`.
+  Salva `me_ordens`, `etiqueta_url`, `codigo_rastreio` (vários separados por vírgula); registra evento `envio`.
+  Só para pedidos com `entrega.tipo = 'melhor_envio'` e status `pago`/`em_separacao`/`enviado`.
 - `POST /api/admin/pagamento` `{ pedido_id }` → `GET /v1/payments/search?external_reference=<id>`; escolhe o aprovado
   mais recente, senão o mais recente; `confirmar_pagamento`; devolve o resultado.
 
