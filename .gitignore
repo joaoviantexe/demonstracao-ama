@@ -30,3 +30,11 @@ yarn-debug.log*
 *.tmp
 *.bak
 *~
+
+# Supabase local
+supabase/.temp/
+supabase/.branches/
+
+# Saídas de testes
+test-results/
+tests/e2e/capturas/

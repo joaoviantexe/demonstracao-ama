@@ -1,0 +1,21 @@
+{
+  "name": "ama-site",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Site, painel administrativo e loja da AMA — Associação de Mulheres na Amazônia",
+  "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "dev": "node scripts/dev-server.mjs",
+    "test": "node --test tests/unit/",
+    "test:integracao": "node --test --test-concurrency=1 tests/integracao/"
+  },
+  "dependencies": {
+    "linkedom": "0.18.13"
+  },
+  "devDependencies": {
+    "@supabase/supabase-js": "2.116.0"
+  }
+}
