@@ -562,11 +562,16 @@ Ao voltar do pagamento aprovado o carrinho é limpo.
   `ctx = { raiz, supabase, usuario, params, navegar(hash), marcarAlterado(bool), ui, api }`.
 - `admin/js/ui.js`: `toast(msg, tipo)`, `confirmar(msg, {perigo}) → Promise<boolean>`, `escapar(txt)`,
   `formatarPreco(centavos)`, `lerPreco("12,50") → 1250`, `formatarData(iso)`, `slugify(txt)`, `el(tag, attrs, ...filhos)`,
-  `estadoCarregando(container)`, `estadoVazio(container, msg)`, `rotuloStatusPedido(status)`, `corStatusPedido(status)`.
+  `estadoCarregando(container)`, `estadoVazio(container, msg)`, `rotuloStatusPedido(status)`, `corStatusPedido(status)`,
+  `carregarCss(nome)` (insere `<link>` para `/admin/css/<nome>.css` uma única vez), `modal({ titulo, conteudo, acoes })`.
 - `admin/js/api.js`: `chamarApi(caminho, {metodo, corpo})` com o JWT da sessão.
 - `admin/js/midia.js`: `enviarArquivo(arquivo, pasta) → { url, caminho }` (bucket `midia`, nome seguro, aviso de tamanho),
   `listarArquivos(pasta)`, `apagarArquivo(caminho)`, `seletorDeMidia({ tipo: 'imagem'|'video' }) → Promise<url|null>` (modal com biblioteca + upload).
 - Páginas: `visao-geral.js`, `conteudo.js`, `midia.js`, `produtos.js`, `categorias.js`, `pedidos.js`, `cupons.js`, `configuracoes.js`.
+- Estilos: `admin/admin.css` é o sistema de design do painel (botões, campos, cartões, tabelas, selos de status,
+  modais, abas, listas, área de upload, grade responsiva). Estilos específicos de uma página ficam em
+  `admin/css/<pagina>.css`, carregados pela própria página com `ui.carregarCss('<pagina>')`.
+  As classes e componentes disponíveis ficam documentados em `docs/PAINEL.md`.
 
 Editor de conteúdo: grupos vindos de `extrairEsquema` (template de `/api/render?modelo=1`); editores por tipo
 (texto, textarea, editor rico com barra Negrito/Itálico/Link/Lista/Parágrafo + `sanitizarHtml`, imagem com prévia,
