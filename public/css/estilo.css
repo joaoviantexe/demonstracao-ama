@@ -1363,3 +1363,81 @@ footer.rodape{
   section{padding-block:52px}
   .marca-logo{height:46px}
 }
+
+/* ---------- Home editável (CMS) ---------- */
+/* Na galeria da história, a última foto não deixa espaço embaixo (como a charge do modelo). */
+.historia-galeria .historia-imagem-fixa:last-child{margin-bottom:0}
+
+/* ---------- Loja virtual — banner Ama Bioessência ---------- */
+/* Mesmo lugar (order) que a antiga vitrine de biojoias: entre Projetos e História. */
+#loja{order:4}
+.loja-banner{background:var(--creme-100);border-bottom:1px solid var(--linha)}
+.loja-painel{
+  position:relative;isolation:isolate;overflow:hidden;
+  display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.04fr);align-items:center;
+  gap:clamp(36px,5vw,72px);
+  padding:clamp(28px,5vw,68px) clamp(24px,5vw,72px);
+  border-radius:28px;color:var(--creme-100);
+  background:
+    radial-gradient(110% 90% at 100% 0%,rgba(201,152,43,.2),transparent 58%),
+    radial-gradient(80% 90% at 0% 100%,rgba(62,122,84,.38),transparent 62%),
+    linear-gradient(135deg,var(--verde-950) 0%,var(--verde-800) 100%);
+  border:1px solid rgba(201,152,43,.3);
+  box-shadow:var(--sombra);
+}
+/* Arco dourado decorativo atrás das fotos */
+.loja-painel::before{
+  content:"";position:absolute;z-index:-1;pointer-events:none;
+  width:min(560px,70%);aspect-ratio:1;right:-6%;top:50%;transform:translateY(-50%);
+  border-radius:50%;border:1px solid rgba(217,175,92,.28);
+  box-shadow:0 0 0 22px rgba(217,175,92,.05),0 0 0 23px rgba(217,175,92,.16);
+}
+.loja-texto{display:flex;flex-direction:column;align-items:flex-start;gap:14px;max-width:520px;min-width:0}
+.loja-banner .eyebrow{color:var(--ouro-400)}
+.loja-banner .eyebrow::before{background:var(--ouro-400)}
+.loja-texto h2{font-size:clamp(2.3rem,4.8vw,3.75rem);line-height:1.02;color:var(--creme-50);letter-spacing:-.01em;margin-top:4px}
+.loja-subtitulo{font-family:var(--display);font-weight:700;font-size:clamp(.8rem,1.1vw,.92rem);letter-spacing:.14em;text-transform:uppercase;color:var(--ouro-200);line-height:1.4}
+.loja-frase{
+  font-family:var(--serif);font-style:italic;font-weight:500;
+  font-size:clamp(1.2rem,1.9vw,1.55rem);line-height:1.35;color:var(--creme-50);
+  padding-left:16px;border-left:2px solid var(--ouro-500);margin-block:4px;
+}
+.loja-descricao{color:var(--verde-200);font-size:clamp(.98rem,1.1vw,1.04rem);line-height:1.7;max-width:44ch}
+.loja-botao{margin-top:12px}
+.loja-botao svg{transition:transform .3s ease}
+.loja-botao:hover svg{transform:translateX(3px)}
+
+/* Composição das fotos: duas verticais lado a lado e uma horizontal na frente */
+.loja-vitrine{
+  display:grid;grid-template-columns:repeat(12,minmax(0,1fr));column-gap:clamp(10px,1.6vw,20px);
+  align-items:start;width:100%;max-width:560px;justify-self:center;
+  padding:4% 3% 0;
+}
+.loja-foto{
+  margin:0;position:relative;overflow:hidden;border-radius:20px;
+  background:var(--creme-50);border:1px solid rgba(237,217,163,.45);
+  box-shadow:0 26px 50px -22px rgba(0,0,0,.6),0 6px 16px -8px rgba(0,0,0,.35);
+}
+.loja-foto img{width:100%;height:100%;object-fit:cover;transition:transform .6s cubic-bezier(.16,.84,.44,1)}
+.loja-painel:hover .loja-foto img{transform:scale(1.035)}
+.loja-foto--1{grid-column:1 / 7;grid-row:1;aspect-ratio:4 / 5;transform:rotate(-3deg)}
+.loja-foto--2{grid-column:7 / 13;grid-row:1;aspect-ratio:4 / 5;transform:rotate(3deg);margin-top:10%}
+.loja-foto--3{grid-column:3 / 11;grid-row:2;aspect-ratio:4 / 3;margin-top:-17%;z-index:1;border-color:rgba(237,217,163,.7)}
+
+@media (max-width:900px){
+  .loja-painel{grid-template-columns:1fr;gap:clamp(28px,6vw,44px)}
+  .loja-texto{max-width:600px}
+  .loja-vitrine{max-width:440px}
+  .loja-painel::before{width:min(440px,90%);right:-20%;top:auto;bottom:-12%;transform:none}
+}
+@media (max-width:480px){
+  .loja-painel{border-radius:22px;padding:28px 20px 30px}
+  .loja-texto{gap:12px}
+  .loja-botao{width:100%;justify-content:center}
+  .loja-foto{border-radius:14px}
+  .loja-vitrine{max-width:none;padding:2% 1% 0;column-gap:10px}
+}
+@media (prefers-reduced-motion: reduce){
+  .loja-foto img,.loja-botao svg{transition:none}
+  .loja-painel:hover .loja-foto img{transform:none}
+}

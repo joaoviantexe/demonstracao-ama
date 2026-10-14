@@ -44,8 +44,15 @@
   }
 
   // Realce do link de navegação ativo por seção visível
+  // (só âncoras desta página: links como /loja/ nunca ficam ativos aqui)
   var secoes = document.querySelectorAll("main section[id]");
-  var linksNav = document.querySelectorAll(".nav-desktop a[href^='#']");
+  var linksNav = Array.prototype.filter.call(
+    document.querySelectorAll(".nav-desktop a[href]"),
+    function (a) {
+      var href = a.getAttribute("href") || "";
+      return href.length > 1 && href.charAt(0) === "#";
+    }
+  );
   if (secoes.length && linksNav.length && "IntersectionObserver" in window) {
     var obsNav = new IntersectionObserver(
       function (entradas) {
@@ -112,97 +119,6 @@
     });
   }
 
-  // Filtro do catálogo de biojoias
-  var botoesFiltro = document.querySelectorAll("[data-filtro]");
-  var produtos = document.querySelectorAll("[data-categoria]");
-  botoesFiltro.forEach(function (botao) {
-    botao.addEventListener("click", function () {
-      botoesFiltro.forEach(function (b) {
-        b.classList.remove("ativo");
-      });
-      botao.classList.add("ativo");
-      var alvo = botao.getAttribute("data-filtro");
-      produtos.forEach(function (produto) {
-        var categoria = produto.getAttribute("data-categoria");
-        var mostrar = alvo === "todos" || categoria === alvo;
-        produto.style.display = mostrar ? "" : "none";
-      });
-    });
-  });
-
-  // Modal de Produto (estilo e-commerce)
-  var modalProduto = document.getElementById("produto-modal");
-  if (modalProduto) {
-    var pmodalImg = document.getElementById("pmodal-img");
-    var pmodalCat = document.getElementById("pmodal-cat");
-    var pmodalNome = document.getElementById("pmodal-nome");
-    var pmodalPreco = document.getElementById("pmodal-preco");
-    var pmodalDescricao = document.getElementById("pmodal-descricao");
-    var pmodalWa = document.getElementById("pmodal-wa");
-    var btnFecharModal = modalProduto.querySelector(".pmodal-fechar");
-    var backdropModal = modalProduto.querySelector(".pmodal-backdrop");
-
-    var abrirModalProduto = function (card) {
-      if (!card) return;
-      var nome = card.getAttribute("data-nome") || "Produto";
-      var preco = card.getAttribute("data-preco") || "R$ 00,00";
-      var cat = card.getAttribute("data-cat-label") || "";
-      var img = card.getAttribute("data-img") || "";
-      var desc = card.getAttribute("data-descricao") || "Em produção.";
-      var wa = card.getAttribute("data-wa") || ("https://wa.me/5591981056049?text=" + encodeURIComponent("Olá! Gostaria de encomendar / adicionar ao carrinho o produto " + nome + " da AMA."));
-
-      if (pmodalNome) pmodalNome.textContent = nome;
-      if (pmodalPreco) pmodalPreco.textContent = preco;
-      if (pmodalCat) {
-        pmodalCat.textContent = cat;
-        pmodalCat.style.display = cat ? "" : "none";
-      }
-      if (pmodalDescricao) pmodalDescricao.textContent = desc;
-      if (pmodalImg) {
-        pmodalImg.src = img;
-        pmodalImg.alt = nome;
-      }
-      if (pmodalWa) {
-        pmodalWa.href = wa;
-      }
-
-      modalProduto.hidden = false;
-      modalProduto.offsetHeight; // reflow
-      modalProduto.classList.add("ativo");
-      document.body.style.overflow = "hidden";
-    };
-
-    var fecharModalProduto = function () {
-      modalProduto.classList.remove("ativo");
-      document.body.style.overflow = "";
-      setTimeout(function () {
-        if (!modalProduto.classList.contains("ativo")) {
-          modalProduto.hidden = true;
-        }
-      }, 300);
-    };
-
-    // Cliques nos cards ou nos botões de abrir
-    document.querySelectorAll(".produto").forEach(function (card) {
-      card.addEventListener("click", function (ev) {
-        if (ev.target.closest("a") && !ev.target.closest(".produto-abrir")) return;
-        abrirModalProduto(card);
-      });
-    });
-
-    if (btnFecharModal) {
-      btnFecharModal.addEventListener("click", fecharModalProduto);
-    }
-    if (backdropModal) {
-      backdropModal.addEventListener("click", fecharModalProduto);
-    }
-    document.addEventListener("keydown", function (ev) {
-      if (ev.key === "Escape" && !modalProduto.hidden) {
-        fecharModalProduto();
-      }
-    });
-  }
-
   // Modal Lightbox (ampliação de cartazes/projetos)
   var modalLightbox = document.getElementById("lightbox-modal");
   if (modalLightbox) {
@@ -211,12 +127,27 @@
     var btnFecharLb = modalLightbox.querySelector(".lightbox-fechar");
     var backdropLb = modalLightbox.querySelector(".lightbox-backdrop");
 
+    // O conteúdo editável (CMS) troca o src da imagem e o href do link do cartão:
+    // por isso o lightbox lê a imagem atual e o link do próprio cartão.
+    var linkDoCartao = function (trigger) {
+      var cartao = trigger.closest(".curso-simples, .historia-imagem-fixa, [data-cms-item]");
+      if (!cartao) return null;
+      var links = cartao.querySelectorAll("a[href]");
+      for (var i = 0; i < links.length; i++) {
+        if (!trigger.contains(links[i])) return links[i];
+      }
+      return null;
+    };
+
     var abrirLightbox = function (trigger) {
       if (!trigger) return;
-      var src = trigger.getAttribute("data-lightbox");
-      var link = trigger.getAttribute("data-link") || "";
       var imgEl = trigger.querySelector("img");
-      var altTxt = imgEl ? imgEl.getAttribute("alt") : "Cartaz do Projeto AMA";
+      var src = imgEl ? (imgEl.currentSrc || imgEl.src) : "";
+      if (!src) src = trigger.getAttribute("data-lightbox") || "";
+      if (!src) return;
+      var altTxt = (imgEl && imgEl.getAttribute("alt")) || "Imagem ampliada da AMA";
+      var cartaoLink = linkDoCartao(trigger);
+      var link = cartaoLink ? cartaoLink.getAttribute("href") : (trigger.getAttribute("data-link") || "");
 
       if (lbImg) {
         lbImg.src = src;
@@ -224,7 +155,16 @@
       }
       if (lbLink) {
         if (link) {
-          lbLink.href = link;
+          lbLink.setAttribute("href", link);
+          var textoLink = cartaoLink ? cartaoLink.textContent.replace(/\s+/g, " ").trim() : "";
+          lbLink.textContent = textoLink || "Conhecer";
+          var alvoLink = cartaoLink ? cartaoLink.getAttribute("target") : "_blank";
+          if (alvoLink) {
+            lbLink.setAttribute("target", alvoLink);
+            lbLink.setAttribute("rel", "noopener");
+          } else {
+            lbLink.removeAttribute("target");
+          }
           lbLink.style.display = "";
         } else {
           lbLink.style.display = "none";
@@ -243,17 +183,29 @@
       setTimeout(function () {
         if (!modalLightbox.classList.contains("ativo")) {
           modalLightbox.hidden = true;
-          if (lbImg) lbImg.src = "";
+          if (lbImg) lbImg.removeAttribute("src");
         }
       }, 300);
     };
 
     document.querySelectorAll("[data-lightbox]").forEach(function (btn) {
+      // Nome acessível segue o texto alternativo atual da imagem (editável no painel).
+      var imgBtn = btn.querySelector("img");
+      var altBtn = imgBtn ? (imgBtn.getAttribute("alt") || "").trim() : "";
+      if (altBtn) btn.setAttribute("aria-label", "Ampliar imagem: " + altBtn);
       btn.addEventListener("click", function (e) {
         e.preventDefault();
         abrirLightbox(btn);
       });
     });
+
+    // Link interno (#secao) no lightbox: fecha a ampliação antes de rolar.
+    if (lbLink) {
+      lbLink.addEventListener("click", function () {
+        var href = lbLink.getAttribute("href") || "";
+        if (href.charAt(0) === "#") fecharLightbox();
+      });
+    }
 
     if (btnFecharLb) {
       btnFecharLb.addEventListener("click", fecharLightbox);
