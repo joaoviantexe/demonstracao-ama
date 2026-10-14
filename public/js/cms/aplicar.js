@@ -10,11 +10,27 @@
  * Decisões que vão além do contrato (todas compatíveis com ele):
  * - Aplicar um valor igual ao que o elemento já mostra não mexe no elemento.
  *   Assim, aplicar os padrões lidos do próprio template não altera o HTML.
- * - Em listas, um item novo idêntico (nos campos) a um item existente reaproveita
- *   o elemento existente, preservando atributos que não são campos.
+ * - Listas: se os itens resultantes têm os mesmos valores, na mesma ordem, que os itens
+ *   atuais, a lista fica como está. Senão, todos os itens saem e entram clones do molde.
  * - O molde de cada lista fica guardado (WeakMap) no primeiro uso: aplicar de novo
- *   no mesmo documento usa o molde original, mesmo depois de `[]`.
+ *   no mesmo documento usa o molde original, mesmo depois de `[]`; o esquema também o usa.
+ * - Itens de lista que não são objetos são ignorados; se nenhum serve, mantém o padrão.
+ *   No máximo 200 itens.
+ * - imagem/video/link com URL insegura: o valor inteiro é ignorado (mantém o padrão).
+ * - `video` com <source> filhos (e sem src no <video>): troca o src do primeiro <source>
+ *   e remove os demais. `poster: ""` remove a capa.
+ * - `link` sem [data-cms-link-texto] e com filhos elemento: o texto não é campo
+ *   (lê "" e não é trocado), como no contrato.
  * - `data-cms-fixo` também é respeitado em `texto` e `textolongo`.
+ * - Texto nunca é escrito em <script>, <style>, <iframe> etc.; em <title>/<textarea>
+ *   (que o linkedom serializa sem escape) o "<" é removido.
+ * - `sanitizarHtml` devolve um HTML canônico, igual no navegador e no linkedom. Além das
+ *   tags do contrato, remove com o conteúdo as que não têm texto visível ou são texto cru
+ *   (frame, noembed, xmp, plaintext, head, img, input, source...).
+ * - Chaves, ids de grupo e tipos valem só exatamente como no contrato (sem trim nem
+ *   conversão para minúsculas); fora do padrão, o elemento é ignorado.
+ * - Grupo ocultável sem campos aparece no esquema (com `campos: []`) para o painel
+ *   poder ocultá-lo.
  * - Sem `data-cms-tipo`, o tipo é deduzido da tag (meta, img, video, a, iframe; senão texto).
  */
 
@@ -35,16 +51,19 @@ const ESQUEMAS_PERMITIDOS = new Set(['http', 'https', 'mailto', 'tel']);
 const TAGS_PERMITIDAS = new Set([
   'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'a', 'ul', 'ol', 'li', 'blockquote', 'h3', 'h4', 'span'
 ]);
-// Removidas junto com o conteúdo (as do contrato e outras que não têm texto útil).
+// Removidas junto com o conteúdo: as do contrato e as que não têm texto visível ou guardam
+// texto cru. As demais (title, textarea, select, video, canvas...) são desembrulhadas.
 const TAGS_REMOVIDAS = new Set([
   'script', 'style', 'iframe', 'object', 'embed', 'svg', 'math', 'template', 'noscript',
-  'frame', 'frameset', 'noframes', 'noembed', 'applet', 'xmp', 'plaintext', 'title', 'textarea',
-  'select', 'option', 'optgroup', 'datalist', 'head', 'link', 'meta', 'base', 'audio', 'video',
-  'source', 'track', 'canvas', 'param', 'img', 'picture', 'input'
+  'frame', 'frameset', 'noframes', 'noembed', 'applet', 'xmp', 'plaintext',
+  'head', 'link', 'meta', 'base', 'img', 'input', 'source', 'track', 'param'
 ]);
-// Elementos cujo texto é serializado sem escape (o linkedom não escapa nem <title>/<textarea>).
-const TEXTO_BRUTO = new Set([
-  'title', 'textarea', 'script', 'style', 'xmp', 'iframe', 'noembed', 'noframes', 'noscript', 'plaintext'
+// O linkedom serializa o texto destas sem escape: aceitam texto, mas sem "<".
+const TEXTO_SEM_ESCAPE = new Set(['title', 'textarea']);
+// Nunca recebem texto nem HTML vindos do painel.
+const CONTEUDO_PROIBIDO = new Set([
+  'script', 'style', 'template', 'iframe', 'object', 'embed', 'svg', 'math', 'noscript',
+  'xmp', 'noembed', 'noframes', 'plaintext'
 ]);
 const BLOCOS = new Set([
   'p', 'div', 'li', 'ul', 'ol', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
@@ -57,6 +76,7 @@ const ATRIBUTO_URL = new Map([
   ['source', 'src'], ['track', 'src'], ['embed', 'src']
 ]);
 const TIPOS_INSTAGRAM = new Map([['p', 'p'], ['reel', 'reel'], ['reels', 'reel'], ['tv', 'tv']]);
+const SEM_VISIBILIDADE = new Set(['html', 'head', 'body']);
 
 // Palavras sem acento nas chaves → forma usada no rótulo derivado.
 const PALAVRAS = new Map(Object.entries({
@@ -146,13 +166,21 @@ function selecionar(raiz, seletor, atributos) {
   return lista;
 }
 
+// Analisa HTML num <template> (inerte no navegador: nada carrega nem executa).
+function analisarHtml(html, doc) {
+  const modelo = doc.createElement('template');
+  modelo.innerHTML = html;
+  return modelo.content && modelo.content.childNodes ? modelo.content : modelo;
+}
+
 function colapsar(texto) {
   return String(texto).replace(/[ \t\n\r\f]+/g, ' ').replace(/^ | $/g, '');
 }
 
-function escaparTexto(texto) {
-  return String(texto).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
+// Escape igual ao da serialização dos navegadores (e "<" ">" também em atributos).
+const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\u00a0': '&nbsp;' };
+const escaparTexto = (texto) => String(texto).replace(/[&<>\u00a0]/g, (c) => ESCAPES[c]);
+const escaparAtributo = (texto) => String(texto).replace(/[&<>"\u00a0]/g, (c) => ESCAPES[c]);
 
 function iguais(a, b) {
   if (a === b) return true;
@@ -238,48 +266,51 @@ export function embedParaInstagram(src) {
 // ---------------------------------------------------------------------------
 // Sanitização de HTML (baseada em DOM, por lista de permissões)
 
-// Analisa o HTML num <template> (inerte no navegador: nada carrega nem executa) e
-// reconstrói só o que é permitido, com nós novos criados em `doc`.
-function limparHtml(html, doc) {
-  const fragmento = doc.createDocumentFragment();
-  if (typeof html !== 'string' || !html) return fragmento;
-  const modelo = doc.createElement('template');
-  modelo.innerHTML = html;
-  const origem = modelo.content && modelo.content.childNodes ? modelo.content : modelo;
+function atributosDoLink(a) {
+  let atributos = '';
+  const href = urlSegura(a.getAttribute('href'));
+  if (href) atributos += ` href="${escaparAtributo(href)}"`;
+  if (String(a.getAttribute('target') || '').trim().toLowerCase() === '_blank') {
+    atributos += ' target="_blank" rel="noopener noreferrer"';
+  }
+  return atributos;
+}
 
+// Analisa o HTML num <template> e reescreve como texto só o que é permitido.
+// Gerar a string (em vez de nós) deixa a saída igual no navegador e no linkedom.
+function limparHtml(html, doc) {
+  if (typeof html !== 'string' || !html) return '';
+  const saida = [];
   const pilha = [];
-  const empilhar = (no, destino, profundidade) => {
+  const empilhar = (no, profundidade) => {
     const lista = filhos(no);
-    for (let i = lista.length - 1; i >= 0; i--) pilha.push([lista[i], destino, profundidade]);
+    for (let i = lista.length - 1; i >= 0; i--) pilha.push({ no: lista[i], profundidade });
   };
-  empilhar(origem, fragmento, 0);
+  empilhar(analisarHtml(html, doc), 0);
 
   while (pilha.length) {
-    const [no, destino, profundidade] = pilha.pop();
+    const { no, profundidade, fechar } = pilha.pop();
+    if (fechar) {
+      saida.push(`</${fechar}>`);
+      continue;
+    }
     if (no.nodeType === 3) {
-      destino.appendChild(doc.createTextNode(String(no.data ?? no.nodeValue ?? '')));
+      saida.push(escaparTexto(no.data ?? no.nodeValue ?? ''));
       continue;
     }
     if (no.nodeType !== 1) continue; // comentários e afins
     const tag = nomeTag(no);
     if (TAGS_REMOVIDAS.has(tag)) continue;
     if (!TAGS_PERMITIDAS.has(tag) || profundidade >= PROFUNDIDADE_MAXIMA) {
-      empilhar(no, destino, profundidade); // desembrulha: fica só o conteúdo
+      empilhar(no, profundidade); // desembrulha: fica só o conteúdo
       continue;
     }
-    const novo = doc.createElement(tag);
-    if (tag === 'a') {
-      const href = urlSegura(no.getAttribute('href'));
-      if (href) novo.setAttribute('href', href);
-      if (String(no.getAttribute('target') || '').trim().toLowerCase() === '_blank') {
-        novo.setAttribute('target', '_blank');
-        novo.setAttribute('rel', 'noopener noreferrer');
-      }
-    }
-    destino.appendChild(novo);
-    if (tag !== 'br') empilhar(no, novo, profundidade + 1);
+    saida.push(`<${tag}${tag === 'a' ? atributosDoLink(no) : ''}>`);
+    if (tag === 'br') continue;
+    pilha.push({ fechar: tag });
+    empilhar(no, profundidade + 1);
   }
-  return fragmento;
+  return saida.join('');
 }
 
 /**
@@ -292,9 +323,7 @@ export function sanitizarHtml(html, documento) {
   const doc = obterDocumento(documento);
   if (!doc) return escaparTexto(html);
   try {
-    const caixa = doc.createElement('div');
-    caixa.appendChild(limparHtml(html, doc));
-    return caixa.innerHTML;
+    return limparHtml(html, doc);
   } catch {
     return escaparTexto(html);
   }
@@ -304,7 +333,7 @@ export function sanitizarHtml(html, documento) {
 // Estrutura: tipos, grupos, listas e itens
 
 function tipoDoElemento(el) {
-  const tipo = atributo(el, 'data-cms-tipo').trim().toLowerCase();
+  const tipo = atributo(el, 'data-cms-tipo');
   if (TIPOS_CAMPO.includes(tipo)) return tipo;
   switch (nomeTag(el)) {
     case 'meta': return 'meta';
@@ -317,7 +346,7 @@ function tipoDoElemento(el) {
 }
 
 function ehLista(el) {
-  return atributo(el, 'data-cms-tipo').trim().toLowerCase() === 'lista';
+  return atributo(el, 'data-cms-tipo') === 'lista';
 }
 
 // Equivalentes a closest('[data-cms-tipo="lista"]') e closest('[data-cms-item]').
@@ -338,7 +367,7 @@ function dentroDeItem(el) {
 
 function idGrupo(el) {
   if (!temAtributo(el, 'data-cms-grupo')) return null;
-  const id = atributo(el, 'data-cms-grupo').trim().toLowerCase();
+  const id = atributo(el, 'data-cms-grupo');
   return RE_GRUPO.test(id) ? id : null;
 }
 
@@ -350,8 +379,16 @@ function grupoMaisProximo(el) {
   return null;
 }
 
+function ocultavel(el) {
+  return temAtributo(el, 'data-cms-ocultavel') && !SEM_VISIBILIDADE.has(nomeTag(el));
+}
+
+function chaveVisibilidade(id) {
+  return `grupo.${id}.visivel`;
+}
+
 function chaveDoElemento(el) {
-  const chave = atributo(el, 'data-cms').trim().toLowerCase();
+  const chave = atributo(el, 'data-cms');
   if (!RE_CHAVE.test(chave) || RE_VISIBILIDADE.test(chave)) return null;
   return chave;
 }
@@ -454,6 +491,11 @@ function alvo(el, tag) {
   return el.querySelector(tag);
 }
 
+function semConteudoEditavel(el) {
+  const tag = nomeTag(el);
+  return CONTEUDO_PROIBIDO.has(tag) || TEXTO_SEM_ESCAPE.has(tag);
+}
+
 // ---------------------------------------------------------------------------
 // Leitura
 
@@ -472,7 +514,7 @@ function normalizarTextoLongo(texto) {
 }
 
 function lerTextoLongo(el, fixos) {
-  if (TEXTO_BRUTO.has(nomeTag(el))) return colapsar(el.textContent ?? '');
+  if (semConteudoEditavel(el)) return colapsar(el.textContent ?? '');
   const partes = [];
   const andar = (no) => {
     for (const filho of filhos(no)) {
@@ -495,7 +537,7 @@ function lerTextoLongo(el, fixos) {
 }
 
 function lerHtml(el, fixos) {
-  if (TEXTO_BRUTO.has(nomeTag(el))) return colapsar(el.textContent ?? '');
+  if (semConteudoEditavel(el)) return colapsar(el.textContent ?? '');
   if (!fixos.length) return String(el.innerHTML ?? '').trim();
   const copia = el.cloneNode(true);
   for (const fixo of filhosFixos(copia)) copia.removeChild(fixo);
@@ -506,16 +548,22 @@ function temFilhoElemento(el) {
   return filhos(el).some(ehElemento);
 }
 
+// Texto do link: em [data-cms-link-texto] ou no próprio <a> se ele não tem filhos elemento.
+// Fora disso o texto não é campo.
 function lerTextoDoLink(a) {
   const marcado = a.querySelector('[data-cms-link-texto]');
   if (marcado) return colapsar(marcado.textContent ?? '');
   if (!temFilhoElemento(a)) return colapsar(a.textContent ?? '');
-  return colapsar(filhos(a).filter((no) => no.nodeType === 3).map((no) => no.data).join(' '));
+  return '';
+}
+
+function fontesDoVideo(video) {
+  return filhos(video).filter((no) => nomeTag(no) === 'source');
 }
 
 function lerSrcVideo(video) {
   if (temAtributo(video, 'src')) return atributo(video, 'src');
-  const fonte = video.querySelector('source');
+  const [fonte] = fontesDoVideo(video);
   return fonte ? atributo(fonte, 'src') : '';
 }
 
@@ -574,15 +622,13 @@ export function lerValor(elemento, tipo) {
 // ---------------------------------------------------------------------------
 // Aplicação
 
-function textoBrutoSeguro(texto) {
-  // Num elemento de texto bruto, "</title>" encerraria o elemento no HTML serializado.
-  return String(texto).replace(/</g, '');
-}
-
 function aplicarTexto(el, valor, doc) {
   if (typeof valor !== 'string') return;
-  if (TEXTO_BRUTO.has(nomeTag(el))) {
-    const limpo = textoBrutoSeguro(valor);
+  const tag = nomeTag(el);
+  if (CONTEUDO_PROIBIDO.has(tag)) return;
+  if (TEXTO_SEM_ESCAPE.has(tag)) {
+    // Sem "<" não há como fechar a tag no HTML serializado.
+    const limpo = valor.replace(/</g, '');
     if (colapsar(el.textContent ?? '') !== colapsar(limpo)) el.textContent = limpo;
     return;
   }
@@ -598,7 +644,7 @@ function aplicarTexto(el, valor, doc) {
 function aplicarTextoLongo(el, valor, doc) {
   if (typeof valor !== 'string') return;
   const texto = valor.replace(/\r\n?/g, '\n');
-  if (TEXTO_BRUTO.has(nomeTag(el))) {
+  if (semConteudoEditavel(el)) {
     aplicarTexto(el, texto.replace(/\n/g, ' '), doc);
     return;
   }
@@ -613,11 +659,15 @@ function aplicarTextoLongo(el, valor, doc) {
 }
 
 function aplicarHtml(el, valor, doc) {
-  if (typeof valor !== 'string' || TEXTO_BRUTO.has(nomeTag(el))) return;
+  if (typeof valor !== 'string' || semConteudoEditavel(el)) return;
   const fixos = filhosFixos(el);
-  // Igual ao que o template já tem: nada a fazer (e nada vindo de fora entra sem sanitização).
-  if (valor.trim() === lerHtml(el, fixos)) return;
-  substituirConteudo(el, filhos(limparHtml(valor, doc)), fixos);
+  const atual = lerHtml(el, fixos);
+  // Igual ao que o template já tem: nada a fazer.
+  if (valor.trim() === atual) return;
+  const limpo = limparHtml(valor, doc).trim();
+  if (limpo === atual) return;
+  // O HTML limpo só tem tags e atributos permitidos; analisá-lo de novo não cria nada além disso.
+  substituirConteudo(el, filhos(analisarHtml(limpo, doc)), fixos);
 }
 
 // Lê uma URL opcional de um objeto: undefined = não informada, null = insegura.
@@ -645,9 +695,23 @@ function aplicarImagem(el, valor) {
   const img = alvo(el, 'img');
   if (!img) return;
   const src = urlDoObjeto(valor, 'src');
+  const alt = valor.alt;
   if (src === null) return; // URL insegura: ignora o valor inteiro
   if (src !== undefined) trocarSrcImagem(img, src);
-  if (typeof valor.alt === 'string' && valor.alt !== atributo(img, 'alt')) img.setAttribute('alt', valor.alt);
+  if (typeof alt === 'string' && alt !== atributo(img, 'alt')) img.setAttribute('alt', alt);
+}
+
+function trocarSrcVideo(video, src) {
+  if (src === lerSrcVideo(video)) return;
+  const fontes = fontesDoVideo(video);
+  if (temAtributo(video, 'src') || !fontes.length) {
+    video.setAttribute('src', src);
+    return;
+  }
+  // Troca o primeiro <source> e tira os outros (o type deles pode não bater com o arquivo novo).
+  fontes[0].setAttribute('src', src);
+  fontes[0].removeAttribute('type');
+  for (const fonte of fontes.slice(1)) video.removeChild(fonte);
 }
 
 function aplicarVideo(el, valor) {
@@ -656,11 +720,12 @@ function aplicarVideo(el, valor) {
   if (!video) return;
   const src = urlDoObjeto(valor, 'src');
   const poster = urlDoObjeto(valor, 'poster');
+  const posterInformado = typeof valor.poster === 'string';
   if (src === null || poster === null) return;
-  if (src !== undefined && src !== lerSrcVideo(video)) video.setAttribute('src', src);
+  if (src !== undefined) trocarSrcVideo(video, src);
   if (poster !== undefined) {
     if (poster !== atributo(video, 'poster')) video.setAttribute('poster', poster);
-  } else if (typeof valor.poster === 'string' && temAtributo(video, 'poster')) {
+  } else if (posterInformado && temAtributo(video, 'poster')) {
     video.removeAttribute('poster'); // poster "" = sem capa
   }
 }
@@ -671,18 +736,9 @@ function aplicarTextoDoLink(a, texto, doc) {
     for (const marcado of marcados) aplicarTexto(marcado, texto, doc);
     return;
   }
-  if (!temFilhoElemento(a)) {
-    if (colapsar(a.textContent ?? '') !== colapsar(texto)) a.textContent = texto;
-    return;
-  }
-  // Sem marcador e com ícones: troca o texto solto do <a>, se houver.
-  const textos = filhos(a).filter((no) => no.nodeType === 3 && /[^ \t\n\r\f]/.test(no.data));
-  if (!textos.length || colapsar(textos.map((no) => no.data).join(' ')) === colapsar(texto)) return;
-  const [primeiro, ...resto] = textos;
-  const inicio = /^[ \t\n\r\f]*/.exec(primeiro.data)[0];
-  const fim = /[ \t\n\r\f]*$/.exec(primeiro.data)[0];
-  primeiro.data = inicio + texto + fim;
-  for (const no of resto) a.removeChild(no);
+  // Sem marcador e com filhos elemento (ícones etc.), o texto não é campo.
+  if (temFilhoElemento(a)) return;
+  if (colapsar(a.textContent ?? '') !== colapsar(texto)) a.textContent = texto;
 }
 
 function aplicarLink(el, valor, doc) {
@@ -690,9 +746,10 @@ function aplicarLink(el, valor, doc) {
   const a = alvo(el, 'a');
   if (!a) return;
   const href = urlDoObjeto(valor, 'href');
+  const texto = valor.texto;
   if (href === null) return;
   if (href !== undefined && href !== atributo(a, 'href')) a.setAttribute('href', href);
-  if (typeof valor.texto === 'string' && valor.texto.trim()) aplicarTextoDoLink(a, valor.texto, doc);
+  if (typeof texto === 'string' && texto.trim()) aplicarTextoDoLink(a, texto, doc);
 }
 
 function aplicarUrl(el, valor) {
@@ -721,10 +778,10 @@ function aplicarMeta(el, valor) {
 
 function preencherItem(item, dados, doc) {
   for (const { el, campo, tipo } of camposDoItem(item)) {
-    if (!temProp(dados, campo)) continue;
-    const valor = dados[campo];
-    if (valor === null || valor === undefined) continue;
     try {
+      if (!temProp(dados, campo)) continue;
+      const valor = dados[campo];
+      if (valor === null || valor === undefined) continue;
       aplicarNoElemento(el, tipo, valor, doc);
     } catch {
       // valor malformado: o item fica com o valor do molde
@@ -734,7 +791,7 @@ function preencherItem(item, dados, doc) {
 
 function aplicarLista(lista, valor, doc) {
   if (!Array.isArray(valor)) return;
-  const dados = valor.filter(objetoSimples).slice(0, LIMITE_ITENS);
+  const dados = valor.slice(0, LIMITE_ITENS * 5).filter(objetoSimples).slice(0, LIMITE_ITENS);
   if (valor.length && !dados.length) return; // nada aproveitável: mantém o padrão
   const estado = estadoLista(lista);
   if (!estado.molde) return;
@@ -745,16 +802,16 @@ function aplicarLista(lista, valor, doc) {
   const pai = referencia && referencia.parentNode;
   if (!pai) return;
 
-  const existentes = atuais.map((el) => ({ el, valores: lerItem(el), usado: false }));
+  // Todo item novo é um clone do molde (§5.2), com os campos informados preenchidos.
   const novos = dados.map((dadosItem) => {
     const clone = estado.molde.cloneNode(true);
     preencherItem(clone, dadosItem, doc);
-    const valores = lerItem(clone);
-    const igual = existentes.find((x) => !x.usado && iguais(x.valores, valores));
-    if (!igual) return clone;
-    igual.usado = true;
-    return igual.el;
+    return clone;
   });
+
+  // Mesmos valores, na mesma ordem, que os itens atuais: a lista fica como está
+  // (aplicar os padrões não altera o template e reaplicar não muda nada).
+  if (novos.length === atuais.length && novos.every((no, i) => iguais(lerItem(no), lerItem(atuais[i])))) return;
 
   const espacos = espacosEntreItens(atuais);
 
@@ -763,7 +820,7 @@ function aplicarLista(lista, valor, doc) {
   pai.insertBefore(marcador, referencia);
   if (estado.marcador && estado.marcador.parentNode) estado.marcador.parentNode.removeChild(estado.marcador);
   for (const no of espacos) if (no.parentNode) no.parentNode.removeChild(no);
-  for (const x of existentes) if (!x.usado && x.el.parentNode) x.el.parentNode.removeChild(x.el);
+  for (const item of atuais) if (item.parentNode) item.parentNode.removeChild(item);
   novos.forEach((no, i) => {
     if (i > 0 && estado.separador) pai.insertBefore(doc.createTextNode(estado.separador), marcador);
     pai.insertBefore(no, marcador);
@@ -787,40 +844,33 @@ function aplicarNoElemento(el, tipo, valor, doc) {
   }
 }
 
-/** Aplica um valor a um único elemento (útil para pré-visualização ao vivo). Nunca lança. */
-export function aplicarValor(elemento, tipo, valor) {
-  if (!ehElemento(elemento) || valor === null || valor === undefined) return;
-  const doc = documentoDe(elemento);
-  if (!doc) return;
-  const t = TIPOS_CAMPO.includes(tipo) ? tipo : tipoDoElemento(elemento);
-  try {
-    aplicarNoElemento(elemento, t, valor, doc);
-  } catch {
-    // mantém o padrão
-  }
-}
-
+// { chave: valor } (ou linhas [{ chave, valor }], ou Map) → Map. Valor ilegível é ignorado.
 function normalizarConteudo(conteudo) {
-  const valores = Object.create(null);
+  const valores = new Map();
+  const guardar = (chave, ler) => {
+    if (typeof chave !== 'string') return;
+    try {
+      valores.set(chave, ler());
+    } catch {
+      // mantém o padrão
+    }
+  };
   if (Array.isArray(conteudo)) {
-    // Também aceita as linhas da tabela: [{ chave, valor }]
     for (const linha of conteudo) {
-      if (objetoSimples(linha) && typeof linha.chave === 'string') valores[linha.chave] = linha.valor;
+      if (objetoSimples(linha)) guardar(linha.chave, () => linha.valor);
     }
   } else if (conteudo instanceof Map) {
-    for (const [chave, valor] of conteudo) if (typeof chave === 'string') valores[chave] = valor;
+    for (const [chave, valor] of conteudo) guardar(chave, () => valor);
   } else if (objetoSimples(conteudo)) {
-    for (const chave of Object.keys(conteudo)) valores[chave] = conteudo[chave];
+    for (const chave of Object.keys(conteudo)) guardar(chave, () => conteudo[chave]);
   }
   return valores;
 }
 
 function aplicarVisibilidade(raiz, valores) {
   for (const el of selecionar(raiz, '[data-cms-grupo]', ['data-cms-grupo'])) {
-    if (!temAtributo(el, 'data-cms-ocultavel')) continue;
     const id = idGrupo(el);
-    if (!id || valores[chaveVisibilidade(id)] !== false) continue;
-    if (['html', 'head', 'body'].includes(nomeTag(el))) continue;
+    if (!id || !ocultavel(el) || valores.get(chaveVisibilidade(id)) !== false) continue;
     if (el.parentNode) el.parentNode.removeChild(el);
   }
 }
@@ -831,37 +881,36 @@ function aplicarVisibilidade(raiz, valores) {
  * remove os elementos do grupo que têm data-cms-ocultavel. Devolve o próprio documento.
  */
 export function aplicarConteudo(documento, conteudo) {
-  const raiz = raizDe(documento);
-  const doc = raiz ? documentoDe(raiz) : null;
-  if (!raiz || !doc || typeof doc.createElement !== 'function') return documento;
-  const valores = normalizarConteudo(conteudo);
-  const campos = coletarCampos(raiz);
+  try {
+    const raiz = raizDe(documento);
+    const doc = raiz ? documentoDe(raiz) : null;
+    if (!raiz || !doc || typeof doc.createElement !== 'function') return documento;
+    const valores = normalizarConteudo(conteudo);
+    const campos = coletarCampos(raiz);
 
-  for (const campo of campos) if (campo.tipo === 'lista') estadoLista(campo.el);
+    for (const campo of campos) if (campo.tipo === 'lista') estadoLista(campo.el);
 
-  for (const { el, chave, tipo } of campos) {
-    const valor = valores[chave];
-    if (valor === null || valor === undefined) continue;
-    try {
-      aplicarNoElemento(el, tipo, valor, doc);
-    } catch {
-      // valor malformado: mantém o padrão
+    for (const { el, chave, tipo } of campos) {
+      const valor = valores.get(chave);
+      if (valor === null || valor === undefined) continue;
+      try {
+        aplicarNoElemento(el, tipo, valor, doc);
+      } catch {
+        // valor malformado: mantém o padrão
+      }
     }
+    aplicarVisibilidade(raiz, valores);
+  } catch {
+    // nunca quebra a página
   }
-  aplicarVisibilidade(raiz, valores);
   return documento;
 }
 
 // ---------------------------------------------------------------------------
 // Esquema
 
-/** Chave de visibilidade de um grupo ocultável. */
-export function chaveVisibilidade(idGrupo) {
-  return `grupo.${idGrupo}.visivel`;
-}
-
-/** Rótulo legível a partir de uma chave ("quem-somos.botao-texto" → "Botão texto"). */
-export function rotuloDeChave(chave, prefixo) {
+// Rótulo legível a partir de uma chave ("quem-somos.botao-texto" → "Botão texto").
+function rotuloDeChave(chave, prefixo) {
   let texto = String(chave ?? '');
   if (prefixo && texto.startsWith(prefixo + '.')) texto = texto.slice(prefixo.length + 1);
   const palavras = texto.split(/[._\-\s]+/).filter(Boolean).map((p) => {
@@ -899,7 +948,8 @@ function descreverCampo(el, chave, tipo, grupo) {
   };
   if (tipo === 'lista') {
     const estado = ESTADO_LISTAS.get(el);
-    const molde = itensDaLista(el)[0] || (estado && estado.molde) || null;
+    // O molde guardado na primeira aplicação; num template cru, o primeiro item.
+    const molde = (estado && estado.molde) || itensDaLista(el)[0] || null;
     campo.itemRotulo = atributo(el, 'data-cms-item-rotulo').trim() || 'Item';
     campo.campos = molde ? descreverCamposDoItem(molde) : [];
   }
@@ -908,7 +958,7 @@ function descreverCampo(el, chave, tipo, grupo) {
 
 /**
  * Descobre grupos e campos do template, na ordem do documento.
- * → { grupos: [{ id, rotulo, ocultavel, chaveVisivel, campos: [Campo] }] }
+ * → { grupos: [{ id, rotulo, ocultavel, campos: [Campo] }] }
  * Campo = { chave, tipo, rotulo, ajuda, padrao, itemRotulo?, campos?: [{ campo, tipo, rotulo, ajuda }] }
  */
 export function extrairEsquema(documento) {
@@ -920,64 +970,38 @@ export function extrairEsquema(documento) {
   const registrarGrupo = (id, el) => {
     let grupo = grupos.get(id);
     if (!grupo) {
-      grupo = { id, rotulo: '', ocultavel: false, chaveVisivel: null, campos: [] };
+      grupo = { id, rotulo: '', ocultavel: false, campos: [] };
       grupos.set(id, grupo);
     }
     if (el) {
       if (!grupo.rotulo) grupo.rotulo = atributo(el, 'data-cms-grupo-rotulo').trim();
-      if (temAtributo(el, 'data-cms-ocultavel')) {
-        grupo.ocultavel = true;
-        grupo.chaveVisivel = chaveVisibilidade(id);
-      }
+      if (ocultavel(el)) grupo.ocultavel = true;
     }
     return grupo;
   };
 
-  for (const el of selecionar(raiz, '[data-cms-grupo], [data-cms]', ['data-cms-grupo', 'data-cms'])) {
-    const id = idGrupo(el);
-    if (id) registrarGrupo(id, el);
-    if (!temAtributo(el, 'data-cms')) continue;
-    const chave = chaveDoElemento(el);
-    if (!chave || chavesVistas.has(chave) || dentroDeItem(el)) continue;
-    chavesVistas.add(chave);
-    const encontrado = grupoMaisProximo(el);
-    const grupo = encontrado ? registrarGrupo(encontrado.id, encontrado.el) : registrarGrupo('geral', null);
-    grupo.campos.push(descreverCampo(el, chave, tipoDoElemento(el), grupo.id));
+  try {
+    for (const el of selecionar(raiz, '[data-cms-grupo], [data-cms]', ['data-cms-grupo', 'data-cms'])) {
+      const id = idGrupo(el);
+      if (id) registrarGrupo(id, el);
+      if (!temAtributo(el, 'data-cms')) continue;
+      const chave = chaveDoElemento(el);
+      if (!chave || chavesVistas.has(chave) || dentroDeItem(el)) continue;
+      chavesVistas.add(chave);
+      const encontrado = grupoMaisProximo(el);
+      const grupo = encontrado ? registrarGrupo(encontrado.id, encontrado.el) : registrarGrupo('geral', null);
+      grupo.campos.push(descreverCampo(el, chave, tipoDoElemento(el), grupo.id));
+    }
+  } catch {
+    return { grupos: [] };
   }
 
   const lista = [];
   for (const grupo of grupos.values()) {
-    if (!grupo.campos.length) continue;
+    // Grupo ocultável sem campos continua no esquema: o painel ainda pode ocultá-lo.
+    if (!grupo.campos.length && !grupo.ocultavel) continue;
     if (!grupo.rotulo) grupo.rotulo = grupo.id === 'geral' ? 'Geral' : rotuloDeChave(grupo.id);
     lista.push(grupo);
   }
   return { grupos: lista };
-}
-
-/**
- * Valores padrão de todos os campos ({ chave: padrao }), incluindo
- * `grupo.<id>.visivel: true` dos grupos ocultáveis. Aceita um esquema ou um documento.
- */
-export function valoresPadrao(esquemaOuDocumento) {
-  const esquema = raizDe(esquemaOuDocumento) ? extrairEsquema(esquemaOuDocumento) : esquemaOuDocumento;
-  const valores = {};
-  const grupos = esquema && Array.isArray(esquema.grupos) ? esquema.grupos : [];
-  for (const grupo of grupos) {
-    if (!grupo || !Array.isArray(grupo.campos)) continue;
-    if (grupo.ocultavel) valores[chaveVisibilidade(grupo.id)] = true;
-    for (const campo of grupo.campos) {
-      if (campo && typeof campo.chave === 'string') valores[campo.chave] = clonarJson(campo.padrao);
-    }
-  }
-  return valores;
-}
-
-function clonarJson(valor) {
-  if (Array.isArray(valor)) return valor.map(clonarJson);
-  if (objetoSimples(valor)) {
-    const copia = {};
-    for (const chave of Object.keys(valor)) copia[chave] = clonarJson(valor[chave]);
-    return copia;
-  }
-  return valor;
 }
