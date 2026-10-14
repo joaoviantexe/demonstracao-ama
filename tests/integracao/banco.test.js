@@ -8,9 +8,14 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
-  ambienteLocal, cliente, clienteLogado, clienteServico, criarUsuario, removerUsuario, sql, sqlJson,
+  ambienteLocal, cliente, clienteLogado, clienteServico, conferirDestino, criarUsuario, removerUsuario, sql, sqlJson,
 } from '../apoio/supabase-local.js';
+
+const PUBLIC = fileURLToPath(new URL('../../public/', import.meta.url));
+const MIGRACAO = fileURLToPath(new URL('../../supabase/migrations/20261009120000_inicial.sql', import.meta.url));
 
 const SUF = randomBytes(4).toString('hex');
 const SUF_MAIUSC = SUF.toUpperCase();
@@ -239,6 +244,86 @@ after(async () => {
     if (usuario) await tentar(`usuário ${usuario.email}`, () => removerUsuario(usuario.id));
   }
   if (falhas.length) throw new Error(`Limpeza incompleta:\n${falhas.join('\n')}`);
+});
+
+// --------------------------------------------------------------------------------------
+// Trava do apoio contra rodar os testes num Supabase remoto (função pura, sem rede)
+// --------------------------------------------------------------------------------------
+
+describe('apoio: os testes só rodam contra o Supabase local', () => {
+  const LOCAL_DB = 'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
+  const SEM = {};
+  const REMOTO = { AMA_TESTES_PERMITIR_REMOTO: '1' };
+
+  test('aceita 127.0.0.1, localhost e ::1 (e misturas entre eles)', () => {
+    for (const [url, dbUrl] of [
+      ['http://127.0.0.1:54321', LOCAL_DB],
+      ['http://localhost:54321', LOCAL_DB],
+      ['http://[::1]:54321', 'postgresql://postgres:postgres@[::1]:54322/postgres'],
+      ['http://127.0.0.1:54321', 'postgresql://postgres:postgres@localhost:54322/postgres'],
+    ]) {
+      assert.doesNotThrow(() => conferirDestino({ url, dbUrl }, SEM), `${url} + ${dbUrl}`);
+    }
+  });
+
+  test('recusa API ou banco remotos sem AMA_TESTES_PERMITIR_REMOTO=1', () => {
+    const casos = [
+      ['https://abcdefgh.supabase.co', LOCAL_DB, /API aponta para "abcdefgh\.supabase\.co"/],
+      ['http://127.0.0.1:54321', 'postgresql://postgres:x@db.abcdefgh.supabase.co:5432/postgres', /banco aponta para/],
+      ['https://abcdefgh.supabase.co', 'postgresql://postgres:x@db.abcdefgh.supabase.co:5432/postgres', /AMA_TESTES_PERMITIR_REMOTO/],
+      ['http://127.0.0.2:54321', LOCAL_DB, /127\.0\.0\.2/],
+      ['http://localhost.exemplo.com:54321', LOCAL_DB, /localhost\.exemplo\.com/],
+    ];
+    for (const [url, dbUrl, mensagem] of casos) {
+      assert.throws(() => conferirDestino({ url, dbUrl }, SEM), mensagem, `${url} + ${dbUrl}`);
+    }
+    assert.throws(() => conferirDestino({ url: 'https://abcdefgh.supabase.co', dbUrl: LOCAL_DB }, { AMA_TESTES_PERMITIR_REMOTO: 'sim' }));
+  });
+
+  test('com AMA_TESTES_PERMITIR_REMOTO=1, API e banco precisam ser do mesmo projeto', () => {
+    const api = 'https://abcdefgh.supabase.co';
+    for (const dbUrl of [
+      'postgresql://postgres:x@db.abcdefgh.supabase.co:5432/postgres',
+      'postgresql://postgres.abcdefgh:x@aws-0-sa-east-1.pooler.supabase.com:6543/postgres',
+    ]) {
+      assert.doesNotThrow(() => conferirDestino({ url: api, dbUrl }, REMOTO), dbUrl);
+    }
+    assert.doesNotThrow(() => conferirDestino({
+      url: 'https://supabase.minhaempresa.com.br', dbUrl: 'postgresql://postgres:x@supabase.minhaempresa.com.br:5432/postgres',
+    }, REMOTO));
+    for (const dbUrl of [
+      LOCAL_DB,
+      'postgresql://postgres:x@db.outroprojeto.supabase.co:5432/postgres',
+      'postgresql://postgres.outroprojeto:x@aws-0-sa-east-1.pooler.supabase.com:6543/postgres',
+    ]) {
+      assert.throws(() => conferirDestino({ url: api, dbUrl }, REMOTO), /lugares diferentes/, dbUrl);
+    }
+    assert.throws(() => conferirDestino({ url: 'http://127.0.0.1:54321', dbUrl: 'postgresql://postgres:x@db.abcdefgh.supabase.co/postgres' }, REMOTO),
+      /lugares diferentes/);
+  });
+
+  test('URL sem host ou malformada é recusada', () => {
+    assert.throws(() => conferirDestino({ url: 'nao-e-url', dbUrl: LOCAL_DB }, SEM), /inválida/);
+    assert.throws(() => conferirDestino({ url: 'http://127.0.0.1:54321', dbUrl: 'postgresql:///postgres' }, SEM), /sem host/);
+  });
+
+  test('ambienteLocal() aplica a trava (ex.: .env de produção exportado no terminal)', () => {
+    const salvo = { url: process.env.SUPABASE_URL, remoto: process.env.AMA_TESTES_PERMITIR_REMOTO };
+    const restaurar = (nome, valor) => {
+      if (valor === undefined) delete process.env[nome];
+      else process.env[nome] = valor;
+    };
+    try {
+      process.env.SUPABASE_URL = 'https://abcdefgh.supabase.co';
+      delete process.env.AMA_TESTES_PERMITIR_REMOTO;
+      assert.throws(() => ambienteLocal(), /só rodam contra o Supabase local/);
+      assert.throws(() => cliente(), /só rodam contra o Supabase local/);
+    } finally {
+      restaurar('SUPABASE_URL', salvo.url);
+      restaurar('AMA_TESTES_PERMITIR_REMOTO', salvo.remoto);
+    }
+    assert.doesNotThrow(() => ambienteLocal());
+  });
 });
 
 // --------------------------------------------------------------------------------------
@@ -486,8 +571,11 @@ describe('RLS: matriz da tabela 4.3', () => {
         assert.deepEqual(await semErro(cl.from(tabela).select('*').limit(5), tabela), [], tabela);
       }
     }
+    // Os valores podem ser editados no painel; o formato (as chaves do §4.1) não muda.
     const loja = await semErro(anon.from('configuracoes').select('valor').eq('chave', 'loja').single(), 'loja');
-    assert.equal(loja.valor.titulo, 'Loja AMA');
+    for (const chave of ['titulo', 'subtitulo', 'whatsapp', 'instagram', 'email_contato', 'aviso_topo', 'frete_gratis_acima_centavos']) {
+      assert.ok(Object.hasOwn(loja.valor, chave), `loja.${chave}`);
+    }
   });
 
   test('admin lê configurações privadas, produtos inativos, cupons e pedidos', async () => {
@@ -535,6 +623,68 @@ describe('RLS: matriz da tabela 4.3', () => {
     }).select('numero, token_acesso').single(), 'pedido pelo serviço');
     assert.ok(direto.numero >= 1001);
     assert.match(direto.token_acesso, /^[0-9a-f]{64}$/);
+  });
+
+  test('admin só insere notas em pedido_eventos (pagamento, status, alerta… são recusados)', async () => {
+    for (const tipo of ['pagamento', 'status', 'alerta', 'criado', 'envio', 'email']) {
+      const descricao = `evento-${tipo}-${SUF}-${seq()}`;
+      const { error } = await admin.from('pedido_eventos').insert({
+        pedido_id: pedidoBase.id, tipo, descricao, autor: 'mercadopago',
+        dados: { payment_id: '901', status: 'approved' },
+      });
+      assert.equal(error?.code, '42501', `${tipo}: ${error?.message}`);
+      assert.equal(await sql(`select count(*) from public.pedido_eventos where descricao = ${lit(descricao)}`), '0', tipo);
+    }
+    const policies = await sqlJson(`select json_object_agg(policyname, cmd) from pg_policies
+                                     where schemaname = 'public' and tablename = 'pedido_eventos'`);
+    assert.deepEqual(policies, {
+      pedido_eventos_admin_select: 'SELECT', pedido_eventos_admin_insert: 'INSERT',
+      pedido_eventos_admin_update: 'UPDATE', pedido_eventos_admin_delete: 'DELETE',
+    });
+  });
+
+  test('a numeração dos pedidos começa em 1001 (pg_sequence)', async () => {
+    const inicio = await sql(`select seqstart from pg_sequence where seqrelid = 'public.pedidos_numero_seq'::regclass`);
+    assert.equal(inicio, '1001');
+  });
+});
+
+// --------------------------------------------------------------------------------------
+// Catálogo inicial criado pela migração (§4.5)
+// --------------------------------------------------------------------------------------
+
+describe('catálogo inicial', () => {
+  const CATEGORIAS = ['body-splash', 'cremes-hidratantes', 'sabonete-liquido-intimo', 'sabonete-solido', 'biojoias'];
+  const PRODUTOS = [
+    'body-splash-raiz', 'body-splash-bruma', 'body-splash-orvalho', 'body-splash-ambar',
+    'creme-hidratante-ameixa-negra', 'creme-hidratante-cupuacu', 'creme-hidratante-cumaru', 'creme-hidratante-capim-limao',
+    'sabonete-liquido-intimo-barbatimao-andiroba', 'sabonete-solido-manteiga-cupuacu',
+    'biojoia-01', 'biojoia-02', 'biojoia-03', 'biojoia-04', 'biojoia-05', 'biojoia-06',
+  ];
+
+  test('as 5 categorias e os 16 produtos existem; nenhum produto antigo sobrou', async () => {
+    const categorias = await sqlJson(`select coalesce(json_agg(slug order by slug), '[]'::json) from public.categorias
+                                       where slug in (${CATEGORIAS.map(lit).join(',')})`);
+    assert.deepEqual(categorias, [...CATEGORIAS].sort());
+    const produtos = await sqlJson(`select coalesce(json_agg(slug order by slug), '[]'::json) from public.produtos
+                                     where slug in (${PRODUTOS.map(lit).join(',')})`);
+    assert.deepEqual(produtos, [...PRODUTOS].sort());
+    const antigos = await sql(`select count(*) from public.produtos
+                                where slug in ('body-splash-200ml', 'colar-01', 'colar-02', 'colar-03', 'colar-04', 'colar-05', 'colar-06')
+                                   or categoria_id in (select id from public.categorias where slug = 'cosmeticos')`);
+    assert.equal(antigos, '0');
+  });
+
+  test('as fotos do catálogo (/img/…) existem em public/, no banco e no texto da migração', async () => {
+    const doBanco = await sqlJson(`select coalesce(json_agg(distinct i ->> 'src'), '[]'::json)
+                                     from public.produtos p, jsonb_array_elements(p.imagens) i
+                                    where p.slug in (${PRODUTOS.map(lit).join(',')}) and i ->> 'src' like '/img/%'`);
+    const migracao = readFileSync(MIGRACAO, 'utf8');
+    const doArquivo = [...new Set(migracao.match(/'\/img\/[^']+'/g).map((s) => s.slice(1, -1)))];
+    assert.equal(doArquivo.length, 16, `fotos na migração: ${doArquivo.length}`);
+    for (const src of [...doBanco, ...doArquivo]) {
+      assert.ok(existsSync(`${PUBLIC}${src.slice(1)}`), `falta public${src}`);
+    }
   });
 });
 
@@ -585,14 +735,14 @@ describe('GRANTs e permissões de execução', () => {
   });
 
   test('EXECUTE: eh_admin para anon/authenticated; RPCs só service_role; _privadas para ninguém', async () => {
+    const FUNCOES = ['eh_admin', '_formatar_reais', '_rotulo_status', '_baixar_estoque', '_repor_estoque', ...RPCS_SERVICO];
     const matriz = await sqlJson(`
       select json_object_agg(p.oid::regprocedure::text || '/' || r,
                              has_function_privilege(r, p.oid, 'execute'))
-        from pg_proc p, unnest(array['public', 'anon', 'authenticated', 'service_role']) r
+        from pg_proc p, unnest(array['anon', 'authenticated', 'service_role']) r
        where p.pronamespace = 'public'::regnamespace
-         and p.proname in ('eh_admin', '_formatar_reais', '_rotulo_status', '_baixar_estoque', '_repor_estoque',
-                           ${RPCS_SERVICO.map(lit).join(',')})
-         and r <> 'public'`);
+         and p.proname in (${FUNCOES.map(lit).join(',')})`);
+    assert.equal(Object.keys(matriz).length, FUNCOES.length * 3);
     for (const [chave, pode] of Object.entries(matriz)) {
       const [funcao, papel] = chave.split('/');
       let esperado;
@@ -601,6 +751,15 @@ describe('GRANTs e permissões de execução', () => {
       else esperado = papel === 'service_role';
       assert.equal(pode, esperado, `${papel} → ${funcao}`);
     }
+    // PUBLIC (todos os papéis): nenhuma dessas funções pode ter o EXECUTE padrão.
+    // proacl NULL significa o padrão do Postgres, que libera EXECUTE para PUBLIC.
+    const comPublic = await sqlJson(`
+      select coalesce(json_agg(p.oid::regprocedure::text), '[]'::json)
+        from pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+       where p.pronamespace = 'public'::regnamespace
+         and p.proname in (${FUNCOES.map(lit).join(',')})
+         and a.grantee = 0 and a.privilege_type = 'EXECUTE'`);
+    assert.deepEqual(comPublic, []);
   });
 
   test('anon, comum e admin não chamam as RPCs restritas nem as _privadas pela API', async () => {
@@ -663,6 +822,8 @@ describe('cotar_carrinho', () => {
     p.promoZero = await criarProduto({ preco_centavos: 1000, preco_promocional_centavos: 0, estoque: 5 });
     p.semEstoque = await criarProduto({ preco_centavos: 1000, estoque: 0 });
     p.pouco = await criarProduto({ preco_centavos: 1000, estoque: 2 });
+    p.inativoZero = await criarProduto({ preco_centavos: 0, estoque: 0, ativo: false });
+    p.zeroSemEstoque = await criarProduto({ preco_centavos: 0, estoque: 0, imagens: [{ src: '/img/teste-zero.jpg', alt: 'Z' }] });
     p.quebrado = await criarProduto({ preco_centavos: 4999, estoque: 50 });
 
     const ontem = new Date(Date.now() - 86_400_000).toISOString();
@@ -741,12 +902,49 @@ describe('cotar_carrinho', () => {
       ],
     });
     assert.deepEqual(r.itens.map((i) => i.motivo),
-      [null, 'inexistente', 'inexistente', 'inativo', 'inativo', 'inativo', 'sem_estoque', 'estoque_insuficiente']);
+      [null, 'inexistente', 'inexistente', 'inativo', 'sem_preco', 'sem_preco', 'sem_estoque', 'estoque_insuficiente']);
     assert.deepEqual(r.itens.map((i) => i.disponivel), [true, false, false, false, false, false, false, false]);
     for (const indisponivel of r.itens.slice(1)) assert.equal(indisponivel.total_centavos, 0);
     assert.equal(r.itens[7].estoque_disponivel, 2);
     assert.equal(r.itens[6].estoque_disponivel, 0);
     assert.equal(r.subtotal_centavos, 4500);
+  });
+
+  test('inexistente e inativo não expõem dados do produto', async () => {
+    const fantasma = randomUUID();
+    const r = await cotar({ itens: [item(fantasma, 2), item('nao-e-uuid', 1), item(p.inativo, 3)] });
+    const oculto = (produtoId, quantidade, motivo) => ({
+      produto_id: produtoId, nome: null, slug: null, imagem: null, preco_unitario_centavos: 0,
+      quantidade, total_centavos: 0, estoque_disponivel: null, disponivel: false, motivo,
+      peso_gramas: null, altura_cm: null, largura_cm: null, comprimento_cm: null,
+    });
+    assert.deepEqual(r.itens, [
+      oculto(fantasma, 2, 'inexistente'),
+      oculto('nao-e-uuid', 1, 'inexistente'),
+      oculto(p.inativo.id, 3, 'inativo'),
+    ]);
+    assert.equal(r.subtotal_centavos, 0);
+  });
+
+  test('sem_preco (ativo com preço efetivo 0) expõe os dados da vitrine', async () => {
+    const r = await cotar({ itens: [item(p.precoZero, 1), item(p.promoZero, 2)] });
+    const [zero, promoZero] = r.itens;
+    assert.deepEqual(zero, {
+      produto_id: p.precoZero.id, nome: p.precoZero.nome, slug: p.precoZero.slug, imagem: null,
+      preco_unitario_centavos: 0, quantidade: 1, total_centavos: 0, estoque_disponivel: 5, disponivel: false,
+      motivo: 'sem_preco', peso_gramas: 300, altura_cm: 4, largura_cm: 12, comprimento_cm: 16,
+    });
+    assert.equal(promoZero.motivo, 'sem_preco');
+    assert.equal(promoZero.nome, p.promoZero.nome);
+    assert.equal(promoZero.preco_unitario_centavos, 0);
+    assert.equal(r.subtotal_centavos, 0);
+  });
+
+  test('ordem dos motivos: inexistente → inativo → sem_preco → sem_estoque → estoque_insuficiente', async () => {
+    const r = await cotar({ itens: [item(p.inativoZero, 1), item(p.zeroSemEstoque, 1), item(p.inativo, 99)] });
+    assert.deepEqual(r.itens.map((i) => i.motivo), ['inativo', 'sem_preco', 'inativo']);
+    assert.equal(r.itens[1].imagem, '/img/teste-zero.jpg');
+    assert.equal(r.itens[1].estoque_disponivel, 0);
   });
 
   test('preço promocional; controlar_estoque=false → estoque_disponivel null', async () => {
@@ -953,6 +1151,15 @@ describe('criar_pedido', () => {
     const erro3 = await erroCriar(dadosPedido([{ produto_id: pB.id, quantidade: 11 }]));
     assert.equal(erro3.message, 'item_indisponivel');
     assert.deepEqual(JSON.parse(erro3.details), [{ produto_id: pB.id, motivo: 'estoque_insuficiente' }]);
+  });
+
+  test('produto ativo sem preço ("Em breve") não pode ser comprado: item_indisponivel/sem_preco', async () => {
+    const antes = await contarPedidosDoCliente();
+    const emBreve = await criarProduto({ preco_centavos: 0, estoque: 10 });
+    const erro = await erroCriar(dadosPedido([{ produto_id: pB.id, quantidade: 1 }, { produto_id: emBreve.id, quantidade: 1 }]));
+    assert.equal(erro.message, 'item_indisponivel');
+    assert.deepEqual(JSON.parse(erro.details), [{ produto_id: emBreve.id, motivo: 'sem_preco' }]);
+    assert.equal(await contarPedidosDoCliente(), antes);
   });
 
   test('cupom_invalido só quando um cupom foi informado', async () => {
@@ -1193,11 +1400,63 @@ describe('confirmar_pagamento', () => {
     assert.equal(await lerEstoque(sem.produto.id), 10);
   });
 
-  test('diferença de até 1 centavo (arredondamento) é aceita', async () => {
+  test('diferença de até 1 centavo (arredondamento) é aceita; 2 centavos já é divergente', async () => {
     const { produto, pedido } = await cenario({ estoque: 10, quantidade: 1, preco: 3333 });
     const r = await confirmar(pedido.id, pagamento(pedido, { transaction_amount: '33.32' }));
     assert.equal(r.status_novo, 'pago');
     assert.equal(await lerEstoque(produto.id), 9);
+
+    const dois = await cenario({ estoque: 10, quantidade: 1, preco: 3333 });
+    const r2 = await confirmar(dois.pedido.id, pagamento(dois.pedido, { transaction_amount: 33.31 }));
+    assert.equal(r2.status_novo, 'pagamento_em_analise');
+    assert.equal(r2.virou_pago, false);
+    assert.equal(await lerEstoque(dois.produto.id), 10);
+    const [alerta] = await lerEventos(dois.pedido.id, 'alerta');
+    assert.equal(alerta.dados.valor_centavos, 3331);
+    assert.equal(alerta.dados.total_centavos, 3333);
+  });
+
+  test('authorized → pago, com baixa de estoque e uso do cupom', async () => {
+    const cupom = await criarCupom({ tipo: 'percentual', valor: 10 });
+    const { produto, pedido } = await cenario({ estoque: 10, quantidade: 3, cupom: cupom.codigo });
+    const r = await confirmar(pedido.id, pagamento(pedido, { status: 'authorized', status_detail: 'pending_capture' }));
+    assert.equal(r.status_novo, 'pago');
+    assert.equal(r.virou_pago, true);
+    const p = await lerPedido(pedido.id);
+    assert.equal(p.status_pagamento, 'authorized');
+    assert.equal(p.estoque_baixado, true);
+    recente(p.pago_em);
+    assert.equal(await lerEstoque(produto.id), 7);
+    assert.equal(await lerUsos(cupom.codigo), 1);
+    // O approved do mesmo pagamento (captura) não baixa de novo.
+    const pagoEm = p.pago_em;
+    const r2 = await confirmar(pedido.id, pagamento(pedido, { id: Number(p.mp_payment_id), status: 'approved' }));
+    assert.equal(r2.mudou, false);
+    assert.equal(r2.virou_pago, false);
+    assert.equal(await lerEstoque(produto.id), 7);
+    assert.equal((await lerPedido(pedido.id)).pago_em, pagoEm);
+  });
+
+  test('in_mediation: aguardando → pagamento_em_analise; sobre pago, nada muda', async () => {
+    const a = await cenario();
+    const r1 = await confirmar(a.pedido.id, pagamento(a.pedido, { status: 'in_mediation', status_detail: null }));
+    assert.equal(r1.status_novo, 'pagamento_em_analise');
+    assert.equal(r1.mudou, true);
+    assert.equal((await lerPedido(a.pedido.id)).status_pagamento, 'in_mediation');
+    assert.equal(await lerEstoque(a.produto.id), 10);
+
+    const b = await cenario({ estoque: 10, quantidade: 2 });
+    const aprovado = pagamento(b.pedido);
+    await confirmar(b.pedido.id, aprovado);
+    const r2 = await confirmar(b.pedido.id, { ...aprovado, status: 'in_mediation', status_detail: null });
+    assert.equal(r2.status_anterior, 'pago');
+    assert.equal(r2.status_novo, 'pago');
+    assert.equal(r2.mudou, false);
+    assert.equal(r2.virou_pago, false);
+    const p = await lerPedido(b.pedido.id);
+    assert.equal(p.status, 'pago');
+    assert.equal(p.estoque_baixado, true);
+    assert.equal(await lerEstoque(b.produto.id), 8);
   });
 
   test('pending/in_process → pagamento_em_analise só a partir de aguardando_pagamento', async () => {
@@ -1236,6 +1495,125 @@ describe('confirmar_pagamento', () => {
     // Depois de recusado, o cliente pode tentar de novo e pagar.
     const r = await confirmar(pedido.id, pagamento(pedido));
     assert.equal(r.virou_pago, true);
+  });
+
+  test('pendente que expira ou é recusado devolve o pedido para aguardando_pagamento', async () => {
+    for (const [pendente, final, detalhe] of [
+      ['pending', 'cancelled', 'expired'],
+      ['in_process', 'rejected', 'cc_rejected_high_risk'],
+      ['in_mediation', 'cancelled', 'by_admin'],
+    ]) {
+      const { produto, pedido } = await cenario();
+      const pag = pagamento(pedido, { status: pendente, status_detail: 'pending_waiting_payment' });
+      assert.equal((await confirmar(pedido.id, pag)).status_novo, 'pagamento_em_analise', pendente);
+      const r = await confirmar(pedido.id, { ...pag, status: final, status_detail: detalhe });
+      assert.equal(r.status_anterior, 'pagamento_em_analise');
+      assert.equal(r.status_novo, 'aguardando_pagamento', `${pendente} → ${final}`);
+      assert.equal(r.mudou, true);
+      const p = await lerPedido(pedido.id);
+      assert.equal(p.status, 'aguardando_pagamento');
+      assert.equal(p.status_pagamento, final);
+      assert.equal(p.status_pagamento_detalhe, detalhe);
+      assert.equal(p.mp_payment_id, String(pag.id));
+      assert.equal(await lerEstoque(produto.id), 10);
+      // O cliente pode pagar de novo com outra tentativa.
+      assert.equal((await confirmar(pedido.id, pagamento(pedido))).virou_pago, true);
+    }
+  });
+
+  test('recusa de OUTRO pagamento não tira o pedido da análise', async () => {
+    // Pix pendente; um cartão de outra tentativa é recusado: o Pix continua valendo.
+    const a = await cenario();
+    const pix = pagamento(a.pedido, { status: 'pending', payment_type_id: 'bank_transfer', payment_method_id: 'pix' });
+    await confirmar(a.pedido.id, pix);
+    const r1 = await confirmar(a.pedido.id, pagamento(a.pedido, { status: 'rejected' }));
+    assert.equal(r1.status_novo, 'pagamento_em_analise');
+    assert.equal(r1.mudou, false);
+
+    // Dois pendentes (Pix e boleto): o primeiro expira e o pedido segue em análise por causa do segundo;
+    // quando o segundo também expira, volta para aguardando_pagamento.
+    const b = await cenario();
+    const primeiro = pagamento(b.pedido, { status: 'pending' });
+    const segundo = pagamento(b.pedido, { status: 'pending', payment_type_id: 'ticket' });
+    await confirmar(b.pedido.id, primeiro);
+    await confirmar(b.pedido.id, segundo);
+    const r2 = await confirmar(b.pedido.id, { ...primeiro, status: 'cancelled', status_detail: 'expired' });
+    assert.equal(r2.status_novo, 'pagamento_em_analise');
+    const r3 = await confirmar(b.pedido.id, { ...segundo, status: 'cancelled', status_detail: 'expired' });
+    assert.equal(r3.status_novo, 'aguardando_pagamento');
+
+    // Em análise por valor divergente: uma recusa (de qualquer pagamento) não esconde o alerta.
+    const c = await cenario();
+    const divergente = pagamento(c.pedido, { transaction_amount: 1 });
+    await confirmar(c.pedido.id, divergente);
+    const r4 = await confirmar(c.pedido.id, pagamento(c.pedido, { status: 'rejected' }));
+    assert.equal(r4.status_novo, 'pagamento_em_analise');
+
+    // Em análise por decisão manual, sem pagamento pendente: continua em análise.
+    const d = await cenario();
+    await alterarStatus(d.pedido.id, 'pagamento_em_analise');
+    const r5 = await confirmar(d.pedido.id, pagamento(d.pedido, { status: 'rejected' }));
+    assert.equal(r5.status_novo, 'pagamento_em_analise');
+  });
+
+  test('estorno de pagamento em dobro mantém o pedido pago e grava alerta', async () => {
+    for (const estorno of ['refunded', 'charged_back']) {
+      const cupom = await criarCupom({ tipo: 'fixo', valor: 100 });
+      const { produto, pedido } = await cenario({ estoque: 10, quantidade: 2, cupom: cupom.codigo });
+      const a = pagamento(pedido);
+      const b = pagamento(pedido, { payment_type_id: 'bank_transfer', payment_method_id: 'pix' });
+      await confirmar(pedido.id, a);
+      await confirmar(pedido.id, b);
+      assert.equal(await lerEstoque(produto.id), 8);
+
+      // A AMA devolve o pagamento em dobro (B): o pedido continua pago, ligado ao A.
+      const r = await confirmar(pedido.id, { ...b, status: estorno });
+      assert.equal(r.status_novo, 'pago', estorno);
+      assert.equal(r.mudou, false);
+      let p = await lerPedido(pedido.id);
+      assert.equal(p.status, 'pago');
+      assert.equal(p.estoque_baixado, true);
+      assert.equal(p.mp_payment_id, String(a.id));
+      assert.equal(p.status_pagamento, 'approved');
+      assert.equal(p.status_pagamento_detalhe, 'accredited');
+      assert.equal(p.metodo_pagamento, 'credit_card');
+      assert.equal(await lerEstoque(produto.id), 8);
+      assert.equal(await lerUsos(cupom.codigo), 1);
+      const alertas = await lerEventos(pedido.id, 'alerta');
+      assert.equal(alertas.length, 1);
+      assert.match(alertas[0].descricao, /pagamento duplicado estornado/i);
+      assert.equal(alertas[0].dados.payment_id, String(b.id));
+      assert.equal(alertas[0].dados.payment_id_aprovado, String(a.id));
+      // Repetir o estorno não duplica o alerta.
+      await confirmar(pedido.id, { ...b, status: estorno });
+      assert.equal((await lerEventos(pedido.id, 'alerta')).length, 1);
+
+      // Depois, o estorno do último pagamento aprovado reembolsa e devolve o estoque.
+      const r2 = await confirmar(pedido.id, { ...a, status: estorno });
+      assert.equal(r2.status_novo, 'reembolsado');
+      p = await lerPedido(pedido.id);
+      assert.equal(p.estoque_baixado, false);
+      assert.equal(p.mp_payment_id, String(a.id));
+      assert.equal(p.status_pagamento, estorno);
+      assert.equal(await lerEstoque(produto.id), 10);
+      assert.equal(await lerUsos(cupom.codigo), 0);
+    }
+  });
+
+  test('evento "pagamento" que não veio do Mercado Pago não faz o pagamento real parecer repetido', async () => {
+    const { produto, pedido } = await cenario({ estoque: 10, quantidade: 2 });
+    const pag = pagamento(pedido);
+    // Linha inserida à mão (a RLS já impede isso pelo painel; aqui entra pelo service_role).
+    await semErro(servico.from('pedido_eventos').insert({
+      pedido_id: pedido.id, tipo: 'pagamento', descricao: 'Inserido à mão', autor: EMAIL_ADMIN,
+      dados: { payment_id: String(pag.id), status: 'approved' },
+    }), 'evento manual');
+    const r = await confirmar(pedido.id, pag);
+    assert.equal(r.status_novo, 'pago');
+    assert.equal(r.virou_pago, true);
+    assert.equal(await lerEstoque(produto.id), 8);
+    const doMp = (await lerEventos(pedido.id, 'pagamento')).filter((e) => e.autor === 'mercadopago');
+    assert.equal(doMp.length, 1);
   });
 
   test('pagamento recusado de outra tentativa não apaga os dados do aprovado', async () => {
@@ -1411,21 +1789,46 @@ describe('alterar_status_pedido', () => {
 
   test('URL de rastreio inválida → dados_invalidos e nada muda', async () => {
     const { pedido } = await cenario();
-    for (const url of ['javascript:alert(1)', 'ftp://exemplo.com/x', 'rastreio', 'https://', 'https://exemplo.com/a b']) {
+    const invalidas = [
+      'javascript:alert(1)', 'ftp://exemplo.com/x', 'rastreio', 'https://', 'https://exemplo.com/a b',
+      'http://inseguro.example/x', 'HTTP://inseguro.example/x', '//exemplo.com/x',
+      'https://x"><img/src=x/onerror=alert(1)>', "https://exemplo.com/x'onmouseover='alert(1)",
+      'https://exemplo.com/<b>', 'https://exemplo.com/`x`', 'https://exemplo.com/x\\y', 'https://exemplo.com/a\tb',
+      'https://user@exemplo.com/x', 'https://-exemplo.com/x', `https://exemplo.com/${'a'.repeat(500)}`,
+    ];
+    for (const url of invalidas) {
       const erro = await erroRpc(servico, 'alterar_status_pedido', {
         p_pedido_id: pedido.id, p_status: 'enviado', p_autor: AUTOR, p_rastreio: { url_rastreio: url },
       });
       assert.equal(erro.message, 'dados_invalidos', url);
-      assert.equal(erro.details, 'p_rastreio.url_rastreio');
+      assert.equal(erro.details, 'p_rastreio.url_rastreio', url);
     }
-    const erro = await erroRpc(servico, 'alterar_status_pedido', {
-      p_pedido_id: pedido.id, p_status: 'enviado', p_autor: AUTOR, p_rastreio: { codigo_rastreio: 123 },
-    });
-    assert.equal(erro.details, 'p_rastreio.codigo_rastreio');
+    for (const codigo of [123, '<b>AA</b>', 'AA"123', "AA'123", 'AA`123`', 'AA>1']) {
+      const erro = await erroRpc(servico, 'alterar_status_pedido', {
+        p_pedido_id: pedido.id, p_status: 'enviado', p_autor: AUTOR, p_rastreio: { codigo_rastreio: codigo },
+      });
+      assert.equal(erro.message, 'dados_invalidos', String(codigo));
+      assert.equal(erro.details, 'p_rastreio.codigo_rastreio', String(codigo));
+    }
     const p = await lerPedido(pedido.id);
     assert.equal(p.status, 'aguardando_pagamento');
     assert.equal(p.url_rastreio, null);
+    assert.equal(p.codigo_rastreio, null);
     assert.deepEqual(await lerEventos(pedido.id, 'status'), []);
+  });
+
+  test('URLs de rastreio https comuns são aceitas', async () => {
+    const { pedido } = await cenario();
+    for (const url of [
+      'https://rastreamento.correios.com.br/app/index.php?objeto=AA123456789BR',
+      'https://www.melhorrastreio.com.br/rastreio/AA123456789BR',
+      'https://app.melhorenvio.com.br:443/rastreio/ME-123#detalhes',
+      'HTTPS://Rastreio.Exemplo.com?codigo=AB%20123&x=1',
+      'https://exemplo.com',
+    ]) {
+      await alterarStatus(pedido.id, 'enviado', { p_rastreio: { codigo_rastreio: 'AA123456789BR', url_rastreio: url } });
+      assert.equal((await lerPedido(pedido.id)).url_rastreio, url);
+    }
   });
 
   test('status inválido → status_invalido; pedido inexistente → pedido_nao_encontrado', async () => {

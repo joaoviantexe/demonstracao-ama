@@ -50,45 +50,30 @@ $$;
 
 
 -- -----------------------------------------------------------------------------
--- 2. Produtos ativos com preços, estoque, peso e dimensões de exemplo
+-- 2. Preços e estoque de exemplo para a coleção Ama Bioessência
+--    Nome, descrição, foto, peso e medidas já vêm da migração. As biojoias
+--    continuam com preço 0 ("R$ 00,00" e "Em breve" na loja).
 -- -----------------------------------------------------------------------------
 
 update public.produtos p
-   set ativo = true,
-       preco_centavos = v.preco,
+   set preco_centavos = v.preco,
        preco_promocional_centavos = v.promocional,
-       estoque = 5,
+       estoque = 10,
        destaque = v.destaque,
-       descricao = v.descricao,
-       peso_gramas = v.peso,
-       altura_cm = v.altura,
-       largura_cm = v.largura,
-       comprimento_cm = v.comprimento,
        sku = v.sku
   from (values
-    ('body-splash-200ml', 5990, null::int, true,
-     'Body splash AMA Bioessência com fragrância inspirada na flora amazônica. Frasco de 200 mL.',
-     320, 6.0, 8.0, 19.0, 'AMA-BS-200'),
-    ('colar-01', 8990, null, true,
-     'Colar artesanal de sementes verdes com pingentes de madeira em formato de folha.',
-     120, 4.0, 12.0, 16.0, 'AMA-CL-01'),
-    ('colar-02', 8990, null, false,
-     'Colar floral com contas brancas, rosa e detalhes de madeira, feito à mão.',
-     120, 4.0, 12.0, 16.0, 'AMA-CL-02'),
-    ('colar-03', 8990, null, false,
-     'Colar artesanal em preto e branco, peça única do ateliê da AMA.',
-     120, 4.0, 12.0, 16.0, 'AMA-CL-03'),
-    ('colar-04', 8990, null, false,
-     'Peça floral de madeira entalhada com contas claras.',
-     100, 4.0, 12.0, 16.0, 'AMA-CL-04'),
-    ('colar-05', 8990, null, false,
-     'Peça com folhas de madeira e miçangas creme.',
-     100, 4.0, 12.0, 16.0, 'AMA-CL-05'),
+    ('body-splash-raiz',                            5990, null::int, true,  'AMA-BS-RAIZ'),
+    ('body-splash-bruma',                           5990, null,      false, 'AMA-BS-BRUMA'),
+    ('body-splash-orvalho',                         5990, null,      false, 'AMA-BS-ORVALHO'),
+    ('body-splash-ambar',                           5990, null,      false, 'AMA-BS-AMBAR'),
+    ('creme-hidratante-ameixa-negra',               6990, null,      false, 'AMA-CH-AMEIXA'),
     -- Um produto em promoção, para ver o selo na loja.
-    ('colar-06', 8990, 7490, false,
-     'Peça em formato de gota em resina verde, estilo boho.',
-     100, 4.0, 12.0, 16.0, 'AMA-CL-06')
-  ) as v (slug, preco, promocional, destaque, descricao, peso, altura, largura, comprimento, sku)
+    ('creme-hidratante-cupuacu',                    6990, 5990,      true,  'AMA-CH-CUPUACU'),
+    ('creme-hidratante-cumaru',                     6990, null,      false, 'AMA-CH-CUMARU'),
+    ('creme-hidratante-capim-limao',                6990, null,      false, 'AMA-CH-CAPIM'),
+    ('sabonete-liquido-intimo-barbatimao-andiroba', 4990, null,      false, 'AMA-SLI-BARBATIMAO'),
+    ('sabonete-solido-manteiga-cupuacu',            2490, null,      true,  'AMA-SS-CUPUACU')
+  ) as v (slug, preco, promocional, destaque, sku)
  where p.slug = v.slug;
 
 

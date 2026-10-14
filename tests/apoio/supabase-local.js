@@ -88,14 +88,71 @@ const OPCOES_CLIENTE = {
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
 };
 
-/** { url, anonKey, serviceKey, dbUrl } — do ambiente, com padrão no Supabase local. */
+const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1']);
+
+function hostDe(endereco, rotulo) {
+  let url;
+  try {
+    url = new URL(endereco);
+  } catch {
+    throw new Error(`${rotulo} inválida: ${endereco}`);
+  }
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (!host) throw new Error(`${rotulo} sem host: ${endereco}`);
+  return { host, usuario: decodeURIComponent(url.username || '') };
+}
+
+/**
+ * Trava contra rodar os testes num Supabase de produção: os testes criam usuários,
+ * produtos ativos, pedidos e arquivos, e a limpeza roda pelo psql no dbUrl.
+ * - API e banco precisam estar em 127.0.0.1, localhost ou ::1, salvo AMA_TESTES_PERMITIR_REMOTO=1.
+ * - API e banco precisam apontar para o mesmo lugar (senão os dados ficam num e a limpeza roda no outro).
+ *   Remoto: mesmo host, ou o banco do mesmo projeto (db.<projeto>.supabase.co ou usuário postgres.<projeto>).
+ * Lança erro com a explicação; devolve os hosts quando está tudo certo.
+ */
+export function conferirDestino({ url, dbUrl }, env = process.env) {
+  const api = hostDe(url, 'URL da API do Supabase');
+  const banco = hostDe(dbUrl, 'URL do banco (SUPABASE_DB_URL)');
+  const apiLocal = LOOPBACK.has(api.host);
+  const bancoLocal = LOOPBACK.has(banco.host);
+
+  if (env.AMA_TESTES_PERMITIR_REMOTO !== '1') {
+    for (const [rotulo, alvo, local] of [['a API', api.host, apiLocal], ['o banco', banco.host, bancoLocal]]) {
+      if (!local) {
+        throw new Error(
+          `Os testes só rodam contra o Supabase local, mas ${rotulo} aponta para "${alvo}". `
+            + 'Confira SUPABASE_URL/SUPABASE_DB_URL (não use o .env de produção) ou defina '
+            + 'AMA_TESTES_PERMITIR_REMOTO=1 se for de propósito.',
+        );
+      }
+    }
+  }
+
+  const projeto = api.host.split('.')[0];
+  const mesmoDestino = apiLocal || bancoLocal
+    ? apiLocal && bancoLocal
+    : banco.host === api.host
+      || banco.host.endsWith(`.${api.host}`)
+      || (projeto !== '' && banco.usuario.endsWith(`.${projeto}`));
+  if (!mesmoDestino) {
+    throw new Error(
+      `A API (${api.host}) e o banco (${banco.host}) apontam para lugares diferentes: os testes criariam `
+        + 'dados num e limpariam no outro. Ajuste SUPABASE_URL e SUPABASE_DB_URL.',
+    );
+  }
+  return { api: api.host, banco: banco.host };
+}
+
+/** { url, anonKey, serviceKey, dbUrl } — do ambiente, com padrão no Supabase local (conferido por conferirDestino). */
 export function ambienteLocal() {
-  return {
+  const ambiente = {
     url: (primeiro('SUPABASE_URL') || LOCAL.url).replace(/\/+$/, ''),
     anonKey: primeiro('SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_ANON_KEY') || LOCAL.publishableKey,
     serviceKey: primeiro('SUPABASE_SECRET_KEY', 'SUPABASE_SERVICE_ROLE_KEY'),
     dbUrl: primeiro('SUPABASE_DB_URL') || LOCAL.dbUrl,
   };
+  conferirDestino(ambiente);
+  return ambiente;
 }
 
 /** Cliente supabase-js com a chave indicada (padrão: chave pública). Sem sessão persistida. */

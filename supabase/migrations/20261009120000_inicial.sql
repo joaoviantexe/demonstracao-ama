@@ -486,9 +486,11 @@ begin
   loop
     v_preco := coalesce(r.preco_promocional_centavos, r.preco_centavos);
 
+    -- sem_preco: produto ativo (aparece na vitrine como "R$ 00,00", "Em breve"), ainda sem preço.
     v_motivo := case
       when r.id is null then 'inexistente'
-      when not r.ativo or coalesce(v_preco, 0) <= 0 then 'inativo'
+      when not r.ativo then 'inativo'
+      when coalesce(v_preco, 0) <= 0 then 'sem_preco'
       when r.controlar_estoque and r.estoque <= 0 then 'sem_estoque'
       when r.controlar_estoque and r.estoque < r.quantidade then 'estoque_insuficiente'
       else null
@@ -497,24 +499,43 @@ begin
     v_total := case when v_disponivel then v_preco * r.quantidade else 0 end;
     v_subtotal := v_subtotal + v_total;
 
-    v_itens := v_itens || jsonb_build_array(jsonb_build_object(
-      'produto_id',              coalesce(r.id::text, r.id_texto),
-      'nome',                    r.nome,
-      'slug',                    r.slug,
-      'imagem',                  case when jsonb_typeof(r.imagens -> 0) = 'object' then r.imagens -> 0 ->> 'src' end,
-      'preco_unitario_centavos', coalesce(v_preco, 0),
-      'quantidade',              r.quantidade,
-      'total_centavos',          v_total,
-      'estoque_disponivel',      case when r.id is null then 0
-                                      when r.controlar_estoque then r.estoque
-                                      else null end,
-      'disponivel',              v_disponivel,
-      'motivo',                  v_motivo,
-      'peso_gramas',             r.peso_gramas,
-      'altura_cm',               r.altura_cm,
-      'largura_cm',              r.largura_cm,
-      'comprimento_cm',          r.comprimento_cm
-    ));
+    if v_motivo in ('inexistente', 'inativo') then
+      -- Produto despublicado: não expõe nome, preço, estoque nem medidas (a RLS
+      -- também esconde produtos inativos de quem não é admin).
+      v_itens := v_itens || jsonb_build_array(jsonb_build_object(
+        'produto_id',              coalesce(r.id::text, r.id_texto),
+        'nome',                    null,
+        'slug',                    null,
+        'imagem',                  null,
+        'preco_unitario_centavos', 0,
+        'quantidade',              r.quantidade,
+        'total_centavos',          0,
+        'estoque_disponivel',      null,
+        'disponivel',              false,
+        'motivo',                  v_motivo,
+        'peso_gramas',             null,
+        'altura_cm',               null,
+        'largura_cm',              null,
+        'comprimento_cm',          null
+      ));
+    else
+      v_itens := v_itens || jsonb_build_array(jsonb_build_object(
+        'produto_id',              r.id::text,
+        'nome',                    r.nome,
+        'slug',                    r.slug,
+        'imagem',                  case when jsonb_typeof(r.imagens -> 0) = 'object' then r.imagens -> 0 ->> 'src' end,
+        'preco_unitario_centavos', coalesce(v_preco, 0),
+        'quantidade',              r.quantidade,
+        'total_centavos',          v_total,
+        'estoque_disponivel',      case when r.controlar_estoque then r.estoque else null end,
+        'disponivel',              v_disponivel,
+        'motivo',                  v_motivo,
+        'peso_gramas',             r.peso_gramas,
+        'altura_cm',               r.altura_cm,
+        'largura_cm',              r.largura_cm,
+        'comprimento_cm',          r.comprimento_cm
+      ));
+    end if;
   end loop;
 
   -- Cupom (o código é comparado em maiúsculas).
@@ -887,6 +908,16 @@ declare
   v_atualizar   boolean;
   v_faltas      jsonb := '[]'::jsonb;
   v_descricao   text;
+  -- Situação dos outros pagamentos do pedido (último evento de cada um).
+  v_status_antes text;
+  v_outro_vivo   boolean := false;
+  v_aprovado     record;
+  v_duplicado    boolean := false;
+  -- Dados de pagamento gravados no pedido.
+  v_pag_id       text;
+  v_pag_status   text;
+  v_pag_detalhe  text;
+  v_pag_tipo     text;
 begin
   if p_pedido_id is null then
     raise exception 'dados_invalidos' using detail = 'p_pedido_id';
@@ -929,14 +960,22 @@ begin
   v_anterior := v_pedido.status;
   v_novo := v_anterior;
 
+  -- Só eventos gravados por esta função (autor 'mercadopago') contam: uma nota
+  -- ou um evento inserido à mão não pode fazer um pagamento real parecer repetido.
   select exists (
     select 1
       from public.pedido_eventos e
      where e.pedido_id = p_pedido_id
        and e.tipo = 'pagamento'
+       and e.autor = 'mercadopago'
        and (e.dados ->> 'payment_id') is not distinct from v_id
        and (e.dados ->> 'status') = v_status
   ) into v_repetido;
+
+  v_pag_id      := v_id;
+  v_pag_status  := v_status;
+  v_pag_detalhe := v_detalhe;
+  v_pag_tipo    := v_tipo_pag;
 
   -- Novo status do pedido -----------------------------------------------------
   -- Um evento já processado (mesmo payment id e mesmo status) não muda mais o
@@ -958,11 +997,68 @@ begin
     if v_anterior = 'aguardando_pagamento' then
       v_novo := 'pagamento_em_analise';
     end if;
+  elsif v_status in ('rejected', 'cancelled') then
+    -- Em geral o pedido continua como está (o cliente pode tentar pagar de novo).
+    -- Exceção: a análise veio deste mesmo pagamento (que estava pendente) e
+    -- nenhum outro pagamento do pedido segue pendente ou aprovado: Pix/boleto
+    -- expirado ou cartão recusado devolvem o pedido para aguardando_pagamento.
+    if v_anterior = 'pagamento_em_analise' then
+      select e.dados ->> 'status' into v_status_antes
+        from public.pedido_eventos e
+       where e.pedido_id = p_pedido_id
+         and e.tipo = 'pagamento'
+         and e.autor = 'mercadopago'
+         and (e.dados ->> 'payment_id') is not distinct from v_id
+       order by e.id desc
+       limit 1;
+
+      select exists (
+        select 1
+          from (select distinct on (e.dados ->> 'payment_id') e.dados ->> 'status' as status
+                  from public.pedido_eventos e
+                 where e.pedido_id = p_pedido_id
+                   and e.tipo = 'pagamento'
+                   and e.autor = 'mercadopago'
+                   and (e.dados ->> 'payment_id') is distinct from v_id
+                 order by e.dados ->> 'payment_id', e.id desc) u
+         where u.status in ('pending', 'in_process', 'in_mediation', 'approved', 'authorized')
+      ) into v_outro_vivo;
+
+      if v_status_antes in ('pending', 'in_process', 'in_mediation') and not v_outro_vivo then
+        v_novo := 'aguardando_pagamento';
+      end if;
+    end if;
   elsif v_status in ('refunded', 'charged_back') then
-    v_novo := 'reembolsado';
+    -- Estorno de um pagamento em dobro: se outro pagamento do pedido continua
+    -- aprovado, o pedido segue como está (e fica ligado a esse pagamento).
+    select u.payment_id, u.status, u.status_detail, u.payment_type_id into v_aprovado
+      from (select distinct on (e.dados ->> 'payment_id')
+                   e.id,
+                   e.dados ->> 'payment_id'      as payment_id,
+                   e.dados ->> 'status'          as status,
+                   e.dados ->> 'status_detail'   as status_detail,
+                   e.dados ->> 'payment_type_id' as payment_type_id
+              from public.pedido_eventos e
+             where e.pedido_id = p_pedido_id
+               and e.tipo = 'pagamento'
+               and e.autor = 'mercadopago'
+               and (e.dados ->> 'payment_id') is distinct from v_id
+             order by e.dados ->> 'payment_id', e.id desc) u
+     where u.status in ('approved', 'authorized')
+     order by u.id desc
+     limit 1;
+    v_duplicado := found;
+
+    if v_duplicado then
+      v_pag_id      := v_aprovado.payment_id;
+      v_pag_status  := v_aprovado.status;
+      v_pag_detalhe := v_aprovado.status_detail;
+      v_pag_tipo    := v_aprovado.payment_type_id;
+    else
+      v_novo := 'reembolsado';
+    end if;
   end if;
-  -- rejected / cancelled e status desconhecidos: o pedido continua como está
-  -- (o cliente pode tentar pagar de novo); só registramos o evento.
+  -- Status desconhecidos: o pedido continua como está; só registramos o evento.
 
   v_virou_pago := v_novo = 'pago' and v_anterior <> 'pago';
 
@@ -978,10 +1074,10 @@ begin
   update public.pedidos
      set status                   = v_novo,
          pago_em                  = case when v_virou_pago then now() else pago_em end,
-         status_pagamento         = case when v_atualizar then v_status else status_pagamento end,
-         status_pagamento_detalhe = case when v_atualizar then v_detalhe else status_pagamento_detalhe end,
-         mp_payment_id            = case when v_atualizar then coalesce(v_id, mp_payment_id) else mp_payment_id end,
-         metodo_pagamento         = case when v_atualizar then coalesce(v_tipo_pag, metodo_pagamento) else metodo_pagamento end
+         status_pagamento         = case when v_atualizar then v_pag_status else status_pagamento end,
+         status_pagamento_detalhe = case when v_atualizar then v_pag_detalhe else status_pagamento_detalhe end,
+         mp_payment_id            = case when v_atualizar then coalesce(v_pag_id, mp_payment_id) else mp_payment_id end,
+         metodo_pagamento         = case when v_atualizar then coalesce(v_pag_tipo, metodo_pagamento) else metodo_pagamento end
    where id = p_pedido_id;
 
   -- Estoque -------------------------------------------------------------------
@@ -1045,6 +1141,19 @@ begin
           || ', total do pedido ' || public._formatar_reais(v_pedido.total_centavos) || '. Confira antes de enviar.',
         jsonb_build_object('payment_id', v_id, 'valor_centavos', v_valor_cent,
                            'total_centavos', v_pedido.total_centavos),
+        'sistema');
+    end if;
+
+    if v_duplicado then
+      insert into public.pedido_eventos (pedido_id, tipo, descricao, dados, autor)
+      values (
+        p_pedido_id, 'alerta',
+        'Pagamento duplicado estornado: o pagamento ' || coalesce(v_id, '(sem id)')
+          || ' foi devolvido, mas o pagamento ' || coalesce(v_aprovado.payment_id, '(sem id)')
+          || ' continua aprovado. O pedido continua como ' || public._rotulo_status(v_novo)
+          || ' e o estoque não foi devolvido.',
+        jsonb_build_object('payment_id', v_id, 'status', v_status,
+                           'payment_id_aprovado', v_aprovado.payment_id),
         'sistema');
     end if;
   end if;
@@ -1124,7 +1233,8 @@ begin
       elsif jsonb_typeof(p_rastreio -> 'codigo_rastreio') <> 'null' then
         raise exception 'dados_invalidos' using detail = 'p_rastreio.codigo_rastreio';
       end if;
-      if length(v_codigo) > 200 then
+      -- O front escapa de qualquer forma; aqui é defesa em profundidade.
+      if length(v_codigo) > 200 or v_codigo ~ '[[:cntrl:]<>"''`]' then
         raise exception 'dados_invalidos' using detail = 'p_rastreio.codigo_rastreio';
       end if;
     end if;
@@ -1136,7 +1246,10 @@ begin
       elsif jsonb_typeof(p_rastreio -> 'url_rastreio') <> 'null' then
         raise exception 'dados_invalidos' using detail = 'p_rastreio.url_rastreio';
       end if;
-      if v_url is not null and (length(v_url) > 500 or v_url !~* '^https?://[^[:space:]]+$') then
+      -- Só https://, com host, sem espaços, aspas, < > nem crase (vai para a página do pedido e para os e-mails).
+      if v_url is not null
+         and (length(v_url) > 500
+              or v_url !~* '^https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?([/?#][^[:space:][:cntrl:]"''<>`\\]*)?$') then
         raise exception 'dados_invalidos' using detail = 'p_rastreio.url_rastreio';
       end if;
     end if;
@@ -1398,12 +1511,30 @@ create policy pedido_itens_admin_delete on public.pedido_itens
   for delete to authenticated
   using ((select public.eh_admin()));
 
--- pedido_eventos: admin lê, altera, apaga e também insere (notas internas).
+-- pedido_eventos: admin lê, altera e apaga; pelo painel só insere notas internas
+-- (eventos de pagamento, status e alertas vêm das funções do servidor).
 drop policy if exists pedido_eventos_admin_tudo on public.pedido_eventos;
-create policy pedido_eventos_admin_tudo on public.pedido_eventos
-  for all to authenticated
+
+drop policy if exists pedido_eventos_admin_select on public.pedido_eventos;
+create policy pedido_eventos_admin_select on public.pedido_eventos
+  for select to authenticated
+  using ((select public.eh_admin()));
+
+drop policy if exists pedido_eventos_admin_insert on public.pedido_eventos;
+create policy pedido_eventos_admin_insert on public.pedido_eventos
+  for insert to authenticated
+  with check ((select public.eh_admin()) and tipo = 'nota');
+
+drop policy if exists pedido_eventos_admin_update on public.pedido_eventos;
+create policy pedido_eventos_admin_update on public.pedido_eventos
+  for update to authenticated
   using ((select public.eh_admin()))
   with check ((select public.eh_admin()));
+
+drop policy if exists pedido_eventos_admin_delete on public.pedido_eventos;
+create policy pedido_eventos_admin_delete on public.pedido_eventos
+  for delete to authenticated
+  using ((select public.eh_admin()));
 
 
 -- -----------------------------------------------------------------------------
@@ -1443,8 +1574,9 @@ create policy ama_midia_admin_delete on storage.objects
 
 -- -----------------------------------------------------------------------------
 -- 10. Dados iniciais
---     Configurações padrão, categorias e os produtos que já aparecem na home
---     (preço 0 e inativos: a AMA só ajusta preço, estoque e ativa).
+--     Configurações padrão, categorias e o catálogo inicial (coleção Ama
+--     Bioessência e biojoias), ativo e com preço 0: a AMA define preço e
+--     estoque no painel. "on conflict do nothing" preserva o que já foi editado.
 -- -----------------------------------------------------------------------------
 
 insert into public.configuracoes (chave, publico, valor) values
@@ -1509,29 +1641,76 @@ insert into public.configuracoes (chave, publico, valor) values
 on conflict (chave) do nothing;
 
 insert into public.categorias (nome, slug, descricao, ordem) values
-  ('Biojoias',   'biojoias',   'Colares e brincos feitos à mão com sementes, madeira e elementos da Amazônia.', 1),
-  ('Cosméticos', 'cosmeticos', 'Cosméticos artesanais com essências da Amazônia.', 2)
+  ('Body Splash',             'body-splash',             'Perfumaria corporal Ama Bioessência em frasco de 200 mL com válvula spray.', 1),
+  ('Cremes Hidratantes',      'cremes-hidratantes',      'Cremes hidratantes Ama Bioessência em frasco âmbar de 200 mL com válvula dosadora.', 2),
+  ('Sabonete Líquido Íntimo', 'sabonete-liquido-intimo', 'Higiene íntima externa com a identidade verde e dourada da coleção Ama Bioessência.', 3),
+  ('Sabonete Sólido',         'sabonete-solido',         'Saboaria Ama Bioessência para o cuidado de todos os dias.', 4),
+  ('Biojoias',                'biojoias',                'Colares e brincos feitos à mão com sementes, madeira e elementos da Amazônia.', 5)
 on conflict (slug) do nothing;
 
-insert into public.produtos (nome, slug, descricao, preco_centavos, ativo, categoria_id, imagens, ordem)
-select v.nome, v.slug, 'Em produção.', 0, false,
+-- Coleção Ama Bioessência (apresentação institucional) e biojoias do ateliê.
+-- Preço 0 = "R$ 00,00" na loja: o produto aparece na vitrine, mas só pode ser
+-- comprado depois que a AMA definir o preço no painel.
+insert into public.produtos (nome, slug, descricao, preco_centavos, ativo, categoria_id, imagens, ordem,
+                             peso_gramas, altura_cm, largura_cm, comprimento_cm)
+select v.nome, v.slug, v.descricao, 0, true,
        (select c.id from public.categorias c where c.slug = v.categoria),
        jsonb_build_array(jsonb_build_object('src', v.imagem, 'alt', v.alt)),
-       v.ordem
+       v.ordem, v.peso, v.altura, v.largura, v.comprimento
   from (values
-    ('Body Splash 200mL', 'body-splash-200ml', 'cosmeticos', '/img/ama-bioessencia-body-splash.jpg',
-     'AMA Bioessência Body Splash 200mL', 1),
-    ('Colar 01', 'colar-01', 'biojoias', '/img/colar-atelie-verde.jpg',
-     'Colar de sementes verdes com pingentes de madeira em formato de folha', 2),
-    ('Colar 02', 'colar-02', 'biojoias', '/img/colar-floral-rosa-madeira.jpg',
-     'Colar floral com contas brancas, rosa e detalhes de madeira', 3),
-    ('Colar 03', 'colar-03', 'biojoias', '/img/retrato-colar-preto-branco.jpg',
-     'Mulher usando colar artesanal preto e branco sobre blusa estampada', 4),
-    ('Colar 04', 'colar-04', 'biojoias', '/img/brinco-flor-madeira-close.jpg',
-     'Close de brinco floral de madeira entalhada com contas claras', 5),
-    ('Colar 05', 'colar-05', 'biojoias', '/img/brinco-folha-madeira-orelha.jpg',
-     'Brinco de folhas de madeira com miçangas creme, em uso', 6),
-    ('Colar 06', 'colar-06', 'biojoias', '/img/brinco-gota-verde.jpg',
-     'Brinco em formato de gota em resina verde, estilo boho', 7)
-  ) as v (nome, slug, categoria, imagem, alt, ordem)
+    ('Body Splash Raiz', 'body-splash-raiz', 'body-splash', '/img/produtos/body-splash-raiz.jpg',
+     'Frasco de Body Splash Ama Bioessência Raiz, 200 mL, com rótulo verde e dourado',
+     'Raiz faz parte da coleção de Body Splashes Ama Bioessência. O nome evoca a conexão com a origem e a identidade da marca. Uma opção de perfumaria corporal em frasco de 200 mL, com válvula spray e a assinatura visual da coleção.',
+     1, 320, 6.0, 6.0, 20.0),
+    ('Body Splash Bruma', 'body-splash-bruma', 'body-splash', '/img/produtos/body-splash-bruma.jpg',
+     'Frasco de Body Splash Ama Bioessência Bruma, 200 mL, com detalhes em rosa',
+     'Bruma integra a coleção de perfumaria corporal Ama Bioessência. Seu nome sugere uma atmosfera de pausa e contemplação, expressa no universo visual da marca. Apresentado em frasco de 200 mL com válvula spray.',
+     2, 320, 6.0, 6.0, 20.0),
+    ('Body Splash Orvalho', 'body-splash-orvalho', 'body-splash', '/img/produtos/body-splash-orvalho.jpg',
+     'Frasco de Body Splash Ama Bioessência Orvalho, 200 mL, com detalhes em verde-água',
+     'Orvalho traz para a coleção um nome inspirado nas primeiras horas do dia. A proposta une perfumaria corporal à identidade botânica de Ama Bioessência. Frasco de 200 mL com válvula spray para compor seu momento de cuidado.',
+     3, 320, 6.0, 6.0, 20.0),
+    ('Body Splash Âmbar', 'body-splash-ambar', 'body-splash', '/img/produtos/body-splash-ambar.jpg',
+     'Frasco de Body Splash Ama Bioessência Âmbar, 200 mL, com detalhes dourados',
+     'Âmbar compõe a coleção de Body Splashes Ama Bioessência com uma apresentação marcada por detalhes dourados. O nome identifica esta versão da linha de perfumaria corporal. Disponível em frasco de 200 mL com válvula spray.',
+     4, 320, 6.0, 6.0, 20.0),
+    ('Creme Hidratante Ameixa Negra', 'creme-hidratante-ameixa-negra', 'cremes-hidratantes', '/img/produtos/creme-hidratante-ameixa-negra.jpg',
+     'Frasco âmbar do Creme Hidratante Ama Bioessência Ameixa Negra, 200 mL, com válvula dosadora preta',
+     'Ameixa Negra é uma das quatro versões do Creme Hidratante Ama Bioessência. Sua apresentação combina frasco âmbar, válvula dosadora preta e um rótulo com referências botânicas. Um convite a reservar um momento para o cuidado corporal, em embalagem de 200 mL.',
+     5, 300, 6.0, 6.0, 19.0),
+    ('Creme Hidratante Cupuaçu', 'creme-hidratante-cupuacu', 'cremes-hidratantes', '/img/produtos/creme-hidratante-cupuacu.jpg',
+     'Frasco âmbar do Creme Hidratante Ama Bioessência Cupuaçu, 200 mL, com válvula dosadora preta',
+     'A versão Cupuaçu integra a linha de Cremes Hidratantes Ama Bioessência e destaca uma referência amazônica presente no nome e na arte do rótulo. A embalagem de 200 mL traz frasco âmbar e válvula dosadora preta para o cuidado corporal.',
+     6, 300, 6.0, 6.0, 19.0),
+    ('Creme Hidratante Cumaru', 'creme-hidratante-cumaru', 'cremes-hidratantes', '/img/produtos/creme-hidratante-cumaru.jpg',
+     'Frasco âmbar do Creme Hidratante Ama Bioessência Cumaru, 200 mL, com válvula dosadora preta',
+     'Cumaru dá nome a uma das versões do Creme Hidratante Ama Bioessência. A identidade do produto aproxima o cuidado corporal do repertório amazônico da marca. Apresentado em frasco âmbar de 200 mL com válvula dosadora preta.',
+     7, 300, 6.0, 6.0, 19.0),
+    ('Creme Hidratante Capim-Limão', 'creme-hidratante-capim-limao', 'cremes-hidratantes', '/img/produtos/creme-hidratante-capim-limao.jpg',
+     'Frasco âmbar do Creme Hidratante Ama Bioessência Capim-Limão, 200 mL, com válvula dosadora preta',
+     'Capim-Limão integra a coleção de Cremes Hidratantes Ama Bioessência. Folhas e detalhes dourados no rótulo reforçam sua linguagem botânica. A versão chega em frasco âmbar de 200 mL com válvula dosadora preta para compor a rotina de cuidado corporal.',
+     8, 300, 6.0, 6.0, 19.0),
+    ('Sabonete Líquido Íntimo Barbatimão & Andiroba', 'sabonete-liquido-intimo-barbatimao-andiroba', 'sabonete-liquido-intimo',
+     '/img/produtos/sabonete-liquido-intimo-barbatimao-andiroba.jpg',
+     'Frasco do Sabonete Líquido Íntimo Ama Bioessência Barbatimão & Andiroba, 250 mL, com válvula dosadora',
+     'O Sabonete Líquido Íntimo Barbatimão & Andiroba integra a linha de higiene Ama Bioessência. A apresentação de 250 mL, com válvula dosadora, mantém a identidade verde e dourada da coleção. Produto destinado à higiene íntima externa, conforme as orientações do rótulo.',
+     9, 340, 6.0, 6.0, 20.0),
+    ('Sabonete Sólido Manteiga de Cupuaçu', 'sabonete-solido-manteiga-cupuacu', 'sabonete-solido',
+     '/img/produtos/sabonete-solido-manteiga-cupuacu.jpg',
+     'Barra do Sabonete Sólido Ama Bioessência Manteiga de Cupuaçu, 90 g, com rótulo botânico verde',
+     'O Sabonete Sólido Manteiga de Cupuaçu apresenta uma barra retangular clara, com rótulo botânico que destaca a referência amazônica do produto. A versão de 90 g completa a coleção de saboaria Ama Bioessência para o cuidado de todos os dias.',
+     10, 110, 3.0, 6.0, 9.0),
+    ('Nome em Produção', 'biojoia-01', 'biojoias', '/img/colar-atelie-verde.jpg',
+     'Colar de sementes verdes com pingentes de madeira em formato de folha', 'Descrição em Produção', 11, 120, 4.0, 12.0, 16.0),
+    ('Nome em Produção', 'biojoia-02', 'biojoias', '/img/colar-floral-rosa-madeira.jpg',
+     'Colar floral com contas brancas, rosa e detalhes de madeira', 'Descrição em Produção', 12, 120, 4.0, 12.0, 16.0),
+    ('Nome em Produção', 'biojoia-03', 'biojoias', '/img/retrato-colar-preto-branco.jpg',
+     'Mulher usando colar artesanal preto e branco sobre blusa estampada', 'Descrição em Produção', 13, 120, 4.0, 12.0, 16.0),
+    ('Nome em Produção', 'biojoia-04', 'biojoias', '/img/brinco-flor-madeira-close.jpg',
+     'Close de brinco floral de madeira entalhada com contas claras', 'Descrição em Produção', 14, 100, 4.0, 12.0, 16.0),
+    ('Nome em Produção', 'biojoia-05', 'biojoias', '/img/brinco-folha-madeira-orelha.jpg',
+     'Brinco de folhas de madeira com miçangas creme, em uso', 'Descrição em Produção', 15, 100, 4.0, 12.0, 16.0),
+    ('Nome em Produção', 'biojoia-06', 'biojoias', '/img/brinco-gota-verde.jpg',
+     'Brinco em formato de gota em resina verde, estilo boho', 'Descrição em Produção', 16, 100, 4.0, 12.0, 16.0)
+  ) as v (nome, slug, categoria, imagem, alt, descricao, ordem, peso, altura, largura, comprimento)
 on conflict (slug) do nothing;
