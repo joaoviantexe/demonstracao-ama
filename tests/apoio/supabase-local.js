@@ -3,6 +3,8 @@
 
 import { execFile, execFileSync } from 'node:child_process';
 import { createHmac, randomUUID } from 'node:crypto';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { createClient } from '@supabase/supabase-js';
 
@@ -15,29 +17,71 @@ export const LOCAL = Object.freeze({
   dbUrl: 'postgresql://postgres:postgres@127.0.0.1:54322/postgres',
 });
 
+// Raiz do repositório (tests/apoio/ → ../../) e o script que roda o CLI via npx.
+const RAIZ = fileURLToPath(new URL('../../', import.meta.url));
+const SCRIPT_CLI = join(RAIZ, 'scripts', 'supabase-local.sh');
+
+// Nome no "status -o env" do CLI → nome da variável de ambiente equivalente.
+// O CLI novo imprime PUBLISHABLE_KEY/SECRET_KEY e ainda as antigas ANON_KEY/SERVICE_ROLE_KEY.
+const NOMES_CLI = {
+  PUBLISHABLE_KEY: 'SUPABASE_PUBLISHABLE_KEY',
+  ANON_KEY: 'SUPABASE_ANON_KEY',
+  SECRET_KEY: 'SUPABASE_SECRET_KEY',
+  SERVICE_ROLE_KEY: 'SUPABASE_SERVICE_ROLE_KEY',
+  JWT_SECRET: 'SUPABASE_JWT_SECRET',
+  API_URL: 'SUPABASE_URL',
+  DB_URL: 'SUPABASE_DB_URL',
+};
+
+/** Interpreta a saída de "status -o env" (linhas NOME="valor"; ruído do npx é ignorado). */
+export function lerSaidaStatus(saida) {
+  const valores = {};
+  for (const linha of String(saida || '').split(/\r?\n/)) {
+    const m = linha.trim().match(/^(?:export\s+)?([A-Z][A-Z0-9_]*)=(?:"([^"]*)"|'([^']*)'|(\S*))$/);
+    if (!m) continue;
+    const nome = NOMES_CLI[m[1]];
+    const valor = m[2] ?? m[3] ?? m[4] ?? '';
+    if (nome && valor) valores[nome] = valor;
+  }
+  return valores;
+}
+
 let chavesCache;
 /**
- * Lê as chaves do Supabase local pelo CLI ("supabase status -o env") quando elas não
- * vieram do ambiente. Assim nenhuma chave fica escrita no repositório.
- * Defina SUPABASE_CLI para apontar para outro executável (ex.: node_modules/.bin/supabase).
+ * Lê as chaves do Supabase local pelo CLI ("status -o env") quando a chave de serviço
+ * não veio do ambiente. Assim nenhuma chave fica escrita no repositório.
+ * Padrão: scripts/supabase-local.sh do próprio repositório (roda o CLI via npx).
+ * SUPABASE_CLI aponta para outro executável (ex.: "supabase" ou node_modules/.bin/supabase).
+ * O resultado (inclusive a falha) fica em cache: o CLI roda no máximo uma vez por processo.
  */
-function chavesDoCli() {
+export function chavesDoCli() {
   if (chavesCache) return chavesCache;
   chavesCache = {};
-  const temChaves = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
-  if (temChaves) return chavesCache;
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY) return chavesCache;
+  const cli = process.env.SUPABASE_CLI || SCRIPT_CLI;
+  const [comando, args] = cli.endsWith('.sh') ? ['bash', [cli]] : [cli, []];
   try {
-    const cli = process.env.SUPABASE_CLI || 'supabase';
-    const saida = execFileSync(cli, ['status', '-o', 'env'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-    for (const linha of saida.split('\n')) {
-      const m = linha.match(/^([A-Z_]+)="?([^"]*)"?$/);
-      if (!m) continue;
-      if (m[1] === 'SECRET_KEY') chavesCache.SUPABASE_SECRET_KEY = m[2];
-      if (m[1] === 'SERVICE_ROLE_KEY') chavesCache.SUPABASE_SERVICE_ROLE_KEY ||= m[2];
-      if (m[1] === 'JWT_SECRET') chavesCache.SUPABASE_JWT_SECRET = m[2];
-    }
-  } catch { /* sem CLI: o chamador recebe serviceKey indefinida e o teste explica */ }
+    const saida = execFileSync(comando, [...args, 'status', '-o', 'env'], {
+      cwd: RAIZ,
+      env: { ...process.env, DO_NOT_TRACK: '1', SUPABASE_TELEMETRY_DISABLED: '1' },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 180_000,
+    });
+    chavesCache = lerSaidaStatus(saida);
+  } catch (erro) {
+    // A saída pode ter vindo mesmo com código de saída diferente de zero.
+    chavesCache = lerSaidaStatus(erro && erro.stdout);
+  }
   return chavesCache;
+}
+
+/** Primeiro valor definido entre os nomes: o ambiente tem prioridade sobre o CLI. */
+function primeiro(...nomes) {
+  for (const nome of nomes) if (process.env[nome]) return process.env[nome];
+  const doCli = chavesDoCli();
+  for (const nome of nomes) if (doCli[nome]) return doCli[nome];
+  return undefined;
 }
 
 const OPCOES_CLIENTE = {
@@ -46,12 +90,11 @@ const OPCOES_CLIENTE = {
 
 /** { url, anonKey, serviceKey, dbUrl } — do ambiente, com padrão no Supabase local. */
 export function ambienteLocal() {
-  const env = { ...chavesDoCli(), ...process.env };
   return {
-    url: (env.SUPABASE_URL || LOCAL.url).replace(/\/+$/, ''),
-    anonKey: env.SUPABASE_ANON_KEY || env.SUPABASE_PUBLISHABLE_KEY || LOCAL.publishableKey,
-    serviceKey: env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY,
-    dbUrl: env.SUPABASE_DB_URL || LOCAL.dbUrl,
+    url: (primeiro('SUPABASE_URL') || LOCAL.url).replace(/\/+$/, ''),
+    anonKey: primeiro('SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_ANON_KEY') || LOCAL.publishableKey,
+    serviceKey: primeiro('SUPABASE_SECRET_KEY', 'SUPABASE_SERVICE_ROLE_KEY'),
+    dbUrl: primeiro('SUPABASE_DB_URL') || LOCAL.dbUrl,
   };
 }
 
@@ -121,9 +164,10 @@ function base64url(texto) {
   return Buffer.from(texto).toString('base64url');
 }
 
-// Plano B: se o provedor de e-mail do Auth local estiver desligado
-// ([auth.email] enable_signup = false no config.toml), assina localmente um JWT
-// de sessão com o segredo de desenvolvimento do CLI. Só funciona no Supabase local.
+// Plano B, só como último recurso: se o provedor de e-mail do Auth local estiver
+// desligado, assina localmente um JWT HS256 com o segredo de desenvolvimento do CLI.
+// O Auth local atual assina as sessões com ES256, então este token provavelmente será
+// recusado; o caminho normal (e testado) é o signInWithPassword em clienteLogado().
 async function tokenLocal(email) {
   const segredo = process.env.SUPABASE_JWT_SECRET || chavesDoCli().SUPABASE_JWT_SECRET || LOCAL.jwtSecret;
   const servico = clienteServico();

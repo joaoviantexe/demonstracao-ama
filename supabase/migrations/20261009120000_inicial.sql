@@ -912,7 +912,10 @@ begin
     v_valor := btrim(p_pagamento ->> 'transaction_amount')::numeric;
   end if;
   -- Reais → centavos (limite só para não estourar bigint com valores absurdos).
-  v_valor_cent := round(least(v_valor, 1000000000000) * 100);
+  -- Atenção: least() ignora NULL; sem valor informado, v_valor_cent fica NULL (divergente).
+  if v_valor is not null then
+    v_valor_cent := round(least(v_valor, 1000000000000) * 100);
+  end if;
 
   -- Trava o pedido: chamadas simultâneas (webhook + retorno) esperam a vez.
   select * into v_pedido
@@ -936,7 +939,12 @@ begin
   ) into v_repetido;
 
   -- Novo status do pedido -----------------------------------------------------
-  if v_status in ('approved', 'authorized') then
+  -- Um evento já processado (mesmo payment id e mesmo status) não muda mais o
+  -- pedido nem o estoque: o reenvio do webhook ou o cliente recarregando a
+  -- página de retorno não desfazem uma alteração manual (ex.: cancelamento).
+  if v_repetido then
+    null;
+  elsif v_status in ('approved', 'authorized') then
     if v_valor_cent is null or v_valor_cent < v_pedido.total_centavos - 1 then
       v_divergente := true;
       if v_anterior in ('aguardando_pagamento', 'pagamento_em_analise', 'cancelado') then
@@ -960,12 +968,12 @@ begin
 
   -- Um pagamento diferente, pendente ou recusado, não apaga os dados de um
   -- pagamento já aprovado (ex.: webhook atrasado de uma tentativa anterior).
-  v_atualizar := not (
+  v_atualizar := not coalesce(
     v_pedido.mp_payment_id is not null
     and v_id is distinct from v_pedido.mp_payment_id
     and v_pedido.status_pagamento in ('approved', 'authorized')
-    and v_status not in ('approved', 'authorized', 'refunded', 'charged_back')
-  );
+    and v_status not in ('approved', 'authorized', 'refunded', 'charged_back'),
+    false);
 
   update public.pedidos
      set status                   = v_novo,
@@ -979,13 +987,13 @@ begin
   -- Estoque -------------------------------------------------------------------
   -- Pagamento aprovado (com valor correto) num pedido que está em situação de
   -- pago: baixa o estoque uma única vez.
-  if v_status in ('approved', 'authorized') and not v_divergente
+  if not v_repetido and v_status in ('approved', 'authorized') and not v_divergente
      and v_novo in ('pago', 'em_separacao', 'enviado', 'entregue')
      and not v_pedido.estoque_baixado then
     v_faltas := public._baixar_estoque(p_pedido_id);
   end if;
 
-  if v_novo = 'reembolsado' and v_pedido.estoque_baixado then
+  if not v_repetido and v_novo = 'reembolsado' and v_pedido.estoque_baixado then
     perform public._repor_estoque(p_pedido_id);
   end if;
 
