@@ -50,7 +50,7 @@ api/                         Funções serverless (cada arquivo = uma rota)
                              projeto Supabase gratuito não ser pausado por inatividade)
 lib/                         Código compartilhado do servidor (não vira rota)
   ambiente.js  http.js  supabase.js  dinheiro.js  validacao.js
-  mercadopago.js  melhorenvio.js  frete.js  loja.js  email.js  admin.js
+  mercadopago.js  melhorenvio.js  frete.js  cep.js  loja.js  email.js  admin.js
 public/                      Tudo que é servido estaticamente
   css/estilo.css             (existente) + estilos do banner da loja
   css/loja.css               estilos da loja
@@ -221,8 +221,11 @@ Todas `security definer`, `set search_path = ''` (nomes totalmente qualificados)
     "cupom": { "codigo": "AMA10", "valido": true, "tipo": "percentual", "mensagem": "Cupom aplicado: 10% de desconto" } | null,
     "frete_gratis_cupom": false }
   ```
-  `motivo` ∈ `null | 'inexistente' | 'inativo' | 'sem_estoque' | 'estoque_insuficiente'`.
+  `motivo` ∈ `null | 'inexistente' | 'inativo' | 'sem_preco' | 'sem_estoque' | 'estoque_insuficiente'`.
+  `sem_preco` = produto ativo (visível na vitrine) com preço efetivo 0: a loja mostra "R$ 00,00" e "Em breve".
   Itens indisponíveis entram na lista com `disponivel: false` e **não** somam no subtotal.
+  Para `inexistente` e `inativo` (produto despublicado) a função **não expõe** dados do produto:
+  `nome`, `slug`, `imagem` e `estoque_disponivel` vêm `null` e `preco_unitario_centavos` 0.
   `estoque_disponivel` é `null` quando `controlar_estoque = false`.
   Cupom inválido → `valido: false` + mensagem (`Cupom não encontrado`, `Cupom expirado`, `Cupom esgotado`,
   `Valor mínimo para este cupom: R$ X`), desconto 0. Desconto: percentual = `floor(subtotal * valor / 100)`;
@@ -244,9 +247,15 @@ Todas `security definer`, `set search_path = ''` (nomes totalmente qualificados)
     (`estoque_baixado = false`) baixa estoque (`greatest(0, estoque − qtd)` só onde `controlar_estoque`),
     registra `alerta` se faltou estoque, marca `estoque_baixado = true` e soma 1 em `cupons.usos`.
   - `pending`/`in_process`/`in_mediation`: só muda para `pagamento_em_analise` se estava `aguardando_pagamento`.
-  - `rejected`/`cancelled`: não muda o status do pedido (cliente pode tentar de novo); só registra.
-  - `refunded`/`charged_back`: → `reembolsado`; se `estoque_baixado`, devolve o estoque e zera a flag.
+  - `rejected`/`cancelled`: não muda o status do pedido (cliente pode tentar de novo); só registra. Exceção: se o
+    pedido está em `pagamento_em_analise` por causa **deste mesmo** pagamento (mesmo `mp_payment_id`, que estava
+    `pending|in_process|in_mediation`), volta para `aguardando_pagamento` (Pix/boleto expirado, cartão recusado).
+  - `refunded`/`charged_back`: → `reembolsado`; se `estoque_baixado`, devolve o estoque e zera a flag. Exceção: se
+    outro pagamento do mesmo pedido continua aprovado (último evento dele é `approved|authorized`), o pedido
+    mantém o status e grava um `alerta` ("pagamento duplicado estornado").
   - Nunca regride `em_separacao|enviado|entregue` para `pago`.
+  - Evento repetido (mesmo `payment_id` e mesmo `status`, autor `mercadopago`) não altera status nem estoque.
+  - Um pagamento pendente/recusado de outra tentativa não apaga os dados de um pagamento já aprovado.
   - Sempre atualiza `status_pagamento`, `status_pagamento_detalhe`, `mp_payment_id`, `metodo_pagamento`
     (`payment_type_id`) e grava evento `pagamento` (autor `mercadopago`). Evento repetido (mesmo payment id e
     mesmo status) não é gravado de novo.
@@ -254,7 +263,7 @@ Todas `security definer`, `set search_path = ''` (nomes totalmente qualificados)
 
 - `public.alterar_status_pedido(p_pedido_id uuid, p_status text, p_autor text, p_nota text default null, p_repor_estoque boolean default false, p_rastreio jsonb default null) returns jsonb` — **somente `service_role`**.
   Ajusta `enviado_em`/`entregue_em`/`cancelado_em`; em `cancelado`/`reembolsado` com `p_repor_estoque` e `estoque_baixado`, devolve o estoque.
-  `p_rastreio` = `{codigo_rastreio, url_rastreio}` opcional. Grava evento `status`. Saída `{ status_anterior, status_novo }`.
+  `p_rastreio` = `{codigo_rastreio, url_rastreio}` opcional (`url_rastreio` só `https://`, sem aspas, `<`, `>` ou crase). Grava evento `status`. Saída `{ status_anterior, status_novo }`.
 
 ### 4.3 RLS
 
@@ -266,7 +275,7 @@ Todas `security definer`, `set search_path = ''` (nomes totalmente qualificados)
 | `categorias` | select onde `ativo` | idem | tudo |
 | `produtos` | select onde `ativo` | idem | tudo |
 | `cupons` | — | — | tudo |
-| `pedidos`, `pedido_itens`, `pedido_eventos` | — | — | select, update, delete (e insert em `pedido_eventos` para notas) |
+| `pedidos`, `pedido_itens`, `pedido_eventos` | — | — | select, update, delete (e insert em `pedido_eventos` só com `tipo = 'nota'`) |
 
 O `service_role` ignora RLS (usado só pelas funções da Vercel).
 
@@ -279,11 +288,18 @@ Pastas: `site/` (CMS), `produtos/`, `videos/`. Nome de arquivo: `<pasta>/<aaaa-m
 
 ### 4.5 Seeds
 
-A própria migração cria: as 4 linhas de `configuracoes`; categorias `Biojoias` (slug `biojoias`) e
-`Cosméticos` (`cosmeticos`); e os 7 produtos que hoje aparecem na home (mesmos nomes, imagens `/img/...`,
-descrição "Em produção.", preço 0, **inativos**) para a AMA só ajustar preço e ativar.
-`supabase/seed.sql` (só desenvolvimento) cria um admin `admin@ama.local` / `admin123456`, ativa os produtos com
-preços de exemplo e cria o cupom `AMA10`.
+A própria migração cria: as 4 linhas de `configuracoes`; as categorias da coleção **Ama Bioessência**
+(`body-splash`, `cremes-hidratantes`, `sabonete-liquido-intimo`, `sabonete-solido`) e `biojoias`; e o catálogo
+inicial, **ativo e com preço 0** (aparece na vitrine como "R$ 00,00" e só pode ser comprado depois que a AMA
+definir o preço no painel):
+- 10 produtos Ama Bioessência com nome e descrição da apresentação institucional e fotos em `/img/produtos/…`:
+  Body Splash Raiz, Bruma, Orvalho e Âmbar (200 mL); Creme Hidratante Ameixa Negra, Cupuaçu, Cumaru e
+  Capim-Limão (200 mL); Sabonete Líquido Íntimo Barbatimão & Andiroba (250 mL); Sabonete Sólido Manteiga de Cupuaçu (90 g).
+- 6 biojoias (`biojoia-01` … `biojoia-06`) com nome "Nome em Produção", descrição "Descrição em Produção" e as fotos do ateliê.
+
+`supabase/seed.sql` (só desenvolvimento) cria um admin `admin@ama.local` / `admin123456`, dá preços e estoque de
+exemplo aos produtos Ama Bioessência (as biojoias ficam com preço 0 para testar o "Em breve"), deixa um produto em
+promoção, cria os cupons `AMA10` e `FRETEGRATIS` e preenche a origem do frete com dados fictícios.
 
 ## 5. CMS — conteúdo editável da home
 
@@ -325,6 +341,10 @@ Regras:
   são inseridos, na ordem, onde estava o primeiro item. Lista vazia `[]` remove todos os itens.
 - Valor ausente, `null` ou de formato errado → mantém o padrão do template (nunca quebra a página).
 - Listas não podem ser aninhadas.
+- Uma lista cujo valor tem os mesmos itens, com os mesmos valores e na mesma ordem dos itens atuais, não é tocada
+  (aplicar duas vezes dá o mesmo HTML).
+- Chaves, ids de grupo e `data-cms-tipo` valem só exatamente no padrão (sem maiúsculas). Em um `<a>` com ícone
+  (filhos elemento), o texto só é editável se houver `[data-cms-link-texto]`.
 
 ### 5.3 Tipos de campo
 
@@ -347,7 +367,7 @@ Rejeita qualquer outro esquema (`javascript:`, `data:`, `vbscript:` …), inclus
 `sanitizarHtml(html, documento)`: permite `p, br, strong, b, em, i, u, s, a, ul, ol, li, blockquote, h3, h4, span`;
 em `a` só `href` (seguro), `target="_blank"` e força `rel="noopener noreferrer"` quando há `target`;
 todos os outros atributos são removidos; `script, style, iframe, object, embed, svg, math, template, noscript`
-e seus conteúdos são removidos; outras tags são "desembrulhadas" (fica o conteúdo).
+e seus conteúdos são removidos (também `frame, noembed, noframes, xmp, plaintext, applet, head, img, input, source, track, param, link, meta, base`); outras tags são "desembrulhadas" (fica o conteúdo).
 
 `instagramParaEmbed`: aceita `https://www.instagram.com/(p|reel|tv)/<codigo>/...` (com ou sem `www`, com query)
 e devolve `https://www.instagram.com/<tipo>/<codigo>/embed/captioned/`. URL inválida → mantém o padrão.
@@ -462,7 +482,7 @@ Saída:
 - Melhor Envio (se configurado e `melhor_envio.ativo`): cota os serviços configurados com origem `frete.origem.cep`,
   produtos com peso/dimensões (mínimos dos Correios garantidos), seguro = valor dos itens se `seguro`.
   Soma `prazo_extra_dias` e `taxa_extra_centavos`. Ignora serviços com `error`. Usa `custom_price`/`custom_delivery_time` quando existirem.
-- Fixo (se `fixo.ativo`): opções cuja lista `ufs` contém a UF do CEP (UF vem do ViaCEP no servidor; lista vazia = todas).
+- Fixo (se `fixo.ativo`): opções cuja lista `ufs` contém a UF do CEP (a UF sai da tabela de faixas de CEP em `lib/cep.js`, sem rede; lista vazia = todas).
 - Retirada (se `retirada.ativa`): sempre disponível, preço 0.
 - Frete grátis: se cupom `frete_gratis` ou subtotal (após desconto) ≥ `loja.frete_gratis_acima_centavos`,
   a opção paga **mais barata** fica com preço 0 e `gratis: true`.
@@ -559,6 +579,9 @@ Leitura de produtos pelo navegador (RLS garante só ativos):
 `GET <supabaseUrl>/rest/v1/produtos?select=id,nome,slug,descricao,preco_centavos,preco_promocional_centavos,estoque,controlar_estoque,imagens,destaque,categoria_id,categorias(nome,slug)&ativo=eq.true&order=destaque.desc,ordem.asc,criado_em.desc`.
 Categorias: `GET /rest/v1/categorias?select=id,nome,slug&ativo=eq.true&order=ordem.asc`.
 Configuração pública: `GET /rest/v1/configuracoes?select=valor&chave=eq.loja`.
+
+Produto com preço 0 (ativo): aparece com o preço "R$ 00,00", selo "Em breve", botões de compra desativados e
+"Encomendar pelo WhatsApp". O servidor recusa a venda (`motivo: 'sem_preco'`).
 
 Funcionalidades: busca, filtro por categoria (na URL `?categoria=`), ordenação, selo de promoção e "esgotado",
 página de produto com galeria e miniaturas, quantidade limitada ao estoque, "Adicionar ao carrinho" e "Comprar agora",
