@@ -1,6 +1,6 @@
 // Biblioteca de interface do painel (contrato em docs/PAINEL.md e docs/ARQUITETURA.md §8).
-// As funções de formatação são puras e rodam no Node (tests/unit/painel-ui.test.js); as que
-// mexem na página só tocam no `document` global quando são chamadas.
+// As funções de formatação são puras e rodam no Node; as que mexem na página só tocam no
+// `document` global quando são chamadas (testes em tests/unit/painel-ui.test.js, com linkedom).
 
 // ---------------------------------------------------------------------------
 // Status de pedido
@@ -275,10 +275,11 @@ function adicionarFilhos(alvo, filhos) {
 /**
  * Cria um elemento sem nunca interpretar HTML.
  * - filhos: texto/números viram nós de texto; elementos são anexados; arrays são achatados;
- *   null/undefined/false são ignorados.
+ *   null/undefined/false/true são ignorados (para `cond && el(...)`).
  * - attrs: class (texto ou lista), dataset {chave: valor}, style (texto ou objeto),
  *   eventos { click: fn, input: fn }, value/checked/selected (propriedades), booleanos
- *   (true → atributo vazio; false/null/undefined → omitido), demais → setAttribute.
+ *   (true → atributo vazio; false/null/undefined → omitido; em aria-* viram "true"/"false"),
+ *   demais → setAttribute.
  * - Atributos on* (onclick…), srcdoc e innerHTML lançam TypeError. URLs perigosas em
  *   href/src/action/poster… (javascript:, data: …) são descartadas com aviso no console.
  */
@@ -295,7 +296,13 @@ export function el(tag, attrs, ...filhos) {
   for (const [nome, valor] of Object.entries(attrs || {})) {
     if (/^on/i.test(nome)) throw new TypeError(`el(): atributo "${nome}" proibido; use eventos: { ${nome.slice(2).toLowerCase() || 'click'}: fn }`);
     if (ATRIBUTOS_PROIBIDOS.has(nome.toLowerCase())) throw new TypeError(`el(): atributo "${nome}" proibido`);
-    if (valor === null || valor === undefined || valor === false) continue;
+    if (valor === null || valor === undefined) continue;
+    // ARIA não tem atributo booleano: omitir não é "false" e vazio não é "true".
+    if (typeof valor === 'boolean' && /^aria-[a-z]+$/i.test(nome)) {
+      elemento.setAttribute(nome, String(valor));
+      continue;
+    }
+    if (valor === false) continue;
     if (nome === 'class' || nome === 'className') {
       const classes = Array.isArray(valor) ? valor.filter(Boolean).join(' ') : String(valor);
       if (classes.trim()) elemento.setAttribute('class', classes.trim());
@@ -669,15 +676,20 @@ export function seloStatusPedido(status) {
   return el('span', { class: ['selo', `selo--${corStatusPedido(status)}`] }, rotuloStatusPedido(status));
 }
 
+// Elementos que precisam ficar por cima da camada do link da linha (tabela com `link`).
+const INTERATIVOS = 'a[href], button, input, select, textarea, label, summary, [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
+
 /**
  * Tabela que vira lista de cartões no celular.
  * colunas: [{ titulo, chave?, celula?(linha, i) → Node|texto, alinhar?: 'direita'|'centro', principal?, classe?, ocultarNoCelular? }]
- * linhas: array de objetos; link?(linha) → hash da linha (a coluna principal vira link que cobre a linha).
- * vazio: texto quando não há linhas. legenda: descrição para leitores de tela.
+ * linhas: array de objetos; link?(linha) → hash da linha (a coluna principal vira link que cobre a linha;
+ * botões, links e entradas das outras células continuam clicáveis por cima dele).
+ * Célula vazia → "—"; booleano → "Sim"/"Não". vazio: texto quando não há linhas. legenda: para leitores de tela.
  */
 export function tabela({ colunas = [], linhas = [], link, vazio = 'Nada por aqui ainda.', legenda, classe } = {}) {
   if (!linhas.length) return estadoVazio(null, vazio);
   const principal = colunas.findIndex((c) => c.principal);
+  const colunaLink = principal >= 0 ? principal : 0;
   const cabecalho = el('thead', {}, el('tr', {}, colunas.map((c) => el('th', {
     scope: 'col', class: [c.alinhar && `alinhar-${c.alinhar}`, c.ocultarNoCelular && 'oculto-celular', c.classe],
   }, c.titulo))));
@@ -686,13 +698,15 @@ export function tabela({ colunas = [], linhas = [], link, vazio = 'Nada por aqui
     return el('tr', { class: destino ? 'tabela__linha--link' : null }, colunas.map((c, j) => {
       let conteudo = c.celula ? c.celula(linha, i) : linha[c.chave];
       if (conteudo === null || conteudo === undefined || conteudo === '') conteudo = '—';
-      if (destino && j === (principal >= 0 ? principal : 0)) {
-        conteudo = el('a', { class: 'tabela__link', href: destino }, conteudo);
-      }
-      return el('td', {
+      else if (typeof conteudo === 'boolean') conteudo = conteudo ? 'Sim' : 'Não';
+      const ehLink = destino && j === colunaLink;
+      if (ehLink) conteudo = el('a', { class: 'tabela__link', href: destino }, conteudo);
+      const celula = el('td', {
         'data-rotulo': c.titulo,
         class: [c.alinhar && `alinhar-${c.alinhar}`, j === principal && 'tabela__principal', c.ocultarNoCelular && 'oculto-celular', c.classe],
       }, conteudo);
+      if (destino && !ehLink && celula.querySelector(INTERATIVOS)) celula.classList.add('tabela__celula--interativa');
+      return celula;
     }));
   }));
   return el('div', { class: ['tabela-container', classe] },
@@ -798,11 +812,15 @@ export function estadoErro(container, msg, { titulo = 'Algo deu errado', aoTenta
     aoTentarNovamente ? botao({ texto: 'Tentar novamente', icone: 'atualizar', aoClicar: aoTentarNovamente }) : null));
 }
 
-/** Caixa de aviso: tipo info | sucesso | alerta | erro. */
+// Tipos de aviso e toast. 'alerta' e 'aviso' são a mesma cor âmbar (os dois nomes valem nas duas funções).
+const TIPOS_AVISO = Object.freeze({ info: 'info', sucesso: 'sucesso', erro: 'erro', alerta: 'alerta', aviso: 'alerta' });
+const ICONES_AVISO = Object.freeze({ info: 'info', sucesso: 'sucesso', erro: 'erro', alerta: 'alerta' });
+
+/** Caixa de aviso: tipo info | sucesso | alerta (ou 'aviso') | erro; desconhecido → info. */
 export function aviso(mensagem, tipo = 'info', { titulo } = {}) {
-  const icones = { info: 'info', sucesso: 'sucesso', alerta: 'alerta', erro: 'erro' };
-  return el('div', { class: ['aviso', `aviso--${tipo}`], role: tipo === 'erro' ? 'alert' : null },
-    icone(icones[tipo] || 'info'),
+  const tipoValido = TIPOS_AVISO[tipo] || 'info';
+  return el('div', { class: ['aviso', `aviso--${tipoValido}`], role: tipoValido === 'erro' ? 'alert' : null },
+    icone(ICONES_AVISO[tipoValido]),
     el('div', { class: 'aviso__texto' }, titulo ? el('strong', { class: 'aviso__titulo' }, titulo) : null, el('div', {}, mensagem)));
 }
 
@@ -827,16 +845,16 @@ function obterRegiaoToasts() {
 }
 
 /**
- * Mensagem passageira. tipo: info | sucesso | erro | aviso. Erros ficam 8 s; os demais 4,5 s.
- * opções: { duracao (ms, 0 = só fecha no X) }. Devolve fechar().
+ * Mensagem passageira. tipo: info | sucesso | erro | aviso (ou 'alerta'); desconhecido → info.
+ * Erros ficam 8 s; os demais 4,5 s. opções: { duracao (ms, 0 = só fecha no X) }. Devolve fechar().
  */
 export function toast(msg, tipo = 'info', { duracao } = {}) {
   const regiao = obterRegiaoToasts();
-  const icones = { sucesso: 'sucesso', erro: 'erro', aviso: 'alerta', info: 'info' };
-  const tipoValido = icones[tipo] ? tipo : 'info';
+  const tipoAviso = TIPOS_AVISO[tipo] || 'info';
+  const tipoValido = tipoAviso === 'alerta' ? 'aviso' : tipoAviso; // classe toast--aviso
   const fecharBotao = el('button', { type: 'button', class: 'toast__fechar', 'aria-label': 'Fechar aviso' }, icone('fechar'));
   const item = el('div', { class: ['toast', `toast--${tipoValido}`], role: tipoValido === 'erro' ? 'alert' : 'status' },
-    icone(icones[tipoValido]), el('p', { class: 'toast__texto' }, String(msg ?? '')), fecharBotao);
+    icone(ICONES_AVISO[tipoAviso]), el('p', { class: 'toast__texto' }, String(msg ?? '')), fecharBotao);
   let timer = null;
   const fechar = () => {
     clearTimeout(timer);
@@ -861,7 +879,8 @@ export function toast(msg, tipo = 'info', { duracao } = {}) {
 // ---------------------------------------------------------------------------
 // Modal (<dialog> nativo: fundo inerte, Esc, foco preso e devolvido ao fechar)
 
-let modaisAbertos = 0;
+// Controles dos modais abertos, na ordem em que abriram (fecharModais fecha do último para o primeiro).
+const modaisAbertos = new Set();
 const FOCAVEIS = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), video[controls], [contenteditable="true"]';
 
 function focaveis(raiz) {
@@ -873,6 +892,7 @@ function focaveis(raiz) {
  * - Clique numa ação: se tem aoClicar, o botão fica ocupado até a promessa terminar; devolver false
  *   (ou lançar erro, que vira toast) mantém o modal aberto. Senão fecha com `valor` (ou o retorno).
  * - Esc, X e clique fora fecham com null (desligue com fecharComEsc: false / fecharAoClicarFora: false).
+ * - Trocar de rota (inclusive pelo botão Voltar) ou o login aparecer por cima fecha com null (fecharModais).
  * tamanho: pequeno | medio | grande | cheio. Devolve o controle:
  * { elemento, corpo, rodape, resultado: Promise, fechar(valor), definirTitulo(txt), definirOcupado(bool) }.
  */
@@ -909,8 +929,8 @@ export function modal({
       fechado = true;
       try { dialogo.close(); } catch { /* já fechado */ }
       dialogo.remove();
-      modaisAbertos = Math.max(0, modaisAbertos - 1);
-      if (!modaisAbertos) d.documentElement.classList.remove('modal-aberto');
+      modaisAbertos.delete(controle);
+      if (!modaisAbertos.size) d.documentElement.classList.remove('modal-aberto');
       if (anterior && typeof anterior.focus === 'function' && anterior.isConnected) anterior.focus();
       resolver(valor);
     },
@@ -973,7 +993,7 @@ export function modal({
   });
 
   d.body.append(dialogo);
-  modaisAbertos += 1;
+  modaisAbertos.add(controle);
   d.documentElement.classList.add('modal-aberto');
   if (typeof dialogo.showModal === 'function') dialogo.showModal();
   else dialogo.setAttribute('open', '');
@@ -987,6 +1007,16 @@ export function modal({
   alvoFoco.focus();
   if (aoAbrir) aoAbrir(controle);
   return controle;
+}
+
+/**
+ * Fecha todos os modais abertos (o mais recente primeiro); cada `resultado` resolve com `valor`.
+ * O app chama na troca de rota e quando o login aparece por cima. → quantidade fechada.
+ */
+export function fecharModais(valor = null) {
+  const abertos = Array.from(modaisAbertos).reverse();
+  for (const controle of abertos) controle.fechar(valor);
+  return abertos.length;
 }
 
 /**

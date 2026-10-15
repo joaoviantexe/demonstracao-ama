@@ -138,6 +138,7 @@ code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font
   border-bottom:1px solid var(--linha);
 }
 .topo__menu{margin-left:-8px}
+/* Os botões do topo também são .botao (display:inline-flex mais abaixo): ".topo" na frente ganha dele. */
 .topo__marca{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--verde-950);font-family:var(--serif);font-size:1.08rem;white-space:nowrap}
 .topo__marca img{height:26px;width:auto;filter:drop-shadow(0 0 .5px rgba(11,42,28,.6))}
 .topo__marca strong{font-weight:700}
@@ -151,14 +152,14 @@ code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font
 .topo__usuario{display:flex;align-items:center;gap:8px;color:var(--tinta-suave);font-size:.875rem;max-width:280px;min-width:0;margin-right:4px}
 .topo__usuario .icone{color:var(--ouro-600)}
 @media (max-width:639.98px){
-  .topo__sair{display:none}
+  .topo .topo__sair{display:none}
   .topo__alterado{padding:6px}
   .topo__alterado-texto{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
   .topo__ver-site .botao__texto{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
   .topo__ver-site{padding-inline:10px}
 }
 @media (min-width:1024px){
-  .topo__menu,.topo__marca{display:none}
+  .topo .topo__menu,.topo .topo__marca{display:none}
 }
 
 /* ---------- Menu lateral (fixo no desktop, gaveta no celular) ---------- */
@@ -442,6 +443,10 @@ a.metrica:hover{border-color:var(--ouro-500);box-shadow:var(--sombra-2);color:va
 .tabela__linha--link{position:relative;cursor:pointer}
 .tabela__link{color:var(--verde-950);font-weight:700;text-decoration:none}
 .tabela__link::after{content:"";position:absolute;inset:0}
+/* Células com botão, link ou entrada ficam por cima da camada do link: o ui.tabela marca a célula e o :has
+   (regra separada, para não derrubar a primeira em navegador sem :has) cobre conteúdo trocado depois. */
+.tabela__linha--link .tabela__celula--interativa{position:relative;z-index:1}
+.tabela__linha--link td:not(:has(.tabela__link)):has(a[href],button,input,select,textarea,label,summary){position:relative;z-index:1}
 .tabela__link:focus-visible{outline:none}
 .tabela__linha--link:has(.tabela__link:focus-visible){outline:3px solid var(--ouro-500);outline-offset:-3px}
 .tabela__linha--link:hover .tabela__link{text-decoration:underline;text-underline-offset:3px}
@@ -595,6 +600,7 @@ a.metrica:hover{border-color:var(--ouro-500);box-shadow:var(--sombra-2);color:va
 .grade--3{grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr))}
 .grade--4{grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr))}
 .grade--painel{grid-template-columns:minmax(0,1fr);align-items:start}
+.grade__largo{grid-column:1/-1}
 @media (min-width:720px){ .grade{gap:20px} }
 @media (min-width:1100px){ .grade--painel{grid-template-columns:minmax(0,1.65fr) minmax(300px,1fr)} }
 .pilha{display:flex;flex-direction:column;gap:16px;min-width:0}
@@ -625,12 +631,13 @@ a.metrica:hover{border-color:var(--ouro-500);box-shadow:var(--sombra-2);color:va
 .lista-dados > div:last-child{border-bottom:0;padding-bottom:0}
 .lista-dados dt{color:var(--tinta-suave);font-size:.92rem}
 .lista-dados dd{margin:0;font-weight:700;text-align:right;min-width:0;overflow-wrap:anywhere}
-.lista-dados--colunas{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+/* 2 colunas; 4 quando a própria lista tem 36rem ou mais (pela largura do bloco, não da tela: no
+   cartão estreito da lateral continua em 2). O clamp vira 25% acima de 36rem e 50% abaixo. */
+.lista-dados--colunas{grid-template-columns:repeat(auto-fill,minmax(clamp(calc(25% - 10px),calc((36rem - 100%) * 999),calc(50% - 7px)),1fr));gap:12px}
 .lista-dados--colunas > div{flex-direction:column;gap:2px;padding:10px 12px;border:1px solid var(--linha);border-radius:var(--raio);background:var(--superficie-2)}
 .lista-dados--colunas > div:last-child{border-bottom:1px solid var(--linha);padding-bottom:10px}
 .lista-dados--colunas dt{font-size:.8rem;font-weight:600}
 .lista-dados--colunas dd{text-align:left;font-family:var(--serif);font-weight:600;font-size:1.35rem;color:var(--verde-950)}
-@media (min-width:1300px){ .lista-dados--colunas{grid-template-columns:repeat(4,minmax(0,1fr))} }
 
 /* ---------- Atalhos (lista de links com ícone) ---------- */
 .atalhos{display:flex;flex-direction:column}

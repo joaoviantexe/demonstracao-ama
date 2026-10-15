@@ -183,6 +183,8 @@ function mostrarAcesso(conteudo, { titulo = 'Entrar' } = {}) {
   }
   const carregando = raizApp().querySelector('.tela-carregando');
   if (carregando) carregando.remove();
+  // Um <dialog> modal aberto deixaria a tela de acesso inerte (sem como digitar a senha).
+  ui.fecharModais();
   if (estado.painel) estado.painel.raiz.inert = true;
   document.documentElement.classList.add('acesso-aberto');
   estado.telaAcesso.replaceChildren(moldeAcesso(conteudo));
@@ -689,6 +691,8 @@ function executarLimpeza() {
       console.error('[painel] erro na limpeza da página:', erro);
     }
   }
+  // Modais que a página deixou abertos (ex.: botão Voltar com o seletor de mídia aberto).
+  ui.fecharModais();
 }
 
 async function arquivoExiste(url) {
@@ -816,6 +820,7 @@ function focarTitulo(raiz) {
 /**
  * Vai para outra rota. opções: { substituir: true } troca a entrada do histórico;
  * { silencioso: true } só atualiza a URL (ex.: filtros na consulta) sem renderizar de novo.
+ * Sem `silencioso`, destino igual ao hash atual renderiza a página de novo.
  */
 function navegar(destino, { substituir = false, silencioso = false } = {}) {
   const hash = normalizarHash(destino);
@@ -826,7 +831,8 @@ function navegar(destino, { substituir = false, silencioso = false } = {}) {
   }
   if (substituir) {
     window.history.replaceState(window.history.state, '', hash);
-    aoMudarHash();
+    // replaceState não dispara hashchange; forçar cobre o destino igual ao atual ("Tentar novamente").
+    aoMudarHash({ forcar: true });
     return;
   }
   if (window.location.hash === hash) {

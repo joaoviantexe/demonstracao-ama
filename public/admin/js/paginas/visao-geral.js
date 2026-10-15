@@ -74,7 +74,7 @@ export async function renderizar(ctx) {
     cabecalho,
     metricas,
     el('div', { class: 'grade grade--painel' },
-      el('section', { class: 'cartao grade__largo', 'aria-labelledby': 'vg-ultimos' },
+      el('section', { class: 'cartao', 'aria-labelledby': 'vg-ultimos' },
         el('div', { class: 'cartao__cabecalho' },
           el('h2', { class: 'cartao__titulo', id: 'vg-ultimos' }, 'Últimos pedidos'),
           el('a', { class: 'cartao__link', href: '#/pedidos' }, 'Ver todos', icone('avancar'))),
@@ -151,9 +151,12 @@ export async function renderizar(ctx) {
     }),
   );
 
+  // "Tentar novamente": renderiza a visão geral de novo (navegar para o próprio hash).
+  const recarregar = () => ctx.navegar(ctx.hash, { substituir: true });
+
   // Últimos pedidos
   if (!recentes.ok) {
-    ui.estadoErro(ultimos, recentes.mensagem, { aoTentarNovamente: () => ctx.navegar('#/', { substituir: true }) });
+    ui.estadoErro(ultimos, recentes.mensagem, { aoTentarNovamente: recarregar });
   } else if (!recentes.dados.length) {
     ui.estadoVazio(ultimos, 'Quando alguém comprar na loja, o pedido aparece aqui.', { titulo: 'Nenhum pedido ainda', icone: 'pedidos' });
   } else {
@@ -173,7 +176,7 @@ export async function renderizar(ctx) {
 
   // Catálogo
   if (!resumo) {
-    ui.estadoErro(catalogo, produtos.mensagem);
+    ui.estadoErro(catalogo, produtos.mensagem, { aoTentarNovamente: recarregar });
   } else {
     const linhas = [];
     if (resumo.semPreco) {
