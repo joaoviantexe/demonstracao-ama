@@ -219,17 +219,6 @@ function areaCompra(produto, situacao) {
         el('div', { class: 'ficha-botoes' }, adicionar, comprar)),
     );
     blocos.push(calculadoraFrete(produto, () => quantidadeAtual));
-  } else if (situacao.emBreve) {
-    blocos.push(
-      el('div', { class: 'ficha-aviso ficha-aviso--em-breve' },
-        icone('folha'),
-        el('div', {},
-          el('strong', { texto: 'Em breve na loja' }),
-          el('p', { texto: 'Este produto ainda está em produção e logo estará disponível para compra aqui na loja.' }))),
-      el('div', { class: 'ficha-botoes' },
-        el('button', { type: 'button', class: 'botao botao--principal ficha-botao', disabled: true }, icone('carrinho'), 'Adicionar ao carrinho'),
-        el('button', { type: 'button', class: 'botao botao--ouro ficha-botao', disabled: true }, 'Comprar agora')),
-    );
   } else {
     blocos.push(
       el('div', { class: 'ficha-aviso ficha-aviso--esgotado' },
@@ -292,7 +281,6 @@ function renderizarProduto(produto) {
         ...areaCompra(produto, situacao),
         el('ul', { class: 'ficha-garantias' },
           el('li', {}, icone('escudo'), 'Compra segura pelo Mercado Pago'),
-          el('li', {}, icone('caminhao'), 'Entrega ou retirada na sede da AMA'),
           el('li', {}, icone('coracao'), 'Feito por mulheres da Amazônia')))),
     el('section', { class: 'ficha-descricao', 'aria-labelledby': 'descricao-titulo' },
       el('h2', { id: 'descricao-titulo', texto: 'Sobre o produto' }),

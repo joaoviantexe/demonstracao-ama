@@ -172,9 +172,9 @@ describe('templates/home.html — esquema do CMS', () => {
     assert.doesNotMatch(padrao('historia.trechos')[0].texto, /historia-expandir/, 'o botão fixo não entra no texto');
     assert.equal(padrao('historia.coragem-referencia'), 'Josué 1:9');
     assert.deepEqual(padrao('loja.botao'), { href: '/loja/', texto: 'Conhecer a loja' });
-    assert.equal(padrao('loja.subtitulo'), 'Saboaria e perfumaria da Amazônia');
+    assert.equal(padrao('loja.subtitulo'), 'Saboaria, perfumaria e biojoias da Amazônia');
     assert.equal(padrao('loja.frase'), 'Feito com amor, força e raízes da floresta.');
-    assert.match(padrao('loja.imagem-1').src, /^\/img\/produtos\/.+\.jpg$/);
+    assert.match(padrao('loja.imagem-1').src, /^\/img\/.+\.jpg$/);
     assert.equal(padrao('depoimentos.itens').length, 3);
     assert.deepEqual(padrao('depoimentos.itens')[2].nome, 'Maria Rita');
     assert.equal(padrao('parcerias.logos').length, 8);
@@ -369,14 +369,16 @@ describe('templates/home.html — estrutura', () => {
     assert.ok(loja);
     assert.equal(loja.getAttribute('data-cms-grupo'), 'loja');
     assert.ok(loja.hasAttribute('data-cms-ocultavel'));
-    assert.equal(texto($(loja, 'h2')), 'Ama Bioessência');
-    assert.match(texto(loja), /Saboaria e perfumaria da Amazônia/);
+    assert.equal(texto($(loja, 'h2')), 'Cosméticos');
+    assert.match(texto(loja), /Saboaria, perfumaria e biojoias da Amazônia/);
+    assert.match(texto(loja), /sabonetes e biojoias com a essência da Amazônia/);
+    assert.doesNotMatch(texto(loja), /Nova loja virtual/i);
     assert.match(texto(loja), /Feito com amor, força e raízes da floresta\./);
     assert.equal($(loja, 'a.botao').getAttribute('href'), '/loja/');
     assert.equal(texto($(loja, 'a.botao')), 'Conhecer a loja');
     const fotos = $$(loja, 'img').map((i) => i.getAttribute('src'));
     assert.deepEqual(fotos, [
-      '/img/produtos/body-splash-raiz.jpg',
+      '/img/brinco-gota-verde.jpg',
       '/img/produtos/creme-hidratante-cupuacu.jpg',
       '/img/produtos/sabonete-solido-manteiga-cupuacu.jpg',
     ]);

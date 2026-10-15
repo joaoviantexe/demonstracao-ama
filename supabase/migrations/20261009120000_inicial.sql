@@ -1618,7 +1618,7 @@ insert into public.configuracoes (chave, publico, valor) values
   'loja', true,
   '{
     "titulo": "Cosméticos",
-    "subtitulo": "Biojoias e cosméticos feitos à mão por mulheres da Amazônia. Cada compra fortalece os projetos da AMA.",
+    "subtitulo": "Cosméticos e biojoias feitos à mão por mulheres da Amazônia.",
     "whatsapp": "5591981056049",
     "instagram": "oscdemulheres",
     "email_contato": "",
@@ -1682,6 +1682,9 @@ update public.configuracoes
 update public.configuracoes
    set valor = jsonb_set(valor, '{retirada,prazo_texto}', '"Disponível após a confirmação do pagamento"')
  where chave = 'frete' and valor #>> '{retirada,prazo_texto}' = 'Combine a retirada pelo WhatsApp';
+update public.configuracoes
+   set valor = jsonb_set(valor, '{subtitulo}', '"Cosméticos e biojoias feitos à mão por mulheres da Amazônia."')
+ where chave = 'loja' and valor ->> 'subtitulo' = 'Biojoias e cosméticos feitos à mão por mulheres da Amazônia. Cada compra fortalece os projetos da AMA.';
 
 insert into public.categorias (nome, slug, descricao, ordem) values
   ('Body Splash',             'body-splash',             'Perfumaria corporal Ama Bioessência em frasco de 200 mL com válvula spray.', 1),

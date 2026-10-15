@@ -1,12 +1,14 @@
 // Partes comuns das páginas da loja: contador do carrinho no cabeçalho, toasts acessíveis,
-// rodapé e WhatsApp com os dados de configuracoes.loja, aviso de topo, aviso de "loja em
-// configuração", acessibilidade do menu do celular e utilitários de DOM.
+// rodapé igual ao da página inicial (com o conteúdo editado no painel), WhatsApp com os dados de
+// configuracoes.loja, aviso de topo, aviso de "loja em configuração", acessibilidade do menu do
+// celular e utilitários de DOM.
 // Regra de segurança: texto vindo do banco/servidor entra sempre como textContent (el()).
 
-import { carregarConfigLoja, lojaConfigurada } from './config.js';
+import { aplicarConteudo } from '../cms/aplicar.js';
+import { carregarConfigLoja, lojaConfigurada, restGet } from './config.js';
 import { contarUnidades, EVENTO, iniciarSincronizacaoAbas, lerCarrinho } from './carrinho.js';
 import {
-  formatarWhatsapp, linkWhatsapp, pluralizar, somenteDigitos, urlSegura,
+  linkWhatsapp, pluralizar, somenteDigitos, urlSegura,
 } from './formatos.js';
 
 // ---------------------------------------------------------------------------
@@ -207,33 +209,28 @@ function aplicarConfigLoja(cfg) {
   document.querySelectorAll('[data-whatsapp-loja]').forEach((link) => {
     if (wa) link.setAttribute('href', wa);
   });
-  document.querySelectorAll('[data-rodape-whatsapp]').forEach((link) => {
-    if (!wa) return;
-    link.setAttribute('href', wa);
-    link.textContent = formatarWhatsapp(cfg.whatsapp);
-  });
-  document.querySelectorAll('[data-rodape-instagram]').forEach((link) => {
-    const item = link.closest('[data-rodape-item]');
-    if (!cfg.instagram) {
-      if (item) item.hidden = true;
-      return;
-    }
-    link.setAttribute('href', `https://www.instagram.com/${encodeURIComponent(cfg.instagram)}/`);
-    link.textContent = `@${cfg.instagram}`;
-  });
-  document.querySelectorAll('[data-rodape-email]').forEach((link) => {
-    const item = link.closest('[data-rodape-item]');
-    const email = /^[^\s@<>"'`\\]+@[^\s@<>"'`\\]+\.[^\s@<>"'`\\]+$/.test(cfg.email_contato) ? cfg.email_contato : '';
-    if (item) item.hidden = !email;
-    if (email) {
-      link.setAttribute('href', `mailto:${email}`);
-      link.textContent = email;
-    }
-  });
   const main = document.querySelector('main');
   if (cfg.aviso_topo && main && !document.querySelector('.aviso-topo')) {
     main.prepend(el('div', { class: 'aviso-topo', role: 'note' },
       el('div', { class: 'wrap' }, icone('presente'), el('p', { texto: cfg.aviso_topo }))));
+  }
+}
+
+/**
+ * O rodapé das páginas da loja é o mesmo da página inicial (atributos data-cms do grupo "rodape"):
+ * aplica nele o que a AMA editou no painel. Sem conteúdo salvo ou se a leitura falhar, fica o padrão.
+ */
+async function aplicarRodapeDoSite() {
+  if (!lojaConfigurada() || !document.querySelector('[data-cms-grupo="rodape"]')) return;
+  try {
+    const linhas = await restGet('conteudo_site?select=chave,valor&chave=like.rodape.*', { timeoutMs: 8000 });
+    const conteudo = {};
+    for (const linha of Array.isArray(linhas) ? linhas : []) {
+      if (linha && typeof linha.chave === 'string') conteudo[linha.chave] = linha.valor;
+    }
+    if (Object.keys(conteudo).length) aplicarConteudo(document, conteudo);
+  } catch {
+    // Mantém o rodapé padrão.
   }
 }
 
@@ -266,6 +263,7 @@ export function iniciarPagina() {
     aplicarConfigLoja(cfg);
     return cfg;
   });
+  aplicarRodapeDoSite();
   return { config };
 }
 

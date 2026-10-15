@@ -202,7 +202,7 @@ describe('formatos: segurança e utilidades', () => {
     assert.equal(formatos.formatarPrazo({ prazo_dias: null }), '');
     assert.match(formatos.descreverMotivo('estoque_insuficiente', 3), /3 unidades/);
     assert.match(formatos.descreverMotivo('estoque_insuficiente', 1), /1 unidade /);
-    assert.match(formatos.descreverMotivo('sem_preco'), /produção/);
+    assert.match(formatos.descreverMotivo('sem_preco'), /preço deste produto ainda não foi definido/);
     for (const m of ['inexistente', 'inativo', 'sem_estoque', 'outro']) assert.ok(formatos.descreverMotivo(m));
     assert.equal(formatos.descreverMotivo(null), '');
     assert.equal(formatos.formatarNumeroPedido(1001), '#1001');
@@ -252,19 +252,21 @@ describe('produtos: regras da vitrine', () => {
   test('analisarProduto: normal, promoção, em breve, esgotado e sem controle de estoque', () => {
     const normal = produtos.analisarProduto(produtos.normalizarProduto(produtoBruto()));
     assert.deepEqual(normal, {
-      preco: 5990, precoOriginal: null, promocao: false, emBreve: false, esgotado: false, vendavel: true, maxQuantidade: 10, descontoPercentual: 0,
+      preco: 5990, precoOriginal: null, promocao: false, semPreco: false, esgotado: false, vendavel: true, maxQuantidade: 10, descontoPercentual: 0,
     });
     const promo = produtos.analisarProduto(produtos.normalizarProduto(produtoBruto({ preco_centavos: 6990, preco_promocional_centavos: 5990 })));
     assert.equal(promo.promocao, true);
     assert.equal(promo.preco, 5990);
     assert.equal(promo.precoOriginal, 6990);
     assert.equal(promo.descontoPercentual, 14);
-    const emBreve = produtos.analisarProduto(produtos.normalizarProduto(produtoBruto({ preco_centavos: 0, estoque: 0 })));
-    assert.equal(emBreve.emBreve, true);
-    assert.equal(emBreve.esgotado, false, 'sem preço é "Em breve", não "Esgotado"');
-    assert.equal(emBreve.vendavel, false);
-    assert.equal(emBreve.maxQuantidade, 0);
-    assert.equal(formatos.formatarPreco(emBreve.preco, { zeroComoEmProducao: true }), 'R$ 00,00');
+    // Sem preço: aparece como um produto normal da vitrine (versão final), com "R$ 00,00";
+    // quem recusa a compra é o servidor (motivo 'sem_preco').
+    const semPreco = produtos.analisarProduto(produtos.normalizarProduto(produtoBruto({ preco_centavos: 0, estoque: 0 })));
+    assert.equal(semPreco.semPreco, true);
+    assert.equal(semPreco.esgotado, false, 'sem preço não aparece como "Esgotado"');
+    assert.equal(semPreco.vendavel, true);
+    assert.equal(semPreco.maxQuantidade, 99);
+    assert.equal(formatos.formatarPreco(semPreco.preco, { zeroComoEmProducao: true }), 'R$ 00,00');
     const esgotado = produtos.analisarProduto(produtos.normalizarProduto(produtoBruto({ estoque: 0 })));
     assert.equal(esgotado.esgotado, true);
     assert.equal(esgotado.vendavel, false);
@@ -291,7 +293,7 @@ describe('produtos: regras da vitrine', () => {
     assert.equal(produtos.filtrarProdutos(lista, { busca: 'inexistente' }).length, 0);
   });
 
-  test('ordenarProdutos: preço efetivo, "Em breve" por último, nome e ordem original', () => {
+  test('ordenarProdutos: preço efetivo, sem preço por último, nome e ordem original', () => {
     const slugs = (criterio) => produtos.ordenarProdutos(lista, criterio).map((p) => p.slug);
     assert.deepEqual(slugs('destaques'), ['raiz', 'biojoia-01', 'sabonete', 'creme']);
     assert.deepEqual(slugs('menor-preco'), ['sabonete', 'creme', 'raiz', 'biojoia-01']);
