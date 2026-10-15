@@ -1,7 +1,7 @@
 // POST /api/loja/checkout — cria o pedido e a preferência do Mercado Pago (docs/ARQUITETURA.md §6.3).
 //
 // Ordem: método → corpo → Mercado Pago configurado (senão 503, antes de criar qualquer pedido) →
-// validação → recotação no servidor (itens, cupom e frete) → criar_pedido → preferência → grava
+// validação → recotação no servidor (itens e frete) → criar_pedido → preferência → grava
 // mp_preference_id/mp_init_point → { ok, pedido: { id, numero, token }, redirecionar }.
 //
 // Falha ao criar a preferência: o pedido é CANCELADO automaticamente (evento de status com a nota e um
@@ -74,14 +74,10 @@ export default async function handler(req, res) {
 
     // Recota tudo no servidor: o navegador nunca define o valor cobrado.
     const config = await lerConfiguracoes();
-    const entradaCotacao = { itens: dados.itens, cep: dados.endereco.cep, cupom: dados.cupom };
+    const entradaCotacao = { itens: dados.itens, cep: dados.endereco.cep };
     const cotacao = await cotar(entradaCotacao, { config, comFrete: true });
     if (cotacao.itens.some((item) => item.disponivel !== true)) {
       throw new ErroHttp(409, 'item_indisponivel', MSG_ITEM_INDISPONIVEL, { itens: cotacao.itens });
-    }
-    if (dados.cupom && !(cotacao.cupom && cotacao.cupom.valido === true)) {
-      const mensagem = cotacao.cupom && cotacao.cupom.mensagem ? `${cotacao.cupom.mensagem}.` : 'Cupom inválido.';
-      throw new ErroHttp(400, 'cupom_invalido', mensagem, { cupom: cotacao.cupom });
     }
     const opcao = cotacao.frete.opcoes.find((o) => o.id === dados.frete_id);
     if (!opcao) throw new ErroHttp(409, 'frete_indisponivel', MSG_FRETE_INDISPONIVEL, { frete: cotacao.frete });
@@ -92,7 +88,6 @@ export default async function handler(req, res) {
       pedido = await servico().rpc('criar_pedido', {
         p: {
           itens: dados.itens,
-          cupom: dados.cupom,
           cliente: dados.cliente,
           endereco: dados.endereco,
           entrega,

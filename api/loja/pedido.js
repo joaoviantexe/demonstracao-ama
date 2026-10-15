@@ -16,7 +16,7 @@ import { validarUuid } from '../../lib/validacao.js';
 
 const SELECT = [
   'id', 'numero', 'token_acesso', 'status', 'status_pagamento', 'criado_em', 'pago_em', 'enviado_em',
-  'subtotal_centavos', 'desconto_centavos', 'frete_centavos', 'total_centavos', 'entrega',
+  'subtotal_centavos', 'frete_centavos', 'total_centavos', 'entrega',
   'codigo_rastreio', 'url_rastreio', 'cliente_nome', 'mp_init_point',
   'pedido_itens(nome,imagem,quantidade,preco_unitario_centavos,total_centavos)',
 ].join(',');
@@ -60,7 +60,6 @@ export function pedidoPublico(p) {
       total_centavos: item.total_centavos,
     })),
     subtotal_centavos: p.subtotal_centavos,
-    desconto_centavos: p.desconto_centavos,
     frete_centavos: p.frete_centavos,
     total_centavos: p.total_centavos,
     entrega: {

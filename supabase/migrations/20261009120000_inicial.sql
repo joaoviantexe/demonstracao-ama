@@ -91,32 +91,9 @@ create table if not exists public.produtos (
   atualizado_em              timestamptz not null default now()
 );
 
--- Cupons. percentual: valor de 1 a 100; fixo: valor em centavos; frete_gratis: valor ignorado.
-create table if not exists public.cupons (
-  id              uuid primary key default gen_random_uuid(),
-  codigo          text not null unique
-                  constraint cupons_codigo_check check (codigo = upper(codigo) and codigo ~ '^[A-Z0-9_-]{3,30}$'),
-  descricao       text default '',
-  tipo            text not null
-                  constraint cupons_tipo_check check (tipo in ('percentual', 'fixo', 'frete_gratis')),
-  valor           int not null default 0,
-  minimo_centavos int not null default 0
-                  constraint cupons_minimo_check check (minimo_centavos >= 0),
-  inicio          timestamptz,
-  fim             timestamptz,
-  usos_max        int
-                  constraint cupons_usos_max_check check (usos_max is null or usos_max >= 0),
-  usos            int not null default 0
-                  constraint cupons_usos_check check (usos >= 0),
-  ativo           boolean not null default true,
-  criado_em       timestamptz not null default now(),
-  constraint cupons_valor_check check (
-    (tipo = 'percentual' and valor between 1 and 100)
-    or (tipo = 'fixo' and valor > 0)
-    or (tipo = 'frete_gratis' and valor >= 0)
-  ),
-  constraint cupons_periodo_check check (inicio is null or fim is null or fim > inicio)
-);
+-- O sistema de cupons foi removido: apaga a tabela em projetos que já a têm
+-- (as policies e os GRANTs dela saem junto).
+drop table if exists public.cupons cascade;
 
 create table if not exists public.pedidos (
   id                       uuid primary key default gen_random_uuid(),
@@ -152,13 +129,10 @@ create table if not exists public.pedidos (
                              and (entrega ->> 'tipo') in ('melhor_envio', 'fixo', 'retirada')),
   subtotal_centavos        int not null
                            constraint pedidos_subtotal_check check (subtotal_centavos >= 0),
-  desconto_centavos        int not null default 0
-                           constraint pedidos_desconto_check check (desconto_centavos >= 0),
   frete_centavos           int not null default 0
                            constraint pedidos_frete_check check (frete_centavos >= 0),
   total_centavos           int not null
                            constraint pedidos_total_check check (total_centavos > 0),
-  cupom_codigo             text,
   codigo_rastreio          text,
   url_rastreio             text,
   -- Ids das etiquetas no Melhor Envio.
@@ -177,6 +151,11 @@ create table if not exists public.pedidos (
   criado_em                timestamptz not null default now(),
   atualizado_em            timestamptz not null default now()
 );
+
+-- Colunas do antigo sistema de cupons, em projetos criados antes da remoção.
+alter table public.pedidos
+  drop column if exists desconto_centavos,
+  drop column if exists cupom_codigo;
 
 -- Rastreio: as mesmas regras de alterar_status_pedido também para quem grava
 -- direto na tabela (o admin pode dar update em pedidos pela API). O valor vai
@@ -328,8 +307,8 @@ as $$
   end;
 $$;
 
--- Desconta do estoque os itens do pedido (só produtos com controlar_estoque),
--- marca estoque_baixado = true e soma 1 no uso do cupom.
+-- Desconta do estoque os itens do pedido (só produtos com controlar_estoque)
+-- e marca estoque_baixado = true.
 -- Quem chama já deve ter travado o pedido (select … for update) e conferido
 -- que estoque_baixado = false. Devolve a lista de itens que faltaram.
 create or replace function public._baixar_estoque(p_pedido_id uuid)
@@ -341,7 +320,6 @@ declare
   r         record;
   v_estoque int;
   v_faltas  jsonb := '[]'::jsonb;
-  v_cupom   text;
 begin
   -- Ordem fixa por produto evita impasse (deadlock) entre pedidos simultâneos.
   for r in
@@ -373,26 +351,20 @@ begin
 
   update public.pedidos
      set estoque_baixado = true
-   where id = p_pedido_id
-  returning cupom_codigo into v_cupom;
-
-  if v_cupom is not null then
-    update public.cupons set usos = usos + 1 where codigo = v_cupom;
-  end if;
+   where id = p_pedido_id;
 
   return v_faltas;
 end;
 $$;
 
--- Devolve ao estoque os itens do pedido, zera estoque_baixado e devolve o uso do cupom.
+-- Devolve ao estoque os itens do pedido e zera estoque_baixado.
 create or replace function public._repor_estoque(p_pedido_id uuid)
 returns void
 language plpgsql
 set search_path = ''
 as $$
 declare
-  r       record;
-  v_cupom text;
+  r record;
 begin
   for r in
     select i.produto_id, sum(i.quantidade)::int as quantidade
@@ -410,12 +382,7 @@ begin
 
   update public.pedidos
      set estoque_baixado = false
-   where id = p_pedido_id
-  returning cupom_codigo into v_cupom;
-
-  if v_cupom is not null then
-    update public.cupons set usos = greatest(0, usos - 1) where codigo = v_cupom;
-  end if;
+   where id = p_pedido_id;
 end;
 $$;
 
@@ -437,8 +404,8 @@ as $$
 $$;
 
 
--- 5.2 Cotação do carrinho: preços, estoque e cupom recalculados no banco.
--- Entrada: { "itens": [{ "produto_id": uuid, "quantidade": int }], "cupom": "CODIGO" | null }
+-- 5.2 Cotação do carrinho: preços e estoque recalculados no banco.
+-- Entrada: { "itens": [{ "produto_id": uuid, "quantidade": int }] }
 create or replace function public.cotar_carrinho(p jsonb)
 returns jsonb
 language plpgsql
@@ -450,11 +417,6 @@ declare
   v_entrada      jsonb := coalesce(p, '{}'::jsonb);
   v_itens        jsonb := '[]'::jsonb;
   v_subtotal     bigint := 0;
-  v_desconto     bigint := 0;
-  v_frete_gratis boolean := false;
-  v_codigo       text;
-  v_cupom        public.cupons%rowtype;
-  v_cupom_json   jsonb;
   v_preco        bigint;
   v_motivo       text;
   v_disponivel   boolean;
@@ -511,7 +473,7 @@ begin
   loop
     v_preco := coalesce(r.preco_promocional_centavos, r.preco_centavos);
 
-    -- sem_preco: produto ativo (aparece na vitrine como "R$ 00,00", "Em breve"), ainda sem preço.
+    -- sem_preco: produto ativo (aparece na vitrine como "R$ 00,00"), ainda sem preço.
     v_motivo := case
       when r.id is null then 'inexistente'
       when not r.ativo then 'inativo'
@@ -563,65 +525,16 @@ begin
     end if;
   end loop;
 
-  -- Cupom (o código é comparado em maiúsculas).
-  if jsonb_typeof(v_entrada -> 'cupom') = 'string' then
-    v_codigo := nullif(upper(btrim(v_entrada ->> 'cupom')), '');
-  end if;
-
-  if v_codigo is not null then
-    v_codigo := left(v_codigo, 60);
-
-    select c.* into v_cupom
-      from public.cupons c
-     where c.codigo = v_codigo
-       and c.ativo;
-
-    if not found then
-      v_cupom_json := jsonb_build_object('codigo', v_codigo, 'valido', false, 'tipo', null,
-                                         'mensagem', 'Cupom não encontrado');
-    elsif v_cupom.inicio is not null and v_cupom.inicio > now() then
-      v_cupom_json := jsonb_build_object('codigo', v_codigo, 'valido', false, 'tipo', v_cupom.tipo,
-                                         'mensagem', 'Cupom ainda não disponível');
-    elsif v_cupom.fim is not null and v_cupom.fim <= now() then
-      v_cupom_json := jsonb_build_object('codigo', v_codigo, 'valido', false, 'tipo', v_cupom.tipo,
-                                         'mensagem', 'Cupom expirado');
-    elsif v_cupom.usos_max is not null and v_cupom.usos >= v_cupom.usos_max then
-      v_cupom_json := jsonb_build_object('codigo', v_codigo, 'valido', false, 'tipo', v_cupom.tipo,
-                                         'mensagem', 'Cupom esgotado');
-    elsif v_subtotal < v_cupom.minimo_centavos then
-      v_cupom_json := jsonb_build_object('codigo', v_codigo, 'valido', false, 'tipo', v_cupom.tipo,
-                                         'mensagem', 'Valor mínimo para este cupom: '
-                                                     || public._formatar_reais(v_cupom.minimo_centavos));
-    elsif v_cupom.tipo = 'percentual' then
-      -- Arredonda para baixo: nunca dá mais desconto que o anunciado.
-      v_desconto := floor(v_subtotal * v_cupom.valor / 100.0)::bigint;
-      v_cupom_json := jsonb_build_object('codigo', v_codigo, 'valido', true, 'tipo', v_cupom.tipo,
-                                         'mensagem', 'Cupom aplicado: ' || v_cupom.valor || '% de desconto');
-    elsif v_cupom.tipo = 'fixo' then
-      v_desconto := least(v_cupom.valor::bigint, v_subtotal);
-      v_cupom_json := jsonb_build_object('codigo', v_codigo, 'valido', true, 'tipo', v_cupom.tipo,
-                                         'mensagem', 'Cupom aplicado: '
-                                                     || public._formatar_reais(v_cupom.valor) || ' de desconto');
-    else
-      v_frete_gratis := true;
-      v_cupom_json := jsonb_build_object('codigo', v_codigo, 'valido', true, 'tipo', v_cupom.tipo,
-                                         'mensagem', 'Cupom aplicado: frete grátis');
-    end if;
-  end if;
-
   return jsonb_build_object(
-    'itens',              v_itens,
-    'subtotal_centavos',  v_subtotal,
-    'desconto_centavos',  v_desconto,
-    'cupom',              v_cupom_json,
-    'frete_gratis_cupom', v_frete_gratis
+    'itens',             v_itens,
+    'subtotal_centavos', v_subtotal
   );
 end;
 $$;
 
 
 -- 5.3 Cria o pedido a partir do carrinho (preços recalculados aqui).
--- Erros (message do PostgREST): carrinho_vazio, item_indisponivel, cupom_invalido,
+-- Erros (message do PostgREST): carrinho_vazio, item_indisponivel,
 -- dados_invalidos (detail = campo), total_invalido.
 create or replace function public.criar_pedido(p jsonb)
 returns jsonb
@@ -655,10 +568,8 @@ declare
   v_endereco  jsonb := '{}'::jsonb;
   v_entrega   jsonb;
   v_obs       text;
-  v_cupom_inf text;
   v_cotacao   jsonb;
   v_subtotal  bigint;
-  v_desconto  bigint;
   v_total     bigint;
   v_pedido    public.pedidos%rowtype;
   v_indisp    jsonb;
@@ -829,12 +740,8 @@ begin
     raise exception 'dados_invalidos' using detail = 'observacoes';
   end if;
 
-  -- Carrinho e cupom (recalculados) -------------------------------------------
-  if jsonb_typeof(p -> 'cupom') = 'string' then
-    v_cupom_inf := nullif(upper(btrim(p ->> 'cupom')), '');
-  end if;
-
-  v_cotacao := public.cotar_carrinho(jsonb_build_object('itens', p -> 'itens', 'cupom', p -> 'cupom'));
+  -- Carrinho (recalculado) ---------------------------------------------------
+  v_cotacao := public.cotar_carrinho(jsonb_build_object('itens', p -> 'itens'));
 
   if jsonb_array_length(v_cotacao -> 'itens') = 0 then
     raise exception 'carrinho_vazio';
@@ -848,13 +755,8 @@ begin
     raise exception 'item_indisponivel' using detail = v_indisp::text;
   end if;
 
-  if v_cupom_inf is not null and coalesce((v_cotacao -> 'cupom' ->> 'valido')::boolean, false) = false then
-    raise exception 'cupom_invalido' using detail = coalesce(v_cotacao -> 'cupom' ->> 'mensagem', '');
-  end if;
-
   v_subtotal := (v_cotacao ->> 'subtotal_centavos')::bigint;
-  v_desconto := (v_cotacao ->> 'desconto_centavos')::bigint;
-  v_total := v_subtotal - v_desconto + v_frete;
+  v_total := v_subtotal + v_frete;
 
   if v_total <= 0 or v_total > 2147483647 or v_subtotal > 2147483647 then
     raise exception 'total_invalido';
@@ -863,12 +765,10 @@ begin
   -- Gravação --------------------------------------------------------------------
   insert into public.pedidos (
     cliente_nome, cliente_email, cliente_telefone, cliente_cpf,
-    endereco, entrega, subtotal_centavos, desconto_centavos, frete_centavos, total_centavos,
-    cupom_codigo, observacoes)
+    endereco, entrega, subtotal_centavos, frete_centavos, total_centavos, observacoes)
   values (
     v_nome, v_email, v_telefone, v_cpf,
-    v_endereco, v_entrega, v_subtotal, v_desconto, v_frete, v_total,
-    case when v_cupom_inf is not null then v_cotacao -> 'cupom' ->> 'codigo' end, v_obs)
+    v_endereco, v_entrega, v_subtotal, v_frete, v_total, v_obs)
   returning * into v_pedido;
 
   insert into public.pedido_itens (pedido_id, produto_id, nome, imagem, preco_unitario_centavos, quantidade, total_centavos)
@@ -888,8 +788,7 @@ begin
     jsonb_build_object(
       'total_centavos', v_total,
       'itens', jsonb_array_length(v_cotacao -> 'itens'),
-      'entrega', v_tipo,
-      'cupom', v_pedido.cupom_codigo),
+      'entrega', v_tipo),
     'sistema');
 
   return jsonb_build_object(
@@ -897,10 +796,8 @@ begin
     'numero',            v_pedido.numero,
     'token_acesso',      v_pedido.token_acesso,
     'subtotal_centavos', v_pedido.subtotal_centavos,
-    'desconto_centavos', v_pedido.desconto_centavos,
     'frete_centavos',    v_pedido.frete_centavos,
     'total_centavos',    v_pedido.total_centavos,
-    'cupom_codigo',      v_pedido.cupom_codigo,
     'itens',             v_cotacao -> 'itens'
   );
 end;
@@ -1418,12 +1315,12 @@ grant execute on function public.alterar_status_pedido(uuid, text, text, text, b
 
 revoke all on table
   public.admins, public.conteudo_site, public.configuracoes, public.categorias, public.produtos,
-  public.cupons, public.pedidos, public.pedido_itens, public.pedido_eventos
+  public.pedidos, public.pedido_itens, public.pedido_eventos
   from anon, authenticated;
 
 grant select, insert, update, delete on table
   public.admins, public.conteudo_site, public.configuracoes, public.categorias, public.produtos,
-  public.cupons, public.pedidos, public.pedido_itens, public.pedido_eventos
+  public.pedidos, public.pedido_itens, public.pedido_eventos
   to anon, authenticated, service_role;
 
 grant usage, select on sequence
@@ -1443,7 +1340,6 @@ alter table public.conteudo_site  enable row level security;
 alter table public.configuracoes  enable row level security;
 alter table public.categorias     enable row level security;
 alter table public.produtos       enable row level security;
-alter table public.cupons         enable row level security;
 alter table public.pedidos        enable row level security;
 alter table public.pedido_itens   enable row level security;
 alter table public.pedido_eventos enable row level security;
@@ -1498,13 +1394,6 @@ create policy produtos_publico_select on public.produtos
 
 drop policy if exists produtos_admin_tudo on public.produtos;
 create policy produtos_admin_tudo on public.produtos
-  for all to authenticated
-  using ((select public.eh_admin()))
-  with check ((select public.eh_admin()));
-
--- cupons: só admin.
-drop policy if exists cupons_admin_tudo on public.cupons;
-create policy cupons_admin_tudo on public.cupons
   for all to authenticated
   using ((select public.eh_admin()))
   with check ((select public.eh_admin()));

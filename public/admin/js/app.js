@@ -28,7 +28,6 @@ export const ROTAS = Object.freeze([
   { padrao: /^\/categorias$/, pagina: 'categorias', menu: 'categorias', titulo: 'Categorias' },
   { padrao: /^\/pedidos$/, pagina: 'pedidos', menu: 'pedidos', titulo: 'Pedidos' },
   { padrao: new RegExp(`^/pedidos/(${UUID})$`), pagina: 'pedidos', menu: 'pedidos', titulo: 'Pedido', params: ['id'] },
-  { padrao: /^\/cupons$/, pagina: 'cupons', menu: 'cupons', titulo: 'Cupons' },
   { padrao: /^\/configuracoes$/, pagina: 'configuracoes', menu: 'configuracoes', titulo: 'Configurações' },
 ]);
 
@@ -48,7 +47,6 @@ export const MENU = Object.freeze([
       { id: 'pedidos', rotulo: 'Pedidos', hash: '#/pedidos', icone: 'pedidos' },
       { id: 'produtos', rotulo: 'Produtos', hash: '#/produtos', icone: 'produtos' },
       { id: 'categorias', rotulo: 'Categorias', hash: '#/categorias', icone: 'categorias' },
-      { id: 'cupons', rotulo: 'Cupons', hash: '#/cupons', icone: 'cupons' },
     ],
   },
   { secao: 'Ajustes', itens: [{ id: 'configuracoes', rotulo: 'Configurações', hash: '#/configuracoes', icone: 'configuracoes' }] },

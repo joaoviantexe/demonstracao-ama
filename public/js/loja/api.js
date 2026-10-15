@@ -72,11 +72,10 @@ async function chamar(caminho, { metodo = 'GET', corpo, timeoutMs = 20000 } = {}
   }
 }
 
-/** POST /api/loja/cotacao — { itens: [{produto_id, quantidade}], cep?, cupom? }. */
-export function cotar({ itens, cep, cupom } = {}) {
+/** POST /api/loja/cotacao — { itens: [{produto_id, quantidade}], cep? }. */
+export function cotar({ itens, cep } = {}) {
   const corpo = { itens: Array.isArray(itens) ? itens : [] };
   if (cep) corpo.cep = cep;
-  if (cupom) corpo.cupom = cupom;
   return chamar('/api/loja/cotacao', { metodo: 'POST', corpo, timeoutMs: 25000 });
 }
 

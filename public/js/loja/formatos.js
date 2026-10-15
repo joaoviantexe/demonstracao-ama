@@ -148,7 +148,7 @@ function textoDe(origem, nome) {
 
 /**
  * Valida os dados do formulário do checkout com as MESMAS regras e mensagens do servidor
- * (validarDadosCheckout, sem itens nem cupom). Entrada { cliente, endereco, frete_id }.
+ * (validarDadosCheckout, sem os itens). Entrada { cliente, endereco, frete_id }.
  * Devolve { ok, erros } com chaves 'cliente.nome', 'endereco.cep', 'frete_id'...
  */
 export function validarFormularioCheckout({ cliente, endereco, frete_id: freteId } = {}) {

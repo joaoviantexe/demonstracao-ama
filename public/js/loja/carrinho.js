@@ -199,14 +199,13 @@ export function sincronizarComCotacao(itensCotados) {
   return mudou ? salvarCarrinho(itens) : itens;
 }
 
-/** Preferências guardadas entre carrinho e checkout: { cep, cupom, frete_id }. */
+/** Preferências guardadas entre carrinho e checkout: { cep, frete_id }. */
 export function lerPreferencias() {
   const p = lerJson(CHAVE_PREFERENCIAS);
   const ok = p && typeof p === 'object' && !Array.isArray(p);
   const campo = (nome, regex) => (ok && typeof p[nome] === 'string' && regex.test(p[nome]) ? p[nome] : '');
   return {
     cep: campo('cep', /^\d{8}$/),
-    cupom: campo('cupom', /^[A-Z0-9_-]{3,30}$/),
     frete_id: campo('frete_id', /^[A-Za-z0-9_-]{1,60}$/),
   };
 }

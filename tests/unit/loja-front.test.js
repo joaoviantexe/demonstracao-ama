@@ -438,13 +438,16 @@ describe('carrinho (localStorage falso)', () => {
     assert.equal(eventos.at(-1)[0].quantidade, 4);
   });
 
-  test('preferências (CEP, cupom, frete) validadas', () => {
-    assert.deepEqual(carrinho.lerPreferencias(), { cep: '', cupom: '', frete_id: '' });
-    carrinho.salvarPreferencias({ cep: '66010000', cupom: 'AMA10', frete_id: 'retirada' });
+  test('preferências (CEP, frete) validadas', () => {
+    assert.deepEqual(carrinho.lerPreferencias(), { cep: '', frete_id: '' });
+    carrinho.salvarPreferencias({ cep: '66010000', frete_id: 'fixo-1' });
     carrinho.salvarPreferencias({ frete_id: 'me-1' });
-    assert.deepEqual(carrinho.lerPreferencias(), { cep: '66010000', cupom: 'AMA10', frete_id: 'me-1' });
-    armazenamento.setItem(carrinho.CHAVE_PREFERENCIAS, JSON.stringify({ cep: '660', cupom: '<b>', frete_id: 'a b' }));
-    assert.deepEqual(carrinho.lerPreferencias(), { cep: '', cupom: '', frete_id: '' });
+    assert.deepEqual(carrinho.lerPreferencias(), { cep: '66010000', frete_id: 'me-1' });
+    // Preferência antiga com cupom: o campo é ignorado.
+    armazenamento.setItem(carrinho.CHAVE_PREFERENCIAS, JSON.stringify({ cep: '66010000', cupom: 'AMA10', frete_id: 'me-1' }));
+    assert.deepEqual(carrinho.lerPreferencias(), { cep: '66010000', frete_id: 'me-1' });
+    armazenamento.setItem(carrinho.CHAVE_PREFERENCIAS, JSON.stringify({ cep: '660', frete_id: 'a b' }));
+    assert.deepEqual(carrinho.lerPreferencias(), { cep: '', frete_id: '' });
   });
 
   test('pedidos guardados neste aparelho (ama_pedidos_v1)', () => {
@@ -537,13 +540,13 @@ describe('config e APIs (fetch simulado)', () => {
     assert.equal(config.normalizarConfigLoja({ frete_gratis_acima_centavos: -5 }).frete_gratis_acima_centavos, null);
   });
 
-  test('cotar envia só produto, quantidade, CEP e cupom', async () => {
+  test('cotar envia só produto, quantidade e CEP', async () => {
     simularFetch(() => new Response(JSON.stringify({ ok: true, itens: [], subtotal_centavos: 0 }), { status: 200 }));
     const r = await api.cotar({ itens: [{ produto_id: ID_A, quantidade: 2 }], cep: '66010000', cupom: 'AMA10' });
     assert.equal(r.ok, true);
     assert.equal(chamadas[0].url, '/api/loja/cotacao');
     assert.equal(chamadas[0].init.method, 'POST');
-    assert.deepEqual(JSON.parse(chamadas[0].init.body), { itens: [{ produto_id: ID_A, quantidade: 2 }], cep: '66010000', cupom: 'AMA10' });
+    assert.deepEqual(JSON.parse(chamadas[0].init.body), { itens: [{ produto_id: ID_A, quantidade: 2 }], cep: '66010000' });
     await api.cotar({ itens: [{ produto_id: ID_A, quantidade: 1 }] });
     assert.deepEqual(JSON.parse(chamadas[1].init.body), { itens: [{ produto_id: ID_A, quantidade: 1 }] });
   });
@@ -574,7 +577,6 @@ describe('config e APIs (fetch simulado)', () => {
 describe('resumo: total exibido com os números do servidor', () => {
   const cotacao = {
     subtotal_centavos: 17970,
-    desconto_centavos: 1797,
     frete: { opcoes: [{ id: 'me-1', preco_centavos: 2440 }, { id: 'retirada', preco_centavos: 0 }] },
   };
 
@@ -582,9 +584,9 @@ describe('resumo: total exibido com os números do servidor', () => {
     assert.equal(opcaoEscolhida(cotacao, 'me-1').preco_centavos, 2440);
     assert.equal(opcaoEscolhida(cotacao, 'nao-existe'), null);
     assert.equal(opcaoEscolhida(null, 'me-1'), null);
-    assert.equal(totalExibido(cotacao, opcaoEscolhida(cotacao, 'me-1')), 18613);
-    assert.equal(totalExibido(cotacao, opcaoEscolhida(cotacao, 'retirada')), 16173);
-    assert.equal(totalExibido(cotacao, null), 16173);
+    assert.equal(totalExibido(cotacao, opcaoEscolhida(cotacao, 'me-1')), 20410);
+    assert.equal(totalExibido(cotacao, opcaoEscolhida(cotacao, 'retirada')), 17970);
+    assert.equal(totalExibido(cotacao, null), 17970);
     assert.equal(totalExibido(null, null), 0);
   });
 });

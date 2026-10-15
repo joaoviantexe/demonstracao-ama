@@ -133,12 +133,12 @@ describe('funções puras', () => {
   });
 
   test('freteGratisAtivo', () => {
-    assert.equal(freteGratisAtivo({ freteGratisCupom: true }), true);
     assert.equal(freteGratisAtivo({ subtotalCentavos: 20_000, limiteCentavos: 20_000 }), true);
     assert.equal(freteGratisAtivo({ subtotalCentavos: 19_999, limiteCentavos: 20_000 }), false);
     assert.equal(freteGratisAtivo({ subtotalCentavos: 50_000, limiteCentavos: null }), false);
     assert.equal(freteGratisAtivo({ subtotalCentavos: 50_000, limiteCentavos: 0 }), false);
-    assert.equal(freteGratisAtivo({ freteGratisCupom: 'sim', subtotalCentavos: 0 }), false);
+    assert.equal(freteGratisAtivo({ subtotalCentavos: 0, limiteCentavos: 20_000 }), false);
+    assert.equal(freteGratisAtivo(), false);
   });
 
   test('aplicarFreteGratis: só a opção PAGA mais barata; retirada e opções já grátis ficam como estão', () => {
@@ -191,7 +191,7 @@ describe('funções puras', () => {
 describe('cotarFrete', () => {
   test('SP: Melhor Envio + fixo nacional + retirada, ordenados; corpo da cotação por products', async () => {
     const itens = [item(), item({ produto_id: 'esgotado', disponivel: false, motivo: 'sem_estoque', peso_gramas: 90_000 })];
-    const r = await cotarFrete({ itens, cep: '01310-100', subtotalCentavos: 9000, freteGratisCupom: false, config: configBase() });
+    const r = await cotarFrete({ itens, cep: '01310-100', subtotalCentavos: 9000, config: configBase() });
     assert.equal(r.erro, null);
     assert.equal(r.uf, 'SP');
     assert.deepEqual(ids(r), ['me-1', 'fixo-nacional', 'me-2', 'retirada']);
@@ -222,8 +222,10 @@ describe('cotarFrete', () => {
     assert.deepEqual(ids(r), ['fixo-1', 'me-1', 'fixo-nacional', 'me-2', 'retirada']);
   });
 
-  test('frete grátis por cupom: a opção paga mais barata fica com preço 0', async () => {
-    const r = await cotarFrete({ itens: [item()], cep: '66010-000', subtotalCentavos: 9000, freteGratisCupom: true, config: configBase() });
+  test('frete grátis: a opção paga mais barata fica com preço 0', async () => {
+    const config = configBase();
+    config.loja.frete_gratis_acima_centavos = 5000;
+    const r = await cotarFrete({ itens: [item()], cep: '66010-000', subtotalCentavos: 9000, config });
     const [primeira] = r.opcoes;
     assert.equal(primeira.id, 'fixo-1');
     assert.equal(primeira.preco_centavos, 0);
@@ -234,7 +236,7 @@ describe('cotarFrete', () => {
     assert.equal(r.opcoes.at(-1).id, 'retirada');
   });
 
-  test('frete grátis por valor mínimo (subtotal já com desconto)', async () => {
+  test('frete grátis por valor mínimo', async () => {
     const config = configBase();
     config.loja.frete_gratis_acima_centavos = 20_000;
     config.frete.fixo.ativo = false;
@@ -247,10 +249,6 @@ describe('cotarFrete', () => {
 
     const abaixo = await cotarFrete({ itens: [item()], cep: '01310-100', subtotalCentavos: 19_999, config });
     assert.ok(abaixo.opcoes.every((o) => !o.gratis));
-
-    // Subtotal 25.000 com desconto de 6.000 fica abaixo de 20.000.
-    const comDesconto = await cotarFrete({ itens: [item()], cep: '01310-100', subtotalCentavos: 25_000, descontoCentavos: 6000, config });
-    assert.ok(comDesconto.opcoes.every((o) => !o.gratis));
   });
 
   test('serviço com erro é ignorado; custom_price/custom_delivery_time usados', async () => {

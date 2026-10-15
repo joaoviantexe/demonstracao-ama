@@ -9,13 +9,13 @@
 //   (webhook assinado com MP_WEBHOOK_SECRET=segredo-teste para o próprio dev-server) e o Melhor Envio falso.
 // - ViaCEP é interceptado com uma resposta falsa; as fontes do Google são buscadas pelo Node
 //   (com proxy, rode com NODE_USE_ENV_PROXY=1); sem acesso, as páginas usam as fontes de reserva.
-// - Fluxo: catálogo → produto → adicionar → carrinho (cupom AMA10, CEP 66010-000, retirada) →
+// - Fluxo: catálogo → produto → adicionar → carrinho (CEP 66010-000, retirada) →
 //   checkout preenchido → Mercado Pago falso (Aprovar) → pedido "Pago" → meus pedidos.
 //   Também: carrinho vazio, produto sem preço, o catálogo no "modo apresentação" (todos os preços 0),
 //   carrinho com itens indisponíveis e produto inexistente.
 // - Cada página é capturada em 390, 768 e 1440 px. O script falha (código 1) se houver erro no console
 //   das páginas da loja ou conteúdo saindo da tela na horizontal.
-// - No fim, apaga os pedidos criados (devolvendo o estoque e o uso do cupom que o pagamento consumiu).
+// - No fim, apaga os pedidos criados (devolvendo o estoque que o pagamento consumiu).
 
 import { mkdirSync } from 'node:fs';
 import os from 'node:os';
@@ -224,12 +224,8 @@ async function fluxoCompra(navegador, base) {
     await pagina.waitForSelector('.ficha-nome');
     await capturar(pagina, '04-produto-sem-preco');
 
-    // Carrinho: cupom, CEP e retirada
+    // Carrinho: CEP e retirada
     await pagina.goto(`${base}/loja/carrinho`);
-    await esperarTotais(pagina);
-    await pagina.fill('#carrinho-cupom', 'ama10');
-    await pagina.locator('.cupom').getByRole('button', { name: 'Aplicar' }).click();
-    await pagina.waitForSelector('.cupom--aplicado');
     await esperarTotais(pagina);
     await pagina.fill('#carrinho-cep', '66010000');
     await pagina.getByRole('button', { name: 'Calcular' }).click();
@@ -242,7 +238,6 @@ async function fluxoCompra(navegador, base) {
     // Checkout
     await pagina.getByRole('link', { name: 'Finalizar compra' }).click();
     await pagina.waitForSelector('#form-checkout:not([hidden])');
-    await pagina.waitForSelector('.cupom--aplicado');
     await esperarTotais(pagina);
     await pagina.fill('#nome', 'Maria Teste da Silva');
     await pagina.fill('#email', EMAIL);
@@ -371,11 +366,6 @@ async function limparPedidos() {
              where d.cliente_email = '${EMAIL}' and d.estoque_baixado and i.produto_id is not null
              group by i.produto_id) x
      where p.id = x.produto_id and p.controlar_estoque;
-    update public.cupons c set usos = greatest(0, c.usos - x.n)
-      from (select cupom_codigo, count(*) as n from public.pedidos
-             where cliente_email = '${EMAIL}' and estoque_baixado and cupom_codigo is not null
-             group by cupom_codigo) x
-     where c.codigo = x.cupom_codigo;
     delete from public.pedidos where cliente_email = '${EMAIL}';
     commit;`);
   return ids.length;

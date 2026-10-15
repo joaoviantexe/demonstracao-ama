@@ -1,6 +1,6 @@
-// Checkout /loja/checkout — dados, entrega (CEP com ViaCEP), frete, observações, cupom e resumo.
+// Checkout /loja/checkout — dados, entrega (CEP com ViaCEP), frete, observações e resumo.
 // "Ir para o pagamento" → POST /api/loja/checkout → Mercado Pago (window.location = redirecionar).
-// O navegador só envia produto, quantidade, cupom, frete escolhido e dados do cliente: valores
+// O navegador só envia produto, quantidade, frete escolhido e dados do cliente: valores
 // cobrados são sempre calculados no servidor.
 
 import { cotar, finalizar } from './api.js';
@@ -17,7 +17,7 @@ import {
   normalizarTexto, somenteDigitos, UFS, urlSegura, validarCep, validarFormularioCheckout, validarUf,
 } from './formatos.js';
 import {
-  avisoFreteGratis, blocoCupom, blocoTotais, listaOpcoesFrete, opcaoEscolhida, totalExibido,
+  avisoFreteGratis, blocoTotais, listaOpcoesFrete, opcaoEscolhida, totalExibido,
 } from './resumo.js';
 
 iniciarPagina();
@@ -51,8 +51,6 @@ const estado = {
   cotacao: null,
   carregando: false,
   sequencia: 0,
-  cupom: prefs.cupom,
-  cupomMensagem: null,
   freteId: prefs.frete_id,
   cepCotado: '',
   cepBuscado: '',
@@ -282,24 +280,6 @@ function renderizarResumo() {
   const c = estado.cotacao;
   const porId = new Map((c && Array.isArray(c.itens) ? c.itens : []).map((i) => [i.produto_id, i]));
   const itens = el('ul', { class: 'resumo-itens' }, estado.itens.map((item) => itemResumo(item, porId.get(item.produto_id))));
-  const cupom = blocoCupom({
-    aplicado: c && c.cupom && c.cupom.valido ? { codigo: c.cupom.codigo, mensagem: c.cupom.mensagem } : null,
-    mensagem: estado.cupomMensagem,
-    ocupado: estado.carregando || estado.enviando,
-    id: 'checkout-cupom',
-  }, {
-    aoAplicar: (codigo) => {
-      estado.cupom = codigo;
-      estado.cupomMensagem = null;
-      cotarAgora({ focarCupom: true });
-    },
-    aoRemover: () => {
-      estado.cupom = '';
-      estado.cupomMensagem = null;
-      salvarPreferencias({ cupom: '' });
-      cotarAgora({ focarCupom: true });
-    },
-  });
   let totais;
   if (c) {
     totais = blocoTotais(c, opcaoAtual(), { semFreteTexto: 'Informe o CEP', atualizando: estado.carregando });
@@ -315,7 +295,6 @@ function renderizarResumo() {
   trocarConteudo(resumoConteudo,
     itens,
     el('a', { class: 'link-seta resumo-editar', href: '/loja/carrinho' }, 'Editar carrinho'),
-    cupom,
     avisoFreteGratis(c),
     totais);
 
@@ -330,7 +309,7 @@ function renderizarResumo() {
 
 let esperaCotacao = null;
 
-async function cotarAgora({ focarCupom = false } = {}) {
+async function cotarAgora() {
   clearTimeout(esperaCotacao);
   const sequencia = ++estado.sequencia;
   const cep = somenteDigitos(campo.cep.value);
@@ -339,22 +318,12 @@ async function cotarAgora({ focarCupom = false } = {}) {
   renderizarOpcoesFrete();
   renderizarResumo();
   try {
-    const cotacao = await cotar({ itens: itensParaCotacao(estado.itens), cep: cepValido ? cep : undefined, cupom: estado.cupom });
+    const cotacao = await cotar({ itens: itensParaCotacao(estado.itens), cep: cepValido ? cep : undefined });
     if (sequencia !== estado.sequencia) return;
     estado.cotacao = cotacao;
     estado.erroCotacao = null;
     estado.cepCotado = cepValido ? cep : '';
     if (cepValido) salvarPreferencias({ cep });
-    if (estado.cupom) {
-      if (cotacao.cupom && cotacao.cupom.valido) {
-        estado.cupomMensagem = null;
-        salvarPreferencias({ cupom: estado.cupom });
-      } else {
-        estado.cupomMensagem = { tipo: 'erro', texto: (cotacao.cupom && cotacao.cupom.mensagem) || 'Cupom inválido.' };
-        estado.cupom = '';
-        salvarPreferencias({ cupom: '' });
-      }
-    }
     const opcoes = cotacao.frete && Array.isArray(cotacao.frete.opcoes) ? cotacao.frete.opcoes : [];
     if (opcoes.length && !opcoes.some((o) => o.id === estado.freteId)) {
       estado.freteId = opcoes[0].id;
@@ -375,7 +344,6 @@ async function cotarAgora({ focarCupom = false } = {}) {
       estado.carregando = false;
       renderizarOpcoesFrete();
       renderizarResumo();
-      if (focarCupom) resumoConteudo.querySelector('.cupom input, .cupom-remover')?.focus();
     }
   }
 }
@@ -502,13 +470,6 @@ function tratarErroEnvio(erro, dados) {
     cotarAgora();
     return;
   }
-  if (erro.status === 400 && erro.erro === 'cupom_invalido') {
-    estado.cupom = '';
-    salvarPreferencias({ cupom: '' });
-    estado.cupomMensagem = { tipo: 'erro', texto: erro.mensagem };
-    cotarAgora({ focarCupom: true });
-    return;
-  }
   if (erro.status === 400 && extra.erros && typeof extra.erros === 'object') {
     const total = mostrarErros(extra.erros);
     if (total) return;
@@ -551,7 +512,6 @@ form.addEventListener('submit', async (evento) => {
   try {
     const resposta = await finalizar({
       itens: itensParaCotacao(estado.itens),
-      cupom: estado.cupom || undefined,
       frete_id: dados.frete_id,
       cliente: dados.cliente,
       endereco: dados.endereco,

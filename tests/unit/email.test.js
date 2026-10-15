@@ -28,10 +28,8 @@ function pedidoBase(extra = {}) {
       { nome: 'Creme Hidratante Cupuaçu', quantidade: 1, preco_unitario_centavos: 3990, total_centavos: 3990 },
     ],
     subtotal_centavos: 12990,
-    desconto_centavos: 1299,
     frete_centavos: 2350,
-    total_centavos: 14041,
-    cupom_codigo: 'AMA10',
+    total_centavos: 15340,
     metodo_pagamento: 'bank_transfer',
     codigo_rastreio: null,
     url_rastreio: null,
@@ -79,10 +77,10 @@ describe('modelos de e-mail', () => {
     assert.match(html, /Olá, Maria!/);
     assert.match(html, /Body Splash Raiz/);
     assert.match(html, /Creme Hidratante Cupuaçu/);
-    for (const valor of [4500, 9000, 3990, 12990, 1299, 2350, 14041]) {
+    for (const valor of [4500, 9000, 3990, 12990, 2350, 15340]) {
       assert.ok(html.includes(escaparHtml(formatarReais(valor))), formatarReais(valor));
     }
-    assert.match(html, /cupom AMA10/);
+    assert.doesNotMatch(html, /Desconto|cupom/i);
     assert.match(html, /\(Pix\)/);
     assert.match(html, /PAC \(Correios\)/);
     assert.match(html, /até 7 dias úteis/);
@@ -98,7 +96,7 @@ describe('modelos de e-mail', () => {
     // Versão em texto.
     assert.ok(texto.includes(LINK));
     assert.match(texto, /Pagamento confirmado!/);
-    assert.match(texto, /R\$ 140,41/);
+    assert.match(texto, /R\$ 153,40/);
     assert.doesNotMatch(texto, /<[a-z]/i);
   });
 
@@ -156,10 +154,9 @@ describe('modelos de e-mail', () => {
     assert.match(semNome.html, /<strong>Sede AMA<\/strong>/);
   });
 
-  test('frete zero fora da retirada aparece como "Grátis"; sem desconto não há linha de desconto', () => {
-    const { html } = emailPedidoPago(pedidoBase({ frete_centavos: 0, desconto_centavos: 0, cupom_codigo: null, total_centavos: 12990 }), SITE);
+  test('frete zero fora da retirada aparece como "Grátis"', () => {
+    const { html } = emailPedidoPago(pedidoBase({ frete_centavos: 0, total_centavos: 12990 }), SITE);
     assert.match(html, />Grátis</);
-    assert.doesNotMatch(html, /Desconto/);
   });
 
   test('emailPedidoEnviado: código e link de rastreio', () => {
@@ -187,7 +184,7 @@ describe('modelos de e-mail', () => {
 
   test('emailNovoPedidoAdmin: dados do cliente, observações e link do painel', () => {
     const { assunto, html } = emailNovoPedidoAdmin(pedidoBase(), SITE);
-    assert.equal(assunto, 'Novo pedido pago #1001 — R$ 140,41');
+    assert.equal(assunto, 'Novo pedido pago #1001 — R$ 153,40');
     assert.match(html, /Maria da Silva/);
     assert.match(html, /href="mailto:maria@exemplo\.com"/);
     assert.match(html, /\(91\) 98105-6049/);
@@ -282,9 +279,8 @@ describe('modelos de e-mail', () => {
           numero: '<b>1</b>',
           cliente_nome: '<script>alert(1)</script> Silva',
           cliente_telefone: '<i>91</i>',
-          cupom_codigo: '"><b>CUPOM',
           observacoes: '<a href="javascript:alert(4)">clique</a>\nsegunda linha',
-          itens: [{ nome: '<img src=x onerror=alert(2)>', quantidade: 1, preco_unitario_centavos: 14041, total_centavos: 14041 }],
+          itens: [{ nome: '<img src=x onerror=alert(2)>', quantidade: 1, preco_unitario_centavos: 15340, total_centavos: 15340 }],
           codigo_rastreio: '"><script>alert(6)</script>',
           url_rastreio: 'javascript:alert(7)',
           ...extra,

@@ -133,7 +133,6 @@ function blocoTotais(pedido) {
     el('h2', { class: 'cartao-pedido-titulo', id: 'totais-titulo', texto: 'Resumo' }),
     el('dl', { class: 'totais' },
       linha('Subtotal', formatarPreco(pedido.subtotal_centavos)),
-      pedido.desconto_centavos > 0 ? linha('Desconto', `− ${formatarPreco(pedido.desconto_centavos)}`, 'totais-linha--desconto') : null,
       linha('Frete', pedido.frete_centavos > 0 ? formatarPreco(pedido.frete_centavos) : (retirada ? 'Sem custo' : 'Grátis'),
         pedido.frete_centavos > 0 ? '' : 'totais-linha--gratis'),
       linha('Total', formatarPreco(pedido.total_centavos), 'totais-linha--total')));

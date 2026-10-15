@@ -1,7 +1,7 @@
 // Testes de integração das APIs da loja e do painel (docs/ARQUITETURA.md §6.2 a §6.6) contra o Supabase local
 // e os servidores falsos do Mercado Pago, do Melhor Envio e do Resend. Exige "supabase start" com a migração.
 //
-// Sobe o dev-server (scripts/dev-server.mjs) no próprio processo. Cria os próprios produtos, cupons, usuários e
+// Sobe o dev-server (scripts/dev-server.mjs) no próprio processo. Cria os próprios produtos, usuários e
 // pedidos com sufixo aleatório e apaga tudo no after(); as configurações (loja, frete, notificacoes) são
 // trocadas por valores de teste e restauradas no fim.
 
@@ -17,7 +17,6 @@ import { limparCacheConfiguracoes } from '../../lib/loja.js';
 import { limparCacheCotacoes } from '../../lib/frete.js';
 
 const SUF = randomBytes(4).toString('hex');
-const SUF_M = SUF.toUpperCase();
 const SENHA = `Senha-${SUF}-123`;
 const EMAIL_ADMIN = `admin-loja-${SUF}@teste.ama.local`;
 const EMAIL_COMUM = `comum-loja-${SUF}@teste.ama.local`;
@@ -65,10 +64,8 @@ let usuarioComum;
 let tokenAdmin;
 let tokenComum;
 const produtosCriados = [];
-const cuponsCriados = [];
 
 const P = {};
-const C = {};
 
 // ---------------------------------------------------------------------------
 // Apoio
@@ -93,12 +90,6 @@ async function criarProduto(campos = {}) {
   }).select().single(), 'criar produto');
   produtosCriados.push(produto.id);
   return produto;
-}
-
-async function criarCupom(campos) {
-  const cupom = await semErro(servico.from('cupons').insert(campos).select().single(), 'criar cupom');
-  cuponsCriados.push(cupom.id);
-  return cupom;
 }
 
 async function definirConfig(chave, valor) {
@@ -287,10 +278,6 @@ before(async () => {
   // 40 cm de altura: no PAC do falso, 3 unidades viram 2 pacotes (empilhadas passam de 100 cm).
   P.grande = await criarProduto({ preco_centavos: 5000, estoque: 30, peso_gramas: 1000, altura_cm: 40, largura_cm: 20, comprimento_cm: 30 });
 
-  C.percentual = await criarCupom({ codigo: `P${SUF_M}`, tipo: 'percentual', valor: 10 });
-  C.frete = await criarCupom({ codigo: `F${SUF_M}`, tipo: 'frete_gratis', valor: 0 });
-  C.expirado = await criarCupom({ codigo: `E${SUF_M}`, tipo: 'percentual', valor: 10, fim: new Date(Date.now() - 86_400_000).toISOString() });
-
   usuarioAdmin = await criarUsuario({ email: EMAIL_ADMIN, senha: SENHA, admin: true });
   usuarioComum = await criarUsuario({ email: EMAIL_COMUM, senha: SENHA });
   tokenAdmin = await tokenDe(EMAIL_ADMIN);
@@ -309,7 +296,6 @@ after(async () => {
   if (servico) {
     await tentar(() => semErro(servico.from('pedidos').delete().like('cliente_email', `%-${SUF}@exemplo.com.br`), 'pedidos'), 'pedidos');
     if (produtosCriados.length) await tentar(() => semErro(servico.from('produtos').delete().in('id', produtosCriados), 'produtos'), 'produtos');
-    if (cuponsCriados.length) await tentar(() => semErro(servico.from('cupons').delete().in('id', cuponsCriados), 'cupons'), 'cupons');
     for (const [chave, valor] of Object.entries(configOriginal)) {
       await tentar(() => semErro(servico.from('configuracoes').update({ valor }).eq('chave', chave), chave), `config ${chave}`);
     }
@@ -357,7 +343,7 @@ describe('POST /api/loja/cotacao', () => {
     const c = r.json;
     assert.equal(c.ok, true);
     assert.equal(c.frete, null);
-    assert.equal(c.cupom, null);
+    assert.deepEqual(Object.keys(c).sort(), ['frete', 'frete_gratis_acima_centavos', 'itens', 'ok', 'subtotal_centavos']);
     assert.equal(c.frete_gratis_acima_centavos, null);
     assert.equal(c.itens.length, 2, 'linhas repetidas do mesmo produto são juntadas');
     const principal = c.itens.find((i) => i.produto_id === P.principal.id);
@@ -369,7 +355,6 @@ describe('POST /api/loja/cotacao', () => {
     const promo = c.itens.find((i) => i.produto_id === P.promo.id);
     assert.equal(promo.preco_unitario_centavos, 2500, 'preço promocional');
     assert.equal(c.subtotal_centavos, 16_000);
-    assert.equal(c.desconto_centavos, 0);
   });
 
   test('com CEP do PA: Melhor Envio + frete fixo + retirada (por último), ordenados por preço', async () => {
@@ -447,29 +432,12 @@ describe('POST /api/loja/cotacao', () => {
     }
   });
 
-  test('cupons: percentual, frete grátis, expirado e inexistente', async () => {
-    const perc = await cotar({ itens: [{ produto_id: P.principal.id, quantidade: 2 }], cupom: ` p${SUF} ` });
-    assert.equal(perc.status, 200, perc.texto);
-    assert.equal(perc.json.subtotal_centavos, 9000);
-    assert.equal(perc.json.desconto_centavos, 900);
-    assert.equal(perc.json.cupom.valido, true);
-    assert.equal(perc.json.cupom.codigo, C.percentual.codigo);
-
-    const frete = await cotar({ itens: [{ produto_id: P.principal.id, quantidade: 1 }], cupom: C.frete.codigo, cep: '01310-100' });
-    assert.equal(frete.json.cupom.tipo, 'frete_gratis');
-    assert.equal(frete.json.desconto_centavos, 0);
-    const pac = frete.json.frete.opcoes.find((o) => o.id === 'me-1');
-    assert.equal(pac.gratis, true, 'a opção paga mais barata (PAC) fica grátis');
-    assert.equal(pac.preco_centavos, 0);
-    assert.ok(pac.preco_original_centavos > 0);
-
-    const expirado = await cotar({ itens: [{ produto_id: P.principal.id, quantidade: 1 }], cupom: C.expirado.codigo });
-    assert.equal(expirado.json.cupom.valido, false);
-    assert.equal(expirado.json.cupom.mensagem, 'Cupom expirado');
-    assert.equal(expirado.json.desconto_centavos, 0);
-
-    const inexistente = await cotar({ itens: [{ produto_id: P.principal.id, quantidade: 1 }], cupom: `NAOEXISTE${SUF_M}` });
-    assert.equal(inexistente.json.cupom.mensagem, 'Cupom não encontrado');
+  test('campo cupom (removido) é ignorado', async () => {
+    const r = await cotar({ itens: [{ produto_id: P.principal.id, quantidade: 2 }], cupom: 'AMA10' });
+    assert.equal(r.status, 200, r.texto);
+    assert.equal(r.json.subtotal_centavos, 9000);
+    assert.equal('cupom' in r.json, false);
+    assert.equal('desconto_centavos' in r.json, false);
   });
 
   test('itens indisponíveis: inativo, sem preço, estoque insuficiente e inexistente não somam', async () => {
@@ -552,7 +520,7 @@ describe('POST /api/loja/checkout', () => {
     assert.equal(sp.json.erro, 'frete_indisponivel');
   });
 
-  test('estoque insuficiente → 409 item_indisponivel com os itens atualizados; cupom inválido → 400', async () => {
+  test('estoque insuficiente → 409 item_indisponivel com os itens atualizados', async () => {
     const r = await checkout({ itens: [{ produto_id: P.ultimo.id, quantidade: 3 }] });
     assert.equal(r.status, 409);
     assert.equal(r.json.erro, 'item_indisponivel');
@@ -562,18 +530,13 @@ describe('POST /api/loja/checkout', () => {
     const semPreco = await checkout({ itens: [{ produto_id: P.semPreco.id, quantidade: 1 }] });
     assert.equal(semPreco.status, 409);
     assert.equal(semPreco.json.itens[0].motivo, 'sem_preco');
-
-    const cupom = await checkout({ cupom: C.expirado.codigo });
-    assert.equal(cupom.status, 400);
-    assert.equal(cupom.json.erro, 'cupom_invalido');
-    assert.match(cupom.json.mensagem, /expirado/);
   });
 
   test('sucesso: pedido criado, preferência no Mercado Pago e redirecionar = init_point', async () => {
     const r = await checkoutOk({
       itens: [{ produto_id: P.principal.id, quantidade: 2 }],
       frete_id: 'me-1',
-      cupom: C.percentual.codigo.toLowerCase(),
+      cupom: 'AMA10', // campo antigo: ignorado
     });
     assert.match(r.pedido.id, /^[0-9a-f-]{36}$/);
     assert.ok(Number.isSafeInteger(r.pedido.numero) && r.pedido.numero >= 1001);
@@ -595,20 +558,21 @@ describe('POST /api/loja/checkout', () => {
     assert.equal(banco.mp_preference_id, pref.id);
     assert.equal(banco.mp_init_point, pref.init_point);
     assert.equal(banco.subtotal_centavos, 9000);
-    assert.equal(banco.desconto_centavos, 900);
     // PAC no falso: 1850 + 410 (até 1 kg) + 1% de R$ 90,00 de seguro (2 unidades).
     assert.equal(banco.frete_centavos, 2350, 'PAC recotado no servidor');
-    assert.equal(banco.total_centavos, 9000 - 900 + banco.frete_centavos);
+    assert.equal(banco.total_centavos, 9000 + banco.frete_centavos);
     assert.equal(banco.entrega.tipo, 'melhor_envio');
     assert.equal(banco.entrega.servico_id, 1);
-    assert.equal(banco.cupom_codigo, C.percentual.codigo);
+    assert.equal('cupom_codigo' in banco, false);
     assert.equal(banco.cliente_cpf, CPF_DIGITOS);
     assert.equal(banco.observacoes, 'Entregar à tarde');
 
     const somaItens = pref.items.reduce((soma, item) => soma + Math.round(item.unit_price * 100) * item.quantity, 0);
     assert.equal(somaItens, banco.total_centavos);
-    assert.equal(pref.items.length, 2, 'com desconto: um item com os produtos + o frete');
-    assert.match(pref.items[0].title, new RegExp(`Pedido #${banco.numero}`));
+    assert.equal(pref.items.length, 2, 'o produto + o frete');
+    assert.equal(pref.items[0].title, P.principal.nome);
+    assert.equal(pref.items[0].quantity, 2);
+    assert.equal(pref.items[0].unit_price, 45);
     assert.equal(pref.items[1].title, 'Frete — PAC');
   });
 
@@ -669,7 +633,7 @@ describe('pagamento: página do Mercado Pago, webhook e GET /api/loja/pedido', (
     assert.equal(r.cabecalhos.get('cache-control'), 'no-store');
     const p = r.json.pedido;
     assert.deepEqual(Object.keys(p).sort(), [
-      'codigo_rastreio', 'criado_em', 'desconto_centavos', 'entrega', 'enviado_em', 'frete_centavos', 'itens',
+      'codigo_rastreio', 'criado_em', 'entrega', 'enviado_em', 'frete_centavos', 'itens',
       'link_pagamento', 'numero', 'pago_em', 'pode_pagar', 'primeiro_nome', 'status', 'status_pagamento',
       'subtotal_centavos', 'total_centavos', 'url_rastreio',
     ]);

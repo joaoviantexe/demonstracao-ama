@@ -1,6 +1,6 @@
-// Carrinho /loja/carrinho — itens, quantidades, cupom, frete por CEP e resumo.
-// A cada mudança o carrinho é recotado no servidor (POST /api/loja/cotacao): preços, estoque,
-// desconto e frete exibidos são sempre os da resposta.
+// Carrinho /loja/carrinho — itens, quantidades, frete por CEP e resumo.
+// A cada mudança o carrinho é recotado no servidor (POST /api/loja/cotacao): preços, estoque
+// e frete exibidos são sempre os da resposta.
 
 import { cotar } from './api.js';
 import {
@@ -14,7 +14,7 @@ import {
   descreverMotivo, formatarPreco, mascararCep, pluralizar, somenteDigitos, validarCep,
 } from './formatos.js';
 import {
-  avisoFreteGratis, blocoCupom, blocoTotais, listaOpcoesFrete, opcaoEscolhida,
+  avisoFreteGratis, blocoTotais, listaOpcoesFrete, opcaoEscolhida,
 } from './resumo.js';
 import { urlProduto } from './vitrine.js';
 
@@ -31,9 +31,7 @@ const estado = {
   carregando: false,
   sequencia: 0,
   cep: prefs.cep,
-  cupom: prefs.cupom,
   freteId: prefs.frete_id,
-  cupomMensagem: null,
   freteErro: null,
 };
 
@@ -43,7 +41,6 @@ let ultimaAssinatura = assinatura(estado.itens);
 // Elementos fixos (montados uma vez para não perder foco nem o que foi digitado).
 const lista = el('ul', { class: 'carrinho-lista', 'aria-label': 'Produtos no carrinho' });
 const alertaItens = el('div', { class: 'carrinho-alerta', role: 'alert', hidden: true });
-const areaCupom = el('div', { class: 'resumo-bloco' });
 const areaFrete = el('div', { class: 'resumo-bloco' });
 const areaAvisoFrete = el('div', { class: 'resumo-aviso-frete' });
 const areaTotais = el('div', { class: 'resumo-totais' });
@@ -77,14 +74,14 @@ const formCep = el('form', {
     cotarAgora();
   },
 },
-el('label', { for: 'carrinho-cep', class: 'cupom-rotulo' }, icone('caminhao'), 'Entrega'),
+el('label', { for: 'carrinho-cep', class: 'resumo-rotulo' }, icone('caminhao'), 'Entrega'),
 el('div', { class: 'campo-com-acao' }, inputCep, el('button', { type: 'submit', class: 'botao botao--fantasma botao--sm' }, 'Calcular')),
 erroCep);
 areaFrete.append(formCep, opcoesFrete);
 
 const resumo = el('aside', { class: 'resumo', 'aria-labelledby': 'resumo-titulo' },
   el('h2', { class: 'resumo-titulo', id: 'resumo-titulo', texto: 'Resumo' }),
-  areaCupom, areaFrete, areaAvisoFrete, areaTotais, areaErro, motivoBloqueio, botaoFinalizar,
+  areaFrete, areaAvisoFrete, areaTotais, areaErro, motivoBloqueio, botaoFinalizar,
   el('p', { class: 'resumo-seguro' }, icone('escudo'), 'Pagamento seguro pelo Mercado Pago: Pix, cartão ou boleto.'),
   el('a', { class: 'link-seta link-seta--voltar', href: '/loja/' }, icone('voltar'), 'Continuar comprando'));
 
@@ -211,26 +208,6 @@ function renderizarItens() {
 
 function renderizarResumo() {
   const c = estado.cotacao;
-  // Cupom
-  trocarConteudo(areaCupom, blocoCupom({
-    aplicado: c && c.cupom && c.cupom.valido ? { codigo: c.cupom.codigo, mensagem: c.cupom.mensagem } : null,
-    mensagem: estado.cupomMensagem,
-    ocupado: estado.carregando,
-    id: 'carrinho-cupom',
-  }, {
-    aoAplicar: (codigo) => {
-      estado.cupom = codigo;
-      estado.cupomMensagem = null;
-      cotarAgora({ focarCupom: true });
-    },
-    aoRemover: () => {
-      estado.cupom = '';
-      estado.cupomMensagem = null;
-      salvarPreferencias({ cupom: '' });
-      cotarAgora({ focarCupom: true });
-    },
-  }));
-
   // Frete
   const opcoes = c && c.frete && Array.isArray(c.frete.opcoes) ? c.frete.opcoes : [];
   const avisos = [];
@@ -311,7 +288,7 @@ function agendarCotacao() {
   esperaCotacao = setTimeout(() => cotarAgora(), 350);
 }
 
-async function cotarAgora({ focarCupom = false } = {}) {
+async function cotarAgora() {
   clearTimeout(esperaCotacao);
   const sequencia = ++estado.sequencia;
   const itens = itensParaCotacao(estado.itens);
@@ -323,20 +300,10 @@ async function cotarAgora({ focarCupom = false } = {}) {
   estado.carregando = true;
   renderizarResumo();
   try {
-    const cotacao = await cotar({ itens, cep: estado.cep, cupom: estado.cupom });
+    const cotacao = await cotar({ itens, cep: estado.cep });
     if (sequencia !== estado.sequencia) return;
     estado.cotacao = cotacao;
     estado.erro = null;
-    if (estado.cupom) {
-      if (cotacao.cupom && cotacao.cupom.valido) {
-        estado.cupomMensagem = null;
-        salvarPreferencias({ cupom: estado.cupom });
-      } else {
-        estado.cupomMensagem = { tipo: 'erro', texto: (cotacao.cupom && cotacao.cupom.mensagem) || 'Cupom inválido.' };
-        estado.cupom = '';
-        salvarPreferencias({ cupom: '' });
-      }
-    }
     const opcoes = cotacao.frete && Array.isArray(cotacao.frete.opcoes) ? cotacao.frete.opcoes : [];
     if (opcoes.length && !opcoes.some((o) => o.id === estado.freteId)) {
       estado.freteId = opcoes[0].id;
@@ -352,10 +319,6 @@ async function cotarAgora({ focarCupom = false } = {}) {
     if (sequencia === estado.sequencia) {
       estado.carregando = false;
       renderizar();
-      if (focarCupom) {
-        const alvo = areaCupom.querySelector('input, .cupom-remover');
-        alvo?.focus();
-      }
     }
   }
 }
@@ -366,7 +329,6 @@ window.addEventListener(EVENTO, () => {
   const nova = assinatura(estado.itens);
   if (nova === ultimaAssinatura) return;
   ultimaAssinatura = nova;
-  estado.cupomMensagem = null;
   renderizar();
   if (estado.itens.length) agendarCotacao();
 });

@@ -8,7 +8,7 @@
 //   (saldo na visão geral) e o Mercado Pago em modo teste (sem rede).
 // - Em cada largura: login (vazio, senha errada, certo), visão geral, menu fechado/aberto no
 //   celular, página não encontrada, uma página de vitrine dos componentes (injetada com
-//   page.route no lugar de paginas/cupons.js, usando só o contrato ctx), aviso de alterações
+//   page.route no lugar de paginas/categorias.js, usando só o contrato ctx), aviso de alterações
 //   não salvas, modal, toasts e saída. Em 390 px também o seletor de mídia com envio real
 //   para o bucket (o arquivo é apagado no fim).
 // - Usuário comum (criado e apagado aqui) recebe "sem permissão"; rota preservada no login;
@@ -40,7 +40,7 @@ const SAIDA = path.resolve(argumento('saida', path.join(os.tmpdir(), 'capturas-p
 const LARGURAS = argumento('larguras', '390,768,1440').split(',').map(Number).filter(Boolean);
 const ALTURAS = { 360: 760, 390: 844, 768: 1024, 1024: 800, 1440: 900 };
 const ADMIN = { email: 'admin@ama.local', senha: 'admin123456' };
-const ROTA_VITRINE = '#/cupons';
+const ROTA_VITRINE = '#/categorias';
 const IMAGEM_TESTE = path.join(RAIZ, 'public', 'img', 'logo-ama-icone.png');
 
 const problemas = [];
@@ -84,9 +84,9 @@ export async function renderizar(ctx) {
 
   const resultado = el('p', { id: 'resultado-midia', class: 'texto-pequeno mono truncar' }, 'Nenhuma imagem escolhida.');
   const abrirModal = ui.botao({ texto: 'Abrir modal', icone: 'info', attrs: { id: 'abrir-modal' }, aoClicar: () => ui.modal({
-    titulo: 'Novo cupom', conteudo: el('div', { class: 'formulario' }, ui.campo({ rotulo: 'Código', nome: 'codigo', valor: 'AMA10' }).elemento,
-      ui.campo({ rotulo: 'Desconto', nome: 'valor', tipo: 'number', valor: 10, sufixo: '%' }).elemento),
-    acoes: [{ texto: 'Cancelar', valor: null }, { texto: 'Criar cupom', tipo: 'primario', aoClicar: () => new Promise((r) => setTimeout(() => r('ok'), 300)) }] }) });
+    titulo: 'Nova categoria', conteudo: el('div', { class: 'formulario' }, ui.campo({ rotulo: 'Nome', nome: 'nome', valor: 'Biojoias' }).elemento,
+      ui.campo({ rotulo: 'Ordem', nome: 'ordem', tipo: 'number', valor: 10 }).elemento),
+    acoes: [{ texto: 'Cancelar', valor: null }, { texto: 'Criar categoria', tipo: 'primario', aoClicar: () => new Promise((r) => setTimeout(() => r('ok'), 300)) }] }) });
   const toasts = ui.botao({ texto: 'Mostrar avisos', icone: 'alerta', attrs: { id: 'mostrar-toasts' }, aoClicar: () => {
     ui.toast('Produto salvo com sucesso.', 'sucesso', { duracao: 0 });
     ui.toast('Não foi possível falar com o servidor. Verifique sua internet.', 'erro', { duracao: 0 });
@@ -96,7 +96,7 @@ export async function renderizar(ctx) {
     resultado.textContent = url || 'cancelado';
   } });
   const confirmar = ui.botao({ texto: 'Excluir…', tipo: 'perigo-suave', icone: 'lixeira', attrs: { id: 'confirmar' }, aoClicar: async () => {
-    const sim = await ui.confirmar('Excluir o cupom AMA10? Esta ação não pode ser desfeita.', { perigo: true, textoConfirmar: 'Excluir cupom' });
+    const sim = await ui.confirmar('Excluir a categoria Biojoias? Esta ação não pode ser desfeita.', { perigo: true, textoConfirmar: 'Excluir categoria' });
     ui.toast(sim ? 'Excluído.' : 'Cancelado.', sim ? 'sucesso' : 'info');
   } });
 
@@ -133,7 +133,7 @@ export async function renderizar(ctx) {
   ] });
   const upload = midia.criarAreaUpload({ tipo: 'imagem', aoEscolher: () => {} });
   upload.definirProgresso(0.42, 'Enviando foto.jpg… 42%');
-  const vazio = ui.estadoVazio(null, 'Crie o primeiro cupom para oferecer desconto.', { titulo: 'Nenhum cupom ainda', icone: 'cupons', acao: { texto: 'Novo cupom', icone: 'mais' } });
+  const vazio = ui.estadoVazio(null, 'Crie a primeira categoria para organizar a loja.', { titulo: 'Nenhuma categoria ainda', icone: 'categorias', acao: { texto: 'Nova categoria', icone: 'mais' } });
   const carregando = ui.estadoCarregando(null, { linhas: 3 });
 
   ctx.raiz.append(
@@ -176,7 +176,7 @@ async function novaPagina(navegador, largura, rotulo) {
       await rota.abort().catch(() => {});
     }
   });
-  await contexto.route(/\/admin\/js\/paginas\/cupons\.js(\?.*)?$/, (rota) => rota.fulfill({
+  await contexto.route(/\/admin\/js\/paginas\/categorias\.js(\?.*)?$/, (rota) => rota.fulfill({
     status: 200, contentType: 'text/javascript; charset=utf-8', body: VITRINE,
   }));
   const vigiar = (pagina) => {

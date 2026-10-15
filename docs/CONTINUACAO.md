@@ -60,9 +60,9 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
 
 ## Pedidos novos do cliente (fazer PRIMEIRO, nesta ordem)
 
-1. **Banner:** trocar o título "Cosméticos" por **"Produtos AMA"** (`templates/home.html`, seção `#loja`, `h2`) e
+1. **(Feito)** **Banner:** trocar o título "Cosméticos" por **"Produtos AMA"** (`templates/home.html`, seção `#loja`, `h2`) e
    ajustar `tests/unit/home.test.js`.
-2. **Remover o sistema de cupom por completo:**
+2. **(Feito; também saíram `pedidos.desconto_centavos` e `pedidos.cupom_codigo`)** **Remover o sistema de cupom por completo:**
    - campo de cupom no carrinho e no checkout;
    - parâmetro `cupom` em `/api/loja/cotacao` e `/api/loja/checkout`, e o tratamento em `lib/loja.js`;
    - lógica de cupom em `cotar_carrinho`, `criar_pedido`, `_baixar_estoque` e `_repor_estoque`, e `frete_gratis_cupom` em

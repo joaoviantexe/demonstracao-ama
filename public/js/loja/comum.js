@@ -73,7 +73,6 @@ const ICONES = {
   alerta: '<path d="M12 3.5l9 16H3l9-16z"/><path d="M12 10v4.5M12 17.2v.3"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.8v.3"/>',
   busca: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
-  etiqueta: '<path d="M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7l8.3 8.3a1 1 0 0 1 0 1.4l-7.3 7.3a1 1 0 0 1-1.4 0L3.5 12.2z"/><circle cx="8" cy="8" r="1.5"/>',
   folha: '<path d="M5 19.5C5 11 10 5 20 4c-.5 10-6.5 15.5-15 15.5z"/><path d="M5 19.5l7.5-7.5"/>',
   cartao: '<rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h3"/>',
   coracao: '<path d="M12 20s-7.5-4.6-9.2-9.4A4.9 4.9 0 0 1 12 7.2a4.9 4.9 0 0 1 9.2 3.4C19.5 15.4 12 20 12 20z"/>',

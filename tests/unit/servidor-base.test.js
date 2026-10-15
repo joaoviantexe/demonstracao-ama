@@ -596,7 +596,6 @@ describe('lib/validacao.js', () => {
     const ID = '123e4567-e89b-12d3-a456-426614174000';
     const valido = () => ({
       itens: [{ produto_id: ID.toUpperCase(), quantidade: 2 }],
-      cupom: ' ama10 ',
       frete_id: 'me-1',
       cliente: { nome: ' Maria  da Silva ', email: ' Maria@Exemplo.com ', telefone: '(91) 98105-6049', cpf: '529.982.247-25' },
       endereco: {
@@ -617,7 +616,6 @@ describe('lib/validacao.js', () => {
           bairro: 'Centro', cidade: 'Belém', uf: 'PA',
         },
         observacoes: 'Entregar à tarde',
-        cupom: 'AMA10',
         itens: [{ produto_id: ID, quantidade: 2 }],
         frete_id: 'me-1',
       });
@@ -651,13 +649,13 @@ describe('lib/validacao.js', () => {
       assert.equal(validarDadosCheckout(corpo).ok, true);
     });
 
-    test('opcionais ausentes: cupom e observações null', () => {
+    test('observações ausentes: null; campo antigo de cupom é ignorado', () => {
       const corpo = valido();
-      delete corpo.cupom;
+      corpo.cupom = 'qualquer coisa';
       corpo.observacoes = '   ';
       const r = validarDadosCheckout(corpo);
       assert.equal(r.ok, true);
-      assert.equal(r.dados.cupom, null);
+      assert.equal('cupom' in r.dados, false);
       assert.equal(r.dados.observacoes, null);
       corpo.observacoes = 'x'.repeat(600);
       assert.equal(validarDadosCheckout(corpo).dados.observacoes.length, 500);
@@ -667,12 +665,11 @@ describe('lib/validacao.js', () => {
       const r = validarDadosCheckout({
         itens: [],
         frete_id: '',
-        cupom: 'a',
         cliente: { nome: 'Maria', email: 'x@', telefone: '123', cpf: '111.111.111-11' },
         endereco: { cep: '123', logradouro: '', numero: '', bairro: '', cidade: '', uf: 'XX', complemento: 'c'.repeat(101) },
       });
       assert.equal(r.ok, false);
-      for (const campo of ['itens', 'frete_id', 'cupom', 'cliente.nome', 'cliente.email', 'cliente.telefone', 'cliente.cpf',
+      for (const campo of ['itens', 'frete_id', 'cliente.nome', 'cliente.email', 'cliente.telefone', 'cliente.cpf',
         'endereco.cep', 'endereco.logradouro', 'endereco.numero', 'endereco.bairro', 'endereco.cidade', 'endereco.uf',
         'endereco.complemento']) {
         assert.equal(typeof r.erros[campo], 'string', campo);

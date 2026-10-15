@@ -78,17 +78,7 @@ update public.produtos p
 
 
 -- -----------------------------------------------------------------------------
--- 3. Cupons de exemplo
--- -----------------------------------------------------------------------------
-
-insert into public.cupons (codigo, descricao, tipo, valor, minimo_centavos) values
-  ('AMA10',       '10% de desconto em toda a loja', 'percentual',   10, 0),
-  ('FRETEGRATIS', 'Frete grátis',                   'frete_gratis',  0, 0)
-on conflict (codigo) do nothing;
-
-
--- -----------------------------------------------------------------------------
--- 4. Origem do frete (dados fictícios; CEP do Conjunto Uirapuru, Icuí-Guajará)
+-- 3. Origem do frete (dados fictícios; CEP do Conjunto Uirapuru, Icuí-Guajará)
 -- -----------------------------------------------------------------------------
 
 update public.configuracoes

@@ -363,7 +363,6 @@ export async function renderizar(ctx) {
 | `#/categorias` | `categorias.js` | `{}` | Categorias | categorias |
 | `#/pedidos` | `pedidos.js` | `{}` | Pedidos | pedidos |
 | `#/pedidos/<uuid>` | `pedidos.js` | `{ id }` (uuid em minúsculas) | Pedido | pedidos |
-| `#/cupons` | `cupons.js` | `{}` | Cupons | cupons |
 | `#/configuracoes` | `configuracoes.js` | `{}` | Configurações | configuracoes |
 
 - O mesmo arquivo atende lista e detalhe: decida por `ctx.params.id` (`undefined` = lista, `'novo'` = criação, uuid = edição).
@@ -377,7 +376,7 @@ export async function renderizar(ctx) {
 ### 5.2 Menu lateral (`MENU` em `app.js`)
 
 Seções e itens, na ordem: *(sem título)* Visão geral · **Site**: Conteúdo do site, Mídia · **Loja**: Pedidos,
-Produtos, Categorias, Cupons · **Ajustes**: Configurações. Cada link tem `data-menu="<id>"` e
+Produtos, Categorias · **Ajustes**: Configurações. Cada link tem `data-menu="<id>"` e
 `aria-current="page"` quando ativo. Só o item "Pedidos" tem contador (pedidos `pago` + `em_separacao`).
 O rodapé do menu tem "Ver loja" (`/loja/`, nova aba) e, só na gaveta do celular, o e-mail, "Ver site" e "Sair".
 No desktop (≥ 1024 px) o menu fica fixo à esquerda; abaixo disso vira gaveta aberta pelo botão "Abrir menu" do topo
@@ -433,7 +432,7 @@ O aviso é desligado automaticamente a cada renderização de rota. `marcarAlter
 
 - Só quem está em `admins` (`rpc('eh_admin')` = `true`) vê o painel; os demais recebem "Sem permissão…" e saem.
 - `ctx.supabase` usa o JWT da administradora. Pela RLS (ARQUITETURA §4.3) ela pode tudo em `conteudo_site`,
-  `configuracoes`, `categorias`, `produtos` e `cupons`; em `pedidos`/`pedido_itens` pode ler, alterar e apagar;
+  `configuracoes`, `categorias` e `produtos`; em `pedidos`/`pedido_itens` pode ler, alterar e apagar;
   em `pedido_eventos` pode ler e apagar, e criar/alterar só eventos com `tipo = 'nota'`; em `admins`, só ler.
   As RPCs `alterar_status_pedido` e `confirmar_pagamento` são só do servidor: use `/api/admin/*` (§9.5).
 - **Sessão expirada**: quando `chamarApi` recebe 401 (mesmo depois de renovar o token) ou `erroSupabase` vê JWT
@@ -557,8 +556,8 @@ el('input', { type: 'checkbox', checked: produto.ativo, eventos: { change: aoMud
 (`currentColor`). Decorativo (`aria-hidden="true"`) por padrão; com `rotulo` vira `role="img"` com `<title>`.
 `tamanho` define `width`/`height`; sem ele o tamanho vem do CSS (`.icone` = 1,25 em). Nome desconhecido → ícone `info`.
 
-**`ICONES`** — nomes aceitos (48):
-`inicio, conteudo, midia, produtos, categorias, pedidos, cupons, configuracoes, sair, externo, menu, fechar, olho,
+**`ICONES`** — nomes aceitos (47):
+`inicio, conteudo, midia, produtos, categorias, pedidos, configuracoes, sair, externo, menu, fechar, olho,
 olho-fechado, mais, lixeira, editar, subir, descer, copiar, duplicar, arrastar, upload, busca, check, alerta, info,
 sucesso, erro, voltar, avancar, video, loja, caminhao, relogio, dinheiro, atualizar, link, caixa, usuario, cadeado,
 email, cartao, banco, escudo, imagem, grafico, estrela`.
@@ -786,7 +785,7 @@ modal pequeno de sim/não. `msg` é sempre texto (seguro com dado do banco). Com
 `perigo`: "Confirmar" e botão primário. Esc/X/fundo → `false`.
 
 ```js
-if (!(await ui.confirmar(`Excluir o cupom ${c.codigo}? Esta ação não pode ser desfeita.`, { perigo: true, textoConfirmar: 'Excluir cupom' }))) return;
+if (!(await ui.confirmar(`Excluir a categoria ${c.nome}? Esta ação não pode ser desfeita.`, { perigo: true, textoConfirmar: 'Excluir categoria' }))) return;
 ```
 
 ### 8.6 Diversos
@@ -878,14 +877,14 @@ Converte erros do PostgREST, Auth e Storage. `detalhe` guarda a mensagem origina
 | `23505` (único) | `duplicado` + `campo` | "Já existe um registro com este endereço (slug)." (`slug`, `codigo` → código, `nome`, `sku` → SKU, `chave`, `email` → e-mail; outros: "Já existe um registro igual.") |
 | `23503` (chave estrangeira) | `em_uso` | "Este item está ligado a outros registros e não pode ser removido." |
 | `23502` (não nulo) | `campo_obrigatorio` + `campo` | "Preencha os campos obrigatórios." |
-| `23514`, `22P02`, `22003`, `22001` (check, formato, número, tamanho) | `dados_invalidos` + `restricao` (nome do check, ex. `cupons_valor_check`) | "Algum valor não foi aceito. Confira os campos e tente de novo." |
+| `23514`, `22P02`, `22003`, `22001` (check, formato, número, tamanho) | `dados_invalidos` + `restricao` (nome do check, ex. `produtos_preco_promocional_check`) | "Algum valor não foi aceito. Confira os campos e tente de novo." |
 | `PGRST116` | `nao_encontrado` | "Registro não encontrado." |
 | 413 / arquivo grande | `muito_grande` | "O arquivo passa do limite de 50 MB." |
 | Tipo de arquivo recusado | `tipo_nao_aceito` | "Tipo de arquivo não aceito. Use JPG, PNG, WebP, GIF, AVIF, MP4 ou WebM." |
 | 429 | `muitas_tentativas` | "Muitas tentativas seguidas…" |
 | Outro | `erro_supabase` | "Não foi possível concluir a operação. Tente de novo." |
 
-Use `restricao` para pôr o erro no campo certo (ex.: `cupons_valor_check` → campo "valor").
+Use `restricao` para pôr o erro no campo certo (ex.: `produtos_preco_promocional_check` → campo "preço promocional").
 
 ### 9.4 Outras exportações
 
@@ -1464,9 +1463,9 @@ cartão estreito (a lateral da `grade--painel`) continua em 2 em qualquer tela. 
 ```html
 <div class="estado-vazio">
   <div class="estado-vazio__icone"><svg class="icone">…</svg></div>
-  <p class="estado-vazio__titulo">Nenhum cupom ainda</p>
-  <p class="estado-vazio__texto">Crie o primeiro cupom para oferecer desconto.</p>
-  <button type="button" class="botao botao--primario">Novo cupom</button>
+  <p class="estado-vazio__titulo">Nenhuma categoria ainda</p>
+  <p class="estado-vazio__texto">Crie a primeira categoria para organizar a loja.</p>
+  <button type="button" class="botao botao--primario">Nova categoria</button>
 </div>
 
 <div class="carregando carregando--lista" role="status" aria-live="polite" aria-busy="true">
@@ -1490,7 +1489,7 @@ Gerado por `ui.modal`:
 ```html
 <dialog class="modal modal--medio" aria-labelledby="modal-3-titulo">
   <div class="modal__caixa">
-    <div class="modal__cabecalho"><h2 class="modal__titulo" id="modal-3-titulo">Novo cupom</h2><button class="botao botao--fantasma botao--icone modal__fechar" aria-label="Fechar">…</button></div>
+    <div class="modal__cabecalho"><h2 class="modal__titulo" id="modal-3-titulo">Nova categoria</h2><button class="botao botao--fantasma botao--icone modal__fechar" aria-label="Fechar">…</button></div>
     <div class="modal__corpo"><p class="modal__descricao">…</p>…</div>
     <div class="modal__rodape">…botões…</div>
   </div>
@@ -1533,8 +1532,8 @@ devagar). Não crie animações que dependam de terminar para a página funciona
     depois do login a rota pedida é mantida;
   - falha com erro no console/página e com rolagem horizontal (função `semRolagemHorizontal`);
   - para upload: `page.waitForEvent('filechooser')` + `setFiles(...)`; apague do bucket o que enviou.
-- O próprio `capturas-painel.mjs` injeta uma "vitrine de componentes" no lugar de `paginas/cupons.js`
-  (`page.route`), então continua funcionando quando a página real de cupons existir:
+- O próprio `capturas-painel.mjs` injeta uma "vitrine de componentes" no lugar de `paginas/categorias.js`
+  (`page.route`; a página real de categorias é testada por `capturas-painel-produtos.mjs`):
   `node scripts/capturas-painel.mjs --larguras 390,1440 --saida <pasta>`. Ele também confere as correções do
   §13 no navegador (botões do topo por largura, "Tentar novamente" da visão geral com falha simulada,
   `navegar` com `substituir` no mesmo hash, modal fechado pelo botão Voltar e pelo login, caixa de marcar numa
