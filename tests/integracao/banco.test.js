@@ -767,6 +767,7 @@ describe('catálogo inicial (seção 10 da migração, rodada isolada numa trans
     const migracao = readFileSync(MIGRACAO, 'utf8');
     const categorias = trecho(migracao, /insert into public\.categorias \(nome, slug, descricao, ordem\) values[\s\S]*?on conflict \(slug\) do nothing;/, 'categorias');
     const produtos = trecho(migracao, /insert into public\.produtos \(nome, slug, descricao, preco_centavos[\s\S]*?on conflict \(slug\) do nothing;/, 'produtos');
+    const precosTeste = trecho(migracao, /update public\.produtos p\s+set preco_centavos = v\.preco,[\s\S]*?and p\.estoque = 0;/, 'preços de teste');
     const seed = trecho(readFileSync(SEED, 'utf8'), /update public\.produtos p[\s\S]*?where p\.slug = v\.slug;/, 'seed');
     // Tudo numa transação desfeita no fim: não depende do seed já aplicado nem do que o painel ou os E2E editaram.
     fotos = await sqlJson(`
@@ -784,22 +785,34 @@ describe('catálogo inicial (seção 10 da migração, rodada isolada numa trans
       update public.categorias set nome = 'Biojoias da AMA', ativo = false where slug = 'biojoias';
       ${categorias}
       ${produtos}
+      ${precosTeste}
       insert into _foto select 'reexecucao', ${FOTO};
+      -- Projeto criado com a versão antiga (preço 0 e estoque 0): o update preenche só o que continua zerado.
+      update public.produtos set preco_centavos = 0, preco_promocional_centavos = null, estoque = 0 where slug in (${SLUGS_SQL});
+      update public.produtos set estoque = 5 where slug = 'biojoia-02';
+      update public.produtos set preco_centavos = 1000 where slug = 'biojoia-03';
+      ${precosTeste}
+      insert into _foto select 'projeto_antigo', ${FOTO};
       select json_object_agg(etapa, dados) from _foto;
       rollback;
     `);
   });
 
-  test('a migração cria as 5 categorias e os 16 produtos ATIVOS, com preço 0, nas categorias certas', () => {
+  // Preços de teste (placeholder) por categoria, em centavos.
+  const PRECO_TESTE = {
+    'body-splash': 5990, 'cremes-hidratantes': 6990, 'sabonete-liquido-intimo': 4990, 'sabonete-solido': 2490, biojoias: 8990,
+  };
+
+  test('a migração cria as 5 categorias e os 16 produtos ATIVOS, com preços e estoque de teste, nas categorias certas', () => {
     const { categorias, produtos, cotacao } = fotos.migracao;
     assert.deepEqual(categorias, CATEGORIAS.map(([slug, nome], i) => ({ slug, nome, ativo: true, ordem: i + 1 })));
     assert.deepEqual(produtos.map((p) => p.slug), SLUGS);
     assert.deepEqual(produtos.map((p) => p.ordem), SLUGS.map((_, i) => i + 1));
     for (const p of produtos) {
       assert.equal(p.ativo, true, `${p.slug} ativo`);
-      assert.equal(p.preco, 0, `${p.slug} preço`);
+      assert.equal(p.preco, PRECO_TESTE[p.categoria], `${p.slug} preço`);
       assert.equal(p.promocional, null, `${p.slug} promocional`);
-      assert.equal(p.estoque, 0, `${p.slug} estoque`);
+      assert.equal(p.estoque, 10, `${p.slug} estoque`);
       assert.equal(p.controlar, true, `${p.slug} controlar_estoque`);
       assert.equal(p.destaque, false, `${p.slug} destaque`);
       assert.ok(p.peso > 0, `${p.slug} peso`);
@@ -817,16 +830,25 @@ describe('catálogo inicial (seção 10 da migração, rodada isolada numa trans
       assert.equal(p.descricao, 'Descrição em Produção', slug);
       assert.equal(p.categoria, 'biojoias', slug);
     }
-    // Ativo com preço 0 = "Em breve": aparece com os dados da vitrine, mas não soma nem pode ser comprado.
+    // Todos podem ser comprados nos testes de funcionamento.
     assert.equal(cotacao.itens.length, 16);
     for (const item of cotacao.itens) {
       const p = produtos.find((x) => x.id === item.produto_id);
-      assert.equal(item.disponivel, false, p.slug);
-      assert.equal(item.motivo, 'sem_preco', p.slug);
+      assert.equal(item.disponivel, true, p.slug);
+      assert.equal(item.motivo, null, p.slug);
       assert.equal(item.nome, p.nome, p.slug);
-      assert.equal(item.preco_unitario_centavos, 0, p.slug);
+      assert.equal(item.preco_unitario_centavos, PRECO_TESTE[p.categoria], p.slug);
     }
-    assert.equal(cotacao.subtotal_centavos, 0);
+    assert.equal(cotacao.subtotal_centavos, 4 * 5990 + 4 * 6990 + 4990 + 2490 + 6 * 8990);
+  });
+
+  test('projeto antigo (catálogo com preço 0 e estoque 0): o update preenche só o que continua zerado', () => {
+    const { produtos } = fotos.projeto_antigo;
+    for (const p of produtos) {
+      if (p.slug === 'biojoia-02') assert.deepEqual([p.preco, p.estoque], [0, 5], 'estoque editado: não muda');
+      else if (p.slug === 'biojoia-03') assert.deepEqual([p.preco, p.estoque], [1000, 0], 'preço editado: não muda');
+      else assert.deepEqual([p.preco, p.estoque], [PRECO_TESTE[p.categoria], 10], p.slug);
+    }
   });
 
   test('cada produto tem uma foto com texto alternativo e o arquivo existe em public/', () => {
@@ -846,7 +868,7 @@ describe('catálogo inicial (seção 10 da migração, rodada isolada numa trans
     }
   });
 
-  test('seed (dev): preços e estoque na coleção Ama Bioessência, 1 promoção, 2–3 destaques; biojoias seguem "Em breve"', () => {
+  test('seed (dev): 1 promoção e 2–3 destaques na coleção Ama Bioessência; biojoias com os preços de teste', () => {
     const { produtos, cotacao } = fotos.seed;
     const ama = produtos.filter((p) => !BIOJOIAS.includes(p.slug));
     for (const p of ama) {
@@ -860,16 +882,12 @@ describe('catálogo inicial (seção 10 da migração, rodada isolada numa trans
     const destaques = ama.filter((p) => p.destaque).length;
     assert.ok(destaques >= 2 && destaques <= 3, `destaques: ${destaques}`);
     for (const p of produtos.filter((x) => BIOJOIAS.includes(x.slug))) {
-      assert.deepEqual([p.preco, p.ativo, p.nome], [0, true, 'Nome em Produção'], p.slug);
+      assert.deepEqual([p.preco, p.estoque, p.ativo, p.nome], [8990, 10, true, 'Nome em Produção'], p.slug);
     }
     for (const item of cotacao.itens) {
       const p = produtos.find((x) => x.id === item.produto_id);
-      if (BIOJOIAS.includes(p.slug)) {
-        assert.equal(item.motivo, 'sem_preco', p.slug);
-      } else {
-        assert.equal(item.disponivel, true, p.slug);
-        assert.equal(item.preco_unitario_centavos, p.promocional ?? p.preco, p.slug);
-      }
+      assert.equal(item.disponivel, true, p.slug);
+      assert.equal(item.preco_unitario_centavos, p.promocional ?? p.preco, p.slug);
     }
   });
 

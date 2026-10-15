@@ -50,9 +50,9 @@ $$;
 
 
 -- -----------------------------------------------------------------------------
--- 2. Preços e estoque de exemplo para a coleção Ama Bioessência
---    Nome, descrição, foto, peso e medidas já vêm da migração. As biojoias
---    continuam com preço 0 ("R$ 00,00" e "Em breve" na loja).
+-- 2. Promoção, destaques e SKU de exemplo para a coleção Ama Bioessência
+--    Nome, descrição, foto, peso, medidas, preços e estoque de teste já vêm da
+--    migração (as biojoias também: R$ 89,90 e 10 unidades).
 -- -----------------------------------------------------------------------------
 
 update public.produtos p

@@ -1510,8 +1510,9 @@ create policy ama_midia_admin_delete on storage.objects
 -- -----------------------------------------------------------------------------
 -- 10. Dados iniciais
 --     Configurações padrão, categorias e o catálogo inicial (coleção Ama
---     Bioessência e biojoias), ativo e com preço 0: a AMA define preço e
---     estoque no painel. "on conflict do nothing" preserva o que já foi editado.
+--     Bioessência e biojoias), ativo e com preços e estoque de teste: a AMA
+--     define os valores reais no painel. "on conflict do nothing" preserva o
+--     que já foi editado.
 -- -----------------------------------------------------------------------------
 
 insert into public.configuracoes (chave, publico, valor) values
@@ -1591,11 +1592,21 @@ insert into public.categorias (nome, slug, descricao, ordem) values
 on conflict (slug) do nothing;
 
 -- Coleção Ama Bioessência (apresentação institucional) e biojoias do ateliê.
--- Preço 0 = "R$ 00,00" na loja: o produto aparece na vitrine, mas só pode ser
--- comprado depois que a AMA definir o preço no painel.
-insert into public.produtos (nome, slug, descricao, preco_centavos, ativo, categoria_id, imagens, ordem,
+-- Preços e estoque são de TESTE (placeholder), para os testes de funcionamento da loja:
+-- body splash R$ 59,90, cremes R$ 69,90, sabonete líquido R$ 49,90, sabonete sólido
+-- R$ 24,90, biojoias R$ 89,90 e 10 unidades de cada. A AMA troca pelos valores reais
+-- no painel (Produtos).
+insert into public.produtos (nome, slug, descricao, preco_centavos, estoque, ativo, categoria_id, imagens, ordem,
                              peso_gramas, altura_cm, largura_cm, comprimento_cm)
-select v.nome, v.slug, v.descricao, 0, true,
+select v.nome, v.slug, v.descricao,
+       case v.categoria
+         when 'body-splash'             then 5990
+         when 'cremes-hidratantes'      then 6990
+         when 'sabonete-liquido-intimo' then 4990
+         when 'sabonete-solido'         then 2490
+         else                                8990  -- biojoias
+       end,
+       10, true,
        (select c.id from public.categorias c where c.slug = v.categoria),
        jsonb_build_array(jsonb_build_object('src', v.imagem, 'alt', v.alt)),
        v.ordem, v.peso, v.altura, v.largura, v.comprimento
@@ -1656,3 +1667,22 @@ select v.nome, v.slug, v.descricao, 0, true,
      'Brinco em formato de gota em resina verde, estilo boho', 'Descrição em Produção', 16, 100, 4.0, 12.0, 16.0)
   ) as v (nome, slug, categoria, imagem, alt, descricao, ordem, peso, altura, largura, comprimento)
 on conflict (slug) do nothing;
+
+-- Projetos criados quando o catálogo inicial vinha com preço 0 e estoque 0: aplica os mesmos
+-- valores de teste só nos 16 produtos iniciais que continuam com preço 0 E estoque 0 (o que a
+-- AMA já editou no painel não muda).
+update public.produtos p
+   set preco_centavos = v.preco,
+       estoque = 10
+  from (values
+    ('body-splash-raiz', 5990), ('body-splash-bruma', 5990), ('body-splash-orvalho', 5990), ('body-splash-ambar', 5990),
+    ('creme-hidratante-ameixa-negra', 6990), ('creme-hidratante-cupuacu', 6990), ('creme-hidratante-cumaru', 6990),
+    ('creme-hidratante-capim-limao', 6990),
+    ('sabonete-liquido-intimo-barbatimao-andiroba', 4990),
+    ('sabonete-solido-manteiga-cupuacu', 2490),
+    ('biojoia-01', 8990), ('biojoia-02', 8990), ('biojoia-03', 8990), ('biojoia-04', 8990), ('biojoia-05', 8990),
+    ('biojoia-06', 8990)
+  ) as v (slug, preco)
+ where p.slug = v.slug
+   and p.preco_centavos = 0
+   and p.estoque = 0;

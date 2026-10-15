@@ -11,8 +11,8 @@
 //   (com proxy, rode com NODE_USE_ENV_PROXY=1); sem acesso, as páginas usam as fontes de reserva.
 // - Fluxo: catálogo → produto → adicionar → carrinho (CEP 66010-000, PAC) →
 //   checkout preenchido → Mercado Pago falso (Aprovar) → pedido "Pago" → meus pedidos.
-//   Também: carrinho vazio, produto sem preço, o catálogo no "modo apresentação" (todos os preços 0),
-//   carrinho com itens indisponíveis e produto inexistente.
+//   Também: carrinho vazio, uma biojoia, o catálogo no "modo apresentação" (todos os preços 0),
+//   carrinho com itens indisponíveis (um produto fica sem preço só durante esse fluxo) e produto inexistente.
 // - Cada página é capturada em 390, 768 e 1440 px. O script falha (código 1) se houver erro no console
 //   das páginas da loja ou conteúdo saindo da tela na horizontal.
 // - No fim, apaga os pedidos criados (devolvendo o estoque que o pagamento consumiu).
@@ -39,6 +39,7 @@ const SAIDA = path.resolve(argumento('saida', path.join(os.tmpdir(), 'capturas-l
 const LARGURAS = argumento('larguras', '390,768,1440').split(',').map(Number).filter(Boolean);
 const ALTURAS = { 390: 844, 768: 1024, 1440: 900 };
 const FLUXOS = argumento('fluxos', 'compra,apresentacao,estados').split(',');
+const PRODUTO_SEM_PRECO = 'biojoia-06';
 const SUFIXO = randomBytes(4).toString('hex');
 const EMAIL = `capturas.${SUFIXO}@exemplo.com.br`;
 
@@ -219,10 +220,10 @@ async function fluxoCompra(navegador, base) {
     await pagina.getByRole('button', { name: 'Calcular' }).click();
     await pagina.waitForSelector('.frete-opcao-linha');
 
-    // Produto sem preço (biojoia): aparece como os demais, com "R$ 00,00"
+    // Biojoia (nome e descrição "em produção", preço de teste)
     await pagina.goto(`${base}/loja/produto?slug=biojoia-01`);
     await pagina.waitForSelector('.ficha-nome');
-    await capturar(pagina, '04-produto-sem-preco');
+    await capturar(pagina, '04-produto-biojoia');
 
     // Carrinho: CEP e PAC
     await pagina.goto(`${base}/loja/carrinho`);
@@ -302,7 +303,7 @@ async function fluxoEstados(navegador, base, produtos) {
     };
     const itens = [
       linha('body-splash-raiz', 20),
-      linha('biojoia-01', 1),
+      linha(PRODUTO_SEM_PRECO, 1),
       { produto_id: '00000000-0000-4000-8000-000000000999', quantidade: 1, nome: 'Produto que saiu da loja', preco_centavos: 1000, imagem: '', slug: 'antigo' },
       linha('creme-hidratante-cupuacu', 1),
     ];
@@ -407,7 +408,14 @@ async function principal() {
       const produtos = await (await fetch(`${supabase.url}/rest/v1/produtos?select=id,slug,nome,preco_centavos,imagens&ativo=eq.true`, {
         headers: { apikey: supabase.anonKey },
       })).json();
-      await fluxoEstados(navegador, servidor.url, produtos);
+      // Um produto fica sem preço só durante este fluxo (o catálogo inicial vem com preços de teste).
+      const precoOriginal = await sql(`select preco_centavos from public.produtos where slug = '${PRODUTO_SEM_PRECO}'`);
+      await sql(`update public.produtos set preco_centavos = 0 where slug = '${PRODUTO_SEM_PRECO}'`);
+      try {
+        await fluxoEstados(navegador, servidor.url, produtos);
+      } finally {
+        await sql(`update public.produtos set preco_centavos = ${Number(precoOriginal)} where slug = '${PRODUTO_SEM_PRECO}'`);
+      }
     }
   } catch (erro) {
     registrarProblema(`o fluxo parou: ${erro.message.split('\n').slice(0, 14).join('\n')}`);

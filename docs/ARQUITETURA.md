@@ -289,16 +289,17 @@ Pastas: `site/` (CMS), `produtos/`, `videos/`. Nome de arquivo: `<pasta>/<aaaa-m
 
 A própria migração cria: as 4 linhas de `configuracoes`; as categorias da coleção **Ama Bioessência**
 (`body-splash`, `cremes-hidratantes`, `sabonete-liquido-intimo`, `sabonete-solido`) e `biojoias`; e o catálogo
-inicial, **ativo e com preço 0** (aparece na vitrine com "R$ 00,00" e só pode ser comprado depois que a AMA
-definir o preço no painel):
+inicial, **ativo, com preços e estoque de teste** (placeholder para os testes de funcionamento; a AMA troca pelos
+valores reais no painel): body splash R$ 59,90, cremes R$ 69,90, sabonete líquido R$ 49,90, sabonete sólido R$ 24,90,
+biojoias R$ 89,90 e 10 unidades de cada. Em projetos criados quando o catálogo vinha com preço 0, a seção 10 tem um
+`update` que aplica esses valores só nos 16 produtos iniciais que continuam com `preco_centavos = 0 and estoque = 0`:
 - 10 produtos Ama Bioessência com nome e descrição da apresentação institucional e fotos em `/img/produtos/…`:
   Body Splash Raiz, Bruma, Orvalho e Âmbar (200 mL); Creme Hidratante Ameixa Negra, Cupuaçu, Cumaru e
   Capim-Limão (200 mL); Sabonete Líquido Íntimo Barbatimão & Andiroba (250 mL); Sabonete Sólido Manteiga de Cupuaçu (90 g).
 - 6 biojoias (`biojoia-01` … `biojoia-06`) com nome "Nome em Produção", descrição "Descrição em Produção" e as fotos do ateliê.
 
-`supabase/seed.sql` (só desenvolvimento) cria um admin `admin@ama.local` / `admin123456`, dá preços e estoque de
-exemplo aos produtos Ama Bioessência (as biojoias ficam com preço 0 para testar produto sem preço), deixa um produto em
-promoção e preenche a origem do frete com dados fictícios.
+`supabase/seed.sql` (só desenvolvimento) cria um admin `admin@ama.local` / `admin123456`, marca destaques e SKUs,
+deixa um produto em promoção e preenche a origem do frete com dados fictícios.
 
 ## 5. CMS — conteúdo editável da home
 

@@ -81,7 +81,7 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
    - aceitação de `entrega.tipo = 'retirada'` em `criar_pedido` (ajuste o check);
    - testes e contrato.
    O endereço passa a ser sempre obrigatório.
-5. **Preços e estoques placeholder** nos 16 produtos, na migração (produção) e não só no seed, para os testes de
+5. **(Feito)** **Preços e estoques placeholder** nos 16 produtos, na migração (produção) e não só no seed, para os testes de
    funcionamento:
    - body splash R$ 59,90; cremes R$ 69,90; sabonete líquido R$ 49,90; sabonete sólido R$ 24,90; biojoias R$ 89,90;
    - estoque 10 em todos;
