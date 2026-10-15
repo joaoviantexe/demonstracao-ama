@@ -50,7 +50,7 @@ $$;
 
 
 -- -----------------------------------------------------------------------------
--- 2. Promoção, destaques e SKU de exemplo para a coleção Ama Bioessência
+-- 2. Destaques e SKU de exemplo para a coleção Ama Bioessência
 --    Nome, descrição, foto, peso, medidas, preços e estoque de teste já vêm da
 --    migração (as biojoias também: R$ 89,90 e 10 unidades).
 -- -----------------------------------------------------------------------------
@@ -67,8 +67,7 @@ update public.produtos p
     ('body-splash-orvalho',                         5990, null,      false, 'AMA-BS-ORVALHO'),
     ('body-splash-ambar',                           5990, null,      false, 'AMA-BS-AMBAR'),
     ('creme-hidratante-ameixa-negra',               6990, null,      false, 'AMA-CH-AMEIXA'),
-    -- Um produto em promoção, para ver o selo na loja.
-    ('creme-hidratante-cupuacu',                    6990, 5990,      true,  'AMA-CH-CUPUACU'),
+    ('creme-hidratante-cupuacu',                    6990, null,      true,  'AMA-CH-CUPUACU'),
     ('creme-hidratante-cumaru',                     6990, null,      false, 'AMA-CH-CUMARU'),
     ('creme-hidratante-capim-limao',                6990, null,      false, 'AMA-CH-CAPIM'),
     ('sabonete-liquido-intimo-barbatimao-andiroba', 4990, null,      false, 'AMA-SLI-BARBATIMAO'),

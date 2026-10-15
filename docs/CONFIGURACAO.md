@@ -202,8 +202,8 @@ Faça quando a AMA aprovar o site e definir preços.
 
 No painel (`/admin/`):
 
-- [ ] **Configurações → Integrações**: Supabase, Mercado Pago (modo **produção**), avisos de pagamento e Melhor
-      Envio aparecem como configurados. O painel nunca mostra as chaves, só se elas existem.
+- [ ] **Variáveis na Vercel** (o painel não mostra a situação delas, confira lá): Supabase, Mercado Pago em
+      **produção** com `MP_WEBHOOK_SECRET`, e o Melhor Envio (ou o frete fixo ligado).
 - [ ] **Produtos**: troque os **preços e estoques de teste** (R$ 59,90, R$ 69,90… e 10 unidades) pelos reais; dê
       nome, descrição e fotos às 6 biojoias ("Nome em Produção"); confira peso e medidas. Produto sem preço não
       pode ser comprado (a lista avisa).

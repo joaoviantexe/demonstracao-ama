@@ -99,7 +99,7 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
      linha do tempo; notas (insert em `pedido_eventos` só com `tipo = 'nota'`); mudar status pela
      `/api/admin/pedido-status`; "Conferir pagamento"; assistente de envio pelo Melhor Envio
      (`/api/admin/envio`: adicionar_carrinho → comprar → gerar → imprimir → rastrear).
-   - `public/admin/js/paginas/configuracoes.js`: abas Loja, Frete (sem retirada), Pagamento, Notificações e Integrações.
+   - `public/admin/js/paginas/configuracoes.js`: abas Loja, Frete (sem retirada), Pagamento e Avisos por e-mail (sem tela de integrações).
    Siga o `docs/PAINEL.md`. Cada página tem seu CSS em `public/admin/css/<pagina>.css`, seu script de capturas
    `scripts/capturas-painel-<pagina>.mjs` e seus testes `tests/unit/painel-<pagina>.test.js`.
 2. **(Feito)** **Revisão independente** das páginas de conteúdo, mídia, produtos e categorias, rodando

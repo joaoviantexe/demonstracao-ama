@@ -14,9 +14,9 @@ import * as produtos from '../../public/admin/js/paginas/produtos.js';
 import * as categorias from '../../public/admin/js/paginas/categorias.js';
 
 const {
-  EXPLICACAO_SEM_PRECO, MAX_IMAGENS, MEDIDAS_PADRAO, SITUACOES, adicionarImagens, campoDaRestricao, contarPorSituacao,
+  EXPLICACAO_SEM_PRECO, MAX_IMAGENS, SITUACOES, adicionarImagens, campoDaRestricao, contarPorSituacao,
   erroSlug, filtrarProdutos, formatarDecimal, gerarSlug, imagemValida, lerDecimal, lerInteiro, mensagemAlternarAtivo,
-  montarRegistro, moverImagem, normalizarImagens, ordenarProdutos, registroDaCopia, removerImagem, selosProduto,
+  montarRegistro, moverImagem, normalizarImagens, ordenarProdutos, removerImagem, selosProduto,
   situacaoProduto, sugerirSlug, validarProduto,
 } = produtos;
 const {
@@ -45,35 +45,26 @@ Object.defineProperty(janela.HTMLSelectElement.prototype, 'value', {
 
 const SQL = lerArquivo('../../supabase/migrations/20261009120000_inicial.sql');
 const SLUG_DO_BANCO = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-const COLUNAS_PRODUTOS = [
-  'nome', 'slug', 'descricao', 'preco_centavos', 'preco_promocional_centavos', 'estoque', 'controlar_estoque', 'ativo',
-  'destaque', 'categoria_id', 'imagens', 'peso_gramas', 'altura_cm', 'largura_cm', 'comprimento_cm', 'sku', 'ordem',
-];
+// O painel só grava estas colunas (endereço, promoção, SKU, medidas e controle de estoque não são editados).
+const COLUNAS_PRODUTOS = ['nome', 'descricao', 'preco_centavos', 'estoque', 'ativo', 'destaque', 'categoria_id', 'imagens', 'ordem'];
 const CORES_DO_CSS = new Set(Array.from(lerArquivo('../../public/admin/admin.css').matchAll(/\.selo--([a-z-]+)/g), (m) => m[1]));
 
 /** Os checks da tabela produtos (supabase/migrations/…_inicial.sql) aplicados a um registro. */
 function checksDoBanco(r) {
   const int = (n) => Number.isInteger(n) && n >= -2147483648 && n <= 2147483647;
-  const numeric61 = (n) => typeof n === 'number' && Number.isFinite(n) && Math.round(n * 10) / 10 === n && Math.abs(n) <= 99999.9;
   const falhas = [];
   if (!(r.nome.trim().length >= 1 && r.nome.trim().length <= 120)) falhas.push('produtos_nome_check');
-  if (!(SLUG_DO_BANCO.test(r.slug) && r.slug.length <= 120)) falhas.push('produtos_slug_check');
   if (!(int(r.preco_centavos) && r.preco_centavos >= 0)) falhas.push('produtos_preco_check');
-  if (!(r.preco_promocional_centavos === null || (int(r.preco_promocional_centavos) && r.preco_promocional_centavos >= 0
-    && r.preco_promocional_centavos < r.preco_centavos))) falhas.push('produtos_preco_promocional_check');
   if (!(int(r.estoque) && r.estoque >= 0)) falhas.push('produtos_estoque_check');
   if (!Array.isArray(r.imagens)) falhas.push('produtos_imagens_check');
-  if (!(int(r.peso_gramas) && r.peso_gramas > 0)) falhas.push('produtos_peso_check');
-  for (const c of ['altura', 'largura', 'comprimento']) if (!(numeric61(r[`${c}_cm`]) && r[`${c}_cm`] > 0)) falhas.push(`produtos_${c}_check`);
   if (!int(r.ordem)) falhas.push('ordem');
   return falhas;
 }
 
 const VALORES_OK = Object.freeze({
-  nome: 'Creme Hidratante Cupuaçu', slug: 'creme-hidratante-cupuacu', descricao: 'Creme de 200 mL.',
-  preco: '69,90', preco_promocional: '', estoque: '10', controlar_estoque: true, ativo: true, destaque: false,
-  categoria_id: '', imagens: [{ src: '/img/produtos/creme.jpg', alt: 'Frasco âmbar' }],
-  peso_gramas: '300', altura_cm: '4', largura_cm: '12', comprimento_cm: '16', sku: '', ordem: '0',
+  nome: 'Creme Hidratante Cupuaçu', descricao: 'Creme de 200 mL.',
+  preco: '69,90', estoque: '10', ativo: true, destaque: false,
+  categoria_id: '', imagens: [{ src: '/img/produtos/creme.jpg', alt: 'Frasco âmbar' }], ordem: '0',
 });
 
 // ---------------------------------------------------------------------------
@@ -92,13 +83,6 @@ describe('regras do produto', () => {
     }
   });
 
-  test('medidas padrão = padrão das colunas do banco', () => {
-    assert.match(SQL, /peso_gramas\s+int not null default 300/);
-    assert.match(SQL, /altura_cm\s+numeric\(6,1\) not null default 4\n/);
-    assert.match(SQL, /largura_cm\s+numeric\(6,1\) not null default 12\n/);
-    assert.match(SQL, /comprimento_cm\s+numeric\(6,1\) not null default 16\n/);
-    assert.deepEqual({ ...MEDIDAS_PADRAO }, { peso_gramas: 300, altura_cm: 4, largura_cm: 12, comprimento_cm: 16 });
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -220,19 +204,15 @@ describe('validarProduto', () => {
   test('valores certos → sem erros; as chaves de erro são colunas da tabela (ou "imagens")', () => {
     assert.deepEqual(validarProduto(VALORES_OK), {});
     const erros = validarProduto({
-      nome: 'x'.repeat(121), slug: 'X', descricao: 'x'.repeat(10001), preco: 'abc', preco_promocional: '1', estoque: '-1',
-      controlar_estoque: true, categoria_id: 'abc', imagens: [{ src: 'javascript:x' }], peso_gramas: '0', altura_cm: '0',
-      largura_cm: 'x', comprimento_cm: '100000', sku: 'x'.repeat(61), ordem: 'x',
+      nome: 'x'.repeat(121), descricao: 'x'.repeat(10001), preco: 'abc', estoque: '-1',
+      categoria_id: 'abc', imagens: [{ src: 'javascript:x' }], ordem: 'x',
     });
-    assert.deepEqual(Object.keys(erros).sort(), [
-      'altura_cm', 'categoria_id', 'comprimento_cm', 'descricao', 'estoque', 'imagens', 'largura_cm', 'nome', 'ordem',
-      'peso_gramas', 'preco_centavos', 'sku', 'slug',
-    ]);
+    assert.deepEqual(Object.keys(erros).sort(), ['categoria_id', 'descricao', 'estoque', 'imagens', 'nome', 'ordem', 'preco_centavos']);
     for (const chave of Object.keys(erros)) assert.ok(COLUNAS_PRODUTOS.includes(chave), chave);
   });
 
-  test('formulário vazio: nome, preço e estoque (o endereço sai do nome)', () => {
-    assert.deepEqual(Object.keys(validarProduto({ controlar_estoque: true, imagens: [] })).sort(), ['estoque', 'nome', 'preco_centavos']);
+  test('formulário vazio: nome, preço e estoque', () => {
+    assert.deepEqual(Object.keys(validarProduto({ imagens: [] })).sort(), ['estoque', 'nome', 'preco_centavos']);
   });
 
   test('preço: obrigatório, 0 permitido; a mensagem explica o R$ 00,00', () => {
@@ -243,39 +223,18 @@ describe('validarProduto', () => {
     assert.match(com({ preco: '-5' }).preco_centavos, /inválido/);
   });
 
-  test('promoção: menor que o preço, maior que zero e só com preço definido (check do banco)', () => {
-    assert.deepEqual(com({ preco: '69,90', preco_promocional: '59,90' }), {});
-    assert.match(com({ preco: '69,90', preco_promocional: '69,90' }).preco_promocional_centavos, /menor que o preço \(R\$ 69,90\)/);
-    assert.match(com({ preco: '69,90', preco_promocional: '79,90' }).preco_promocional_centavos, /menor que o preço/);
-    assert.match(com({ preco: '0', preco_promocional: '10' }).preco_promocional_centavos, /preço normal/);
-    assert.match(com({ preco_promocional: '0' }).preco_promocional_centavos, /maior que zero/);
-    assert.match(com({ preco_promocional: 'abc' }).preco_promocional_centavos, /inválido/);
-  });
-
-  test('estoque: inteiro ≥ 0; ignorado quando não controla o estoque', () => {
+  test('estoque: inteiro ≥ 0', () => {
     assert.deepEqual(com({ estoque: '0' }), {});
     assert.match(com({ estoque: '-1' }).estoque, /negativo/);
     assert.match(com({ estoque: '2,5' }).estoque, /inteiro/);
     assert.match(com({ estoque: '' }).estoque, /pode ser 0/);
     assert.match(com({ estoque: '99999999999' }).estoque, /grande/);
-    assert.deepEqual(com({ estoque: '', controlar_estoque: false }), {});
   });
 
-  test('frete: peso inteiro > 0, medidas > 0 com uma casa e até 99.999,9; vazio usa o padrão', () => {
-    assert.deepEqual(com({ peso_gramas: '', altura_cm: '', largura_cm: '', comprimento_cm: '' }), {});
-    assert.deepEqual(com({ altura_cm: '4,5', largura_cm: '99999,9' }), {});
-    assert.match(com({ peso_gramas: '0' }).peso_gramas, /maior que zero/);
-    assert.match(com({ peso_gramas: '1,5' }).peso_gramas, /gramas/);
-    assert.match(com({ altura_cm: '0,04' }).altura_cm, /maior que zero/); // arredonda para 0,0
-    assert.match(com({ comprimento_cm: '100000' }).comprimento_cm, /grande/);
-  });
-
-  test('nome, endereço, SKU, ordem e categoria', () => {
+  test('nome, ordem e categoria', () => {
     assert.match(com({ nome: '   ' }).nome, /Informe/);
     assert.equal(com({ nome: 'x'.repeat(120) }).nome, undefined);
     assert.match(com({ nome: 'x'.repeat(121) }).nome, /120/);
-    assert.match(com({ slug: 'Com Espaço' }).slug, /minúsculas/);
-    assert.match(com({ sku: 'x'.repeat(61) }).sku, /60/);
     assert.deepEqual(com({ ordem: '-3' }), {});
     assert.match(com({ ordem: '1,5' }).ordem, /inteiro/);
     assert.deepEqual(com({ categoria_id: '11111111-1111-4111-8111-111111111111' }), {});
@@ -291,41 +250,33 @@ describe('validarProduto', () => {
 });
 
 describe('montarRegistro', () => {
-  test('textos do formulário → registro do banco (centavos, padrões do frete, nulos)', () => {
+  test('textos do formulário → registro do banco (centavos, nulos); só as colunas editáveis', () => {
     const registro = montarRegistro({
-      ...VALORES_OK, nome: '  Creme  ', slug: ' creme ', descricao: ' Texto \n\n Outro ', preco: '1.234,56', estoque: '3',
-      categoria_id: '11111111-1111-4111-8111-111111111111', imagens: [{ src: ' /img/a.jpg ', alt: ' Frasco ' }],
-      peso_gramas: '', altura_cm: '4,56', largura_cm: '', comprimento_cm: '16', sku: '  ', ordem: '',
+      ...VALORES_OK, nome: '  Creme  ', descricao: ' Texto \n\n Outro ', preco: '1.234,56', estoque: '3',
+      categoria_id: '11111111-1111-4111-8111-111111111111', imagens: [{ src: ' /img/a.jpg ', alt: ' Frasco ' }], ordem: '',
     });
     assert.deepEqual(registro, {
-      nome: 'Creme', slug: 'creme', descricao: 'Texto \n\n Outro', preco_centavos: 123456, preco_promocional_centavos: null,
-      estoque: 3, controlar_estoque: true, ativo: true, destaque: false, categoria_id: '11111111-1111-4111-8111-111111111111',
-      imagens: [{ src: '/img/a.jpg', alt: 'Frasco' }], peso_gramas: 300, altura_cm: 4.6, largura_cm: 12, comprimento_cm: 16,
-      sku: null, ordem: 0,
+      nome: 'Creme', descricao: 'Texto \n\n Outro', preco_centavos: 123456, estoque: 3, ativo: true, destaque: false,
+      categoria_id: '11111111-1111-4111-8111-111111111111', imagens: [{ src: '/img/a.jpg', alt: 'Frasco' }], ordem: 0,
     });
     assert.deepEqual(Object.keys(registro).sort(), [...COLUNAS_PRODUTOS].sort());
   });
 
-  test('promoção, sem controle de estoque, categoria vazia, flags', () => {
-    const r = montarRegistro({ ...VALORES_OK, preco_promocional: '59,90', estoque: '', controlar_estoque: false, ativo: false, destaque: true, sku: 'AMA-1' });
-    assert.equal(r.preco_promocional_centavos, 5990);
-    assert.equal(r.estoque, 0);
-    assert.equal(r.controlar_estoque, false);
+  test('categoria vazia e flags', () => {
+    const r = montarRegistro({ ...VALORES_OK, ativo: false, destaque: true });
     assert.equal(r.ativo, false);
     assert.equal(r.destaque, true);
     assert.equal(r.categoria_id, null);
-    assert.equal(r.sku, 'AMA-1');
   });
 
   test('todo valor que passa na validação também passa nos checks do banco', () => {
     const casos = [
       VALORES_OK,
       { ...VALORES_OK, preco: '0' },
-      { ...VALORES_OK, preco: '0,01', preco_promocional: '' },
-      { ...VALORES_OK, preco: '21474836,47', preco_promocional: '21474836,46', estoque: '2147483647' },
-      { ...VALORES_OK, peso_gramas: '1', altura_cm: '0,05', largura_cm: '99999,94', comprimento_cm: '0,1' },
-      { ...VALORES_OK, nome: ` ${'x'.repeat(120)} `, slug: 'x'.repeat(120), ordem: '-2147483647' },
-      { ...VALORES_OK, estoque: '', controlar_estoque: false, imagens: [] },
+      { ...VALORES_OK, preco: '0,01' },
+      { ...VALORES_OK, preco: '21474836,47', estoque: '2147483647' },
+      { ...VALORES_OK, nome: ` ${'x'.repeat(120)} `, ordem: '-2147483647' },
+      { ...VALORES_OK, imagens: [] },
     ];
     for (const valores of casos) {
       assert.deepEqual(validarProduto(valores), {}, JSON.stringify(valores));
@@ -334,41 +285,12 @@ describe('montarRegistro', () => {
   });
 
   test('os checks do banco usados aqui existem na migração', () => {
-    for (const nome of ['produtos_nome_check', 'produtos_slug_check', 'produtos_preco_check', 'produtos_preco_promocional_check',
-      'produtos_estoque_check', 'produtos_imagens_check', 'produtos_peso_check', 'produtos_altura_check', 'produtos_largura_check',
-      'produtos_comprimento_check']) {
+    for (const nome of ['produtos_nome_check', 'produtos_preco_check', 'produtos_estoque_check', 'produtos_imagens_check']) {
       assert.match(SQL, new RegExp(`constraint ${nome} check`), nome);
       assert.ok(campoDaRestricao(nome), nome);
     }
-    assert.equal(campoDaRestricao('produtos_preco_promocional_check'), 'preco_promocional_centavos');
+    assert.equal(campoDaRestricao('produtos_preco_check'), 'preco_centavos');
     assert.equal(campoDaRestricao('outra_coisa'), null);
-  });
-});
-
-describe('registroDaCopia', () => {
-  const original = {
-    id: 'x', criado_em: '2026-10-01T00:00:00Z', atualizado_em: '2026-10-01T00:00:00Z',
-    nome: 'Body Splash Raiz', slug: 'body-splash-raiz', descricao: 'Perfume', preco_centavos: 5990, preco_promocional_centavos: 4990,
-    estoque: 4, controlar_estoque: true, ativo: true, destaque: true, categoria_id: 'cat', imagens: [{ src: '/img/a.jpg', alt: 'A' }],
-    peso_gramas: 250, altura_cm: '5.0', largura_cm: 10, comprimento_cm: 18, sku: 'BS-1', ordem: 3,
-  };
-
-  test('cópia fora da loja, com "(cópia)" e endereço livre; mantém fotos, preços e medidas', () => {
-    const copia = registroDaCopia(original, ['body-splash-raiz-copia']);
-    assert.equal(copia.nome, 'Body Splash Raiz (cópia)');
-    assert.equal(copia.slug, 'body-splash-raiz-copia-2');
-    assert.equal(copia.ativo, false);
-    assert.deepEqual(copia.imagens, [{ src: '/img/a.jpg', alt: 'A' }]);
-    assert.equal(copia.preco_promocional_centavos, 4990);
-    assert.equal(copia.altura_cm, 5);
-    assert.deepEqual(Object.keys(copia).sort(), [...COLUNAS_PRODUTOS].sort());
-    assert.deepEqual(checksDoBanco(copia), []);
-  });
-
-  test('nome e endereço longos continuam dentro dos limites do banco', () => {
-    const copia = registroDaCopia({ ...original, nome: 'N'.repeat(120), slug: 'n'.repeat(120) }, []);
-    assert.ok(copia.nome.length <= 120 && copia.nome.endsWith('(cópia)'));
-    assert.deepEqual(checksDoBanco(copia), []);
   });
 });
 
@@ -393,21 +315,13 @@ describe('situação e selos', () => {
     assert.doesNotMatch(selos[1].dica, /^Aparece na loja como esgotado/); // a loja não mostra "Esgotado" sem preço
   });
 
-  test('promoção, destaque, fora da loja e estoque', () => {
-    assert.deepEqual(selosProduto(P({ preco_promocional_centavos: 4990, destaque: true })).map((x) => x.texto), ['Promoção', 'Destaque']);
+  test('destaque, fora da loja e estoque', () => {
+    assert.deepEqual(selosProduto(P({ destaque: true })).map((x) => x.texto), ['Destaque']);
     assert.deepEqual(selosProduto(P({ ativo: false })).map((x) => x.texto), ['Fora da loja']);
     assert.deepEqual(selosProduto(P({ estoque: 0 })).map((x) => x.texto), ['Sem estoque']);
     assert.match(selosProduto(P({ estoque: 0 }))[0].dica, /esgotado/);
     assert.deepEqual(selosProduto(P({ estoque: 0, controlar_estoque: false })), []);
     assert.deepEqual(selosProduto(P({})), []);
-  });
-
-  test('promoção igual ou maior que o preço (dado estranho) não conta; promoção 0 = sem preço', () => {
-    assert.equal(situacaoProduto(P({ preco_promocional_centavos: 5990 })).promocao, false);
-    assert.equal(situacaoProduto(P({ preco_promocional_centavos: 5990 })).precoEfetivo, 5990);
-    const zero = situacaoProduto(P({ preco_promocional_centavos: 0 }));
-    assert.equal(zero.semPreco, true);
-    assert.equal(zero.promocao, false);
   });
 
   test('estoque baixo', () => {
@@ -416,7 +330,7 @@ describe('situação e selos', () => {
   });
 
   test('as cores dos selos existem no admin.css e nenhum selo diz "Em breve"', () => {
-    const combinacoes = [P({}), P({ ativo: false, preco_centavos: 0, estoque: 0, destaque: true }), P({ preco_promocional_centavos: 100 })];
+    const combinacoes = [P({}), P({ ativo: false, preco_centavos: 0, estoque: 0, destaque: true })];
     for (const p of combinacoes) {
       for (const selo of selosProduto(p)) {
         assert.ok(CORES_DO_CSS.has(selo.cor), selo.cor);
@@ -435,17 +349,17 @@ describe('situação e selos', () => {
 
 describe('filtros e ordenação', () => {
   const lista = [
-    P({ id: 'a', nome: 'Creme Hidratante Cupuaçu', slug: 'creme-cupuacu', categoria_id: 'cremes', preco_promocional_centavos: 5990, preco_centavos: 6990, ordem: 2, criado_em: '2026-10-02T00:00:00Z' }),
+    P({ id: 'a', nome: 'Creme Hidratante Cupuaçu', slug: 'creme-cupuacu', categoria_id: 'cremes', preco_centavos: 6990, ordem: 2, criado_em: '2026-10-02T00:00:00Z' }),
     P({ id: 'b', nome: 'Body Splash Raiz', slug: 'body-splash-raiz', categoria_id: 'splash', sku: 'AMA-BS-RAIZ', destaque: true, ordem: 5 }),
     P({ id: 'c', nome: 'Nome em Produção', slug: 'biojoia-01', categoria_id: 'biojoias', preco_centavos: 0, estoque: 0, ordem: 1 }),
     P({ id: 'd', nome: 'Antigo', slug: 'antigo', ativo: false, preco_centavos: 1000, estoque: 2, ordem: 1, criado_em: '2026-09-01T00:00:00Z' }),
   ];
   const ids = (l) => l.map((p) => p.id).join('');
 
-  test('busca sem acento pelo nome, endereço ou SKU (todas as palavras)', () => {
+  test('busca sem acento pelo nome ou endereço (todas as palavras)', () => {
     assert.equal(ids(filtrarProdutos(lista, { busca: 'cupuacu' })), 'a');
     assert.equal(ids(filtrarProdutos(lista, { busca: 'CREME   hidratante' })), 'a');
-    assert.equal(ids(filtrarProdutos(lista, { busca: 'ama-bs' })), 'b');
+    assert.equal(ids(filtrarProdutos(lista, { busca: 'body-splash' })), 'b');
     assert.equal(ids(filtrarProdutos(lista, { busca: 'biojoia' })), 'c');
     assert.equal(ids(filtrarProdutos(lista, { busca: 'creme raiz' })), '');
   });
@@ -457,7 +371,6 @@ describe('filtros e ordenação', () => {
     assert.equal(ids(filtrarProdutos(lista, { situacao: 'fora' })), 'd');
     assert.equal(ids(filtrarProdutos(lista, { situacao: 'a-venda' })), 'abc');
     assert.equal(ids(filtrarProdutos(lista, { situacao: 'estoque-baixo' })), 'd');
-    assert.equal(ids(filtrarProdutos(lista, { situacao: 'promocao' })), 'a');
     assert.equal(ids(filtrarProdutos(lista, { situacao: 'nao-existe' })), 'abcd');
   });
 
@@ -472,7 +385,7 @@ describe('filtros e ordenação', () => {
     assert.equal(ids(ordenarProdutos(lista, 'nome')), 'dbac');
     // Empates (mesmo preço, estoque ou data) saem pelo nome.
     assert.equal(ids(ordenarProdutos(lista, 'preco-menor')), 'dbac');
-    assert.equal(ids(ordenarProdutos(lista, 'preco-maior')), 'badc');
+    assert.equal(ids(ordenarProdutos(lista, 'preco-maior')), 'abdc');
     assert.equal(ids(ordenarProdutos(lista, 'estoque')), 'cdba');
     assert.equal(ids(ordenarProdutos(lista, 'recentes')), 'abcd');
     assert.equal(ids(ordenarProdutos(lista, 'desconhecido')), 'bcda');
@@ -484,15 +397,14 @@ describe('filtros e ordenação', () => {
 // Categorias (puras)
 
 describe('categorias: funções puras', () => {
-  test('validarCategoria e montarCategoria', () => {
-    assert.deepEqual(Object.keys(validarCategoria({ nome: ' ', slug: '' })).sort(), ['nome', 'slug']);
-    assert.deepEqual(validarCategoria({ nome: 'Body Splash', slug: 'body-splash', descricao: '' }), {});
-    assert.match(validarCategoria({ nome: 'x'.repeat(121), slug: 'x' }).nome, /120/);
-    assert.match(validarCategoria({ nome: 'X', slug: 'x', descricao: 'd'.repeat(501) }).descricao, /500/);
-    assert.match(validarCategoria({ nome: 'X', slug: 'Body Splash' }).slug, /minúsculas/);
-    assert.deepEqual(montarCategoria({ nome: ' Body Splash ', slug: ' body-splash ', descricao: ' Perfumes ' }),
-      { nome: 'Body Splash', slug: 'body-splash', descricao: 'Perfumes', ativo: true });
-    assert.equal(montarCategoria({ nome: 'X', slug: 'x', ativo: false }).ativo, false);
+  test('validarCategoria e montarCategoria (sem endereço: ele sai do nome)', () => {
+    assert.deepEqual(Object.keys(validarCategoria({ nome: ' ' })), ['nome']);
+    assert.deepEqual(validarCategoria({ nome: 'Body Splash', descricao: '' }), {});
+    assert.match(validarCategoria({ nome: 'x'.repeat(121) }).nome, /120/);
+    assert.match(validarCategoria({ nome: 'X', descricao: 'd'.repeat(501) }).descricao, /500/);
+    assert.deepEqual(montarCategoria({ nome: ' Body Splash ', descricao: ' Perfumes ' }),
+      { nome: 'Body Splash', descricao: 'Perfumes', ativo: true });
+    assert.equal(montarCategoria({ nome: 'X', ativo: false }).ativo, false);
   });
 
   test('proximaOrdem', () => {
@@ -613,7 +525,7 @@ const CATEGORIAS = [{ id: CAT1, nome: 'Body Splash', ativo: true, ordem: 1 }, { 
 
 describe('tela: lista de produtos', () => {
   const lista = () => [
-    P({ id: ID1, nome: 'Body Splash Raiz', slug: 'body-splash-raiz', categoria_id: CAT1, preco_centavos: 6990, preco_promocional_centavos: 5990, destaque: true }),
+    P({ id: ID1, nome: 'Body Splash Raiz', slug: 'body-splash-raiz', categoria_id: CAT1, preco_centavos: 6990, destaque: true }),
     P({ id: ID2, nome: 'Nome em Produção', slug: 'biojoia-01', categoria_id: CAT2, preco_centavos: 0, estoque: 0 }),
     P({ id: ID3, nome: 'Rascunho <b>x</b>', slug: 'rascunho', ativo: false, imagens: [] }),
   ];
@@ -636,16 +548,16 @@ describe('tela: lista de produtos', () => {
     });
   }
 
-  test('linhas com preço (promoção riscada, R$ 00,00), estoque, selos e aviso dos sem preço', async () => {
+  test('linhas com preço (R$ 00,00 sem preço), estoque, selos e aviso dos sem preço', async () => {
     const { ctx } = montar();
     const limpar = await produtos.renderizar(ctx);
     const linhas = ctx.raiz.querySelectorAll('.produtos-tabela tbody tr');
     assert.equal(linhas.length, 3);
     assert.equal(textoDe(ctx.raiz.querySelector('h1')), 'Produtos');
     assert.equal(textoDe(ctx.raiz.querySelector('.produtos-contador')), '3 produtos');
-    const [promo, semPreco, rascunho] = linhas;
-    assert.equal(textoDe(promo.querySelector('s')), 'R$ 69,90');
-    assert.equal(textoDe(promo.querySelector('.produto-preco__atual')), 'R$ 59,90');
+    const [comPreco, semPreco, rascunho] = linhas;
+    assert.equal(textoDe(comPreco.querySelector('.produto-preco')), 'R$ 69,90');
+    assert.equal(comPreco.querySelector('s'), null);
     assert.equal(textoDe(semPreco.querySelector('.produto-preco')).replace(/ /g, ' '), 'R$ 00,00');
     assert.deepEqual(Array.from(semPreco.querySelectorAll('.selo'), textoDe), ['Sem preço', 'Sem estoque']);
     assert.deepEqual(Array.from(rascunho.querySelectorAll('.selo'), textoDe), ['Fora da loja']);
@@ -721,7 +633,7 @@ describe('tela: formulário do produto', () => {
     atualizado_em: '2026-10-15T10:00:00Z',
   };
 
-  test('produto novo: erros por campo, endereço gerado do nome, insert com o registro e abre a edição', async () => {
+  test('produto novo: erros por campo, endereço gerado do nome (sem campo), insert com o registro e abre a edição', async () => {
     let inserido = null;
     const { ctx, supabase, registro } = criarCtx({
       params: { id: 'novo' },
@@ -731,6 +643,7 @@ describe('tela: formulário do produto', () => {
           inserido = passo(c, 'insert')[1];
           return { data: { ...inserido, id: ID2 } };
         }
+        if (passo(c, 'like')) return { data: [{ slug: 'creme-de-cupuacu-200-ml' }] }; // o endereço do nome já existe
         return { data: [] };
       },
     });
@@ -739,7 +652,11 @@ describe('tela: formulário do produto', () => {
     const campo = (nome) => form.querySelector(`[name="${nome}"]`);
     assert.equal(textoDe(ctx.raiz.querySelector('h1')), 'Novo produto');
     assert.equal(campo('ativo').checked, true, 'produto novo começa à venda');
-    assert.equal(campo('peso_gramas').value, '300');
+    for (const removido of ['slug', 'preco_promocional', 'sku', 'controlar_estoque', 'peso_gramas', 'altura_cm']) {
+      assert.equal(campo(removido), null, `${removido} não existe mais no formulário`);
+    }
+    assert.equal(textoDe(form).includes('Escolher da biblioteca'), false);
+    assert.equal(textoDe(ctx.raiz).includes('Duplicar'), false);
 
     disparar(form, 'submit');
     await esperar(() => form.querySelector('.campo--erro'), 'erros');
@@ -751,12 +668,11 @@ describe('tela: formulário do produto', () => {
     assert.equal(supabase.chamadas.filter((c) => operacao(c) === 'insert').length, 0);
 
     digitar(campo('nome'), 'Creme de Cupuaçu 200 mL');
-    assert.equal(campo('slug').value, 'creme-de-cupuacu-200-ml');
-    assert.match(textoDe(form.querySelector('.produto-endereco')), /\/loja\/produto\?slug=creme-de-cupuacu-200-ml/);
+    assert.equal(form.querySelector('.produto-endereco'), null);
     digitar(campo('preco'), '49,90');
     assert.match(textoDe(form.querySelector('.barra-acoes__info')), /Confira/, 'ainda falta o estoque');
     digitar(campo('estoque'), '3');
-    assert.equal(textoDe(form.querySelector('.barra-acoes__info')), 'As mudanças aparecem na loja assim que você salvar.');
+    assert.equal(textoDe(form.querySelector('.barra-acoes__info')), '');
     campo('categoria_id').value = CAT2;
     disparar(campo('categoria_id'), 'change');
     assert.equal(registro.alterado.at(-1), true);
@@ -764,15 +680,14 @@ describe('tela: formulário do produto', () => {
     disparar(form, 'submit');
     await esperar(() => registro.navegacoes.length, 'navegar');
     assert.deepEqual(inserido, {
-      nome: 'Creme de Cupuaçu 200 mL', slug: 'creme-de-cupuacu-200-ml', descricao: '', preco_centavos: 4990,
-      preco_promocional_centavos: null, estoque: 3, controlar_estoque: true, ativo: true, destaque: false, categoria_id: CAT2,
-      imagens: [], peso_gramas: 300, altura_cm: 4, largura_cm: 12, comprimento_cm: 16, sku: null, ordem: 0,
+      nome: 'Creme de Cupuaçu 200 mL', slug: 'creme-de-cupuacu-200-ml-2', descricao: '', preco_centavos: 4990,
+      estoque: 3, ativo: true, destaque: false, categoria_id: CAT2, imagens: [], ordem: 0,
     });
     assert.deepEqual(registro.navegacoes.at(-1), [`#/produtos/${ID2}`, { substituir: true }]);
     assert.equal(registro.alterado.at(-1), false, 'desliga o aviso antes de navegar');
   });
 
-  test('preço 0 e estoque 0: dicas com a frase combinada; promoção mostra "de … por …"', async () => {
+  test('preço 0 e estoque 0: dicas com a frase combinada', async () => {
     const { ctx } = criarCtx({ params: { id: 'novo' }, responder: (c) => (c.tabela === 'categorias' ? { data: [] } : { data: [] }) });
     await produtos.renderizar(ctx);
     const form = ctx.raiz.querySelector('form.produto-form');
@@ -780,15 +695,9 @@ describe('tela: formulário do produto', () => {
     digitar(form.querySelector('[name="preco"]'), '0');
     assert.ok(dica().includes(EXPLICACAO_SEM_PRECO), dica());
     digitar(form.querySelector('[name="preco"]'), '49,90');
-    digitar(form.querySelector('[name="preco_promocional"]'), '39,90');
-    assert.match(dica(), /de R\$ 49,90 por R\$ 39,90.*20% de desconto/);
+    assert.equal(dica(), '');
     digitar(form.querySelector('[name="estoque"]'), '0');
     assert.match(dica(), /esgotado/);
-    const controlar = form.querySelector('[name="controlar_estoque"]');
-    controlar.checked = false;
-    disparar(controlar, 'change');
-    assert.doesNotMatch(dica(), /esgotado/);
-    assert.equal(form.querySelector('[name="estoque"]').disabled, true);
     assert.doesNotMatch(textoDe(ctx.raiz), /em breve/i);
   });
 
@@ -852,26 +761,33 @@ describe('tela: formulário do produto', () => {
     assert.ok(registro.toasts.some(([msg]) => msg === 'Alterações salvas.'));
   });
 
-  test('endereço repetido (23505) → erro no campo com sugestão livre', async () => {
-    const { ctx } = criarCtx({
-      params: { id: ID1 },
+  test('produto novo com endereço repetido (23505): tenta de novo com o próximo livre, sem mostrar erro', async () => {
+    const tentativas = [];
+    const { ctx, registro } = criarCtx({
+      params: { id: 'novo' },
       responder: (c) => {
-        if (c.tabela === 'categorias') return { data: CATEGORIAS };
-        if (operacao(c) === 'update') {
-          return { error: { code: '23505', details: 'Key (slug)=(bruma) already exists.', message: 'duplicate key value violates unique constraint "produtos_slug_key"' }, status: 409 };
+        if (c.tabela === 'categorias') return { data: [] };
+        if (operacao(c) === 'insert') {
+          const reg = passo(c, 'insert')[1];
+          tentativas.push(reg.slug);
+          if (tentativas.length === 1) {
+            return { error: { code: '23505', details: 'Key (slug)=(bruma) already exists.', message: 'duplicate key value violates unique constraint "produtos_slug_key"' }, status: 409 };
+          }
+          return { data: { ...reg, id: ID2 } };
         }
-        if (passo(c, 'like')) return { data: [{ slug: 'bruma' }, { slug: 'bruma-2' }] };
-        return { data: PRODUTO };
+        if (passo(c, 'like')) return { data: tentativas.length ? [{ slug: 'bruma' }, { slug: 'bruma-2' }] : [] };
+        return { data: [] };
       },
     });
     await produtos.renderizar(ctx);
     const form = ctx.raiz.querySelector('form.produto-form');
-    digitar(form.querySelector('[name="slug"]'), 'bruma');
+    digitar(form.querySelector('[name="nome"]'), 'Bruma');
+    digitar(form.querySelector('[name="preco"]'), '10');
+    digitar(form.querySelector('[name="estoque"]'), '1');
     disparar(form, 'submit');
-    await esperar(() => form.querySelector('.campo--erro'), 'erro do endereço');
-    const erro = textoDe(form.querySelector('.campo--erro .campo__erro'));
-    assert.equal(erro, 'Já existe outro produto com o endereço "bruma". Use outro, por exemplo "bruma-3".');
-    assert.equal(form.querySelector('.campo--erro [name]').getAttribute('name'), 'slug');
+    await esperar(() => registro.navegacoes.length, 'navegar');
+    assert.deepEqual(tentativas, ['bruma', 'bruma-3']);
+    assert.equal(form.querySelector('.campo--erro'), null);
   });
 
   test('categorias não carregaram: salvar mantém a categoria do produto', async () => {
@@ -913,7 +829,7 @@ describe('tela: formulário do produto', () => {
     botaoPorTexto(ctx.raiz, 'Nova categoria').click();
     await esperar(() => dialogo(), 'modal de categoria');
     digitar(dialogo().querySelector('[name="nome"]'), 'Óleos & Essências');
-    assert.equal(dialogo().querySelector('[name="slug"]').value, 'oleos-e-essencias');
+    assert.equal(dialogo().querySelector('[name="slug"]'), null);
     botaoPorTexto(dialogo(), 'Criar categoria').click();
     await esperar(() => !dialogo(), 'modal fechado');
     assert.deepEqual(inserida, { nome: 'Óleos & Essências', slug: 'oleos-e-essencias', descricao: '', ativo: true, ordem: 2 });
@@ -956,7 +872,7 @@ describe('tela: categorias', () => {
     { id: CAT2, nome: 'Biojoias', slug: 'biojoias', descricao: '', ordem: 2, ativo: false, produtos: [{ count: 0 }] },
   ];
 
-  test('lista com endereço, quantidade (link para os produtos), situação, subir/descer e apagar', async () => {
+  test('lista com quantidade (link para os produtos), situação, subir/descer e apagar', async () => {
     const lista = dados();
     const { ctx, supabase } = criarCtx({
       responder: (c) => {
@@ -996,10 +912,14 @@ describe('tela: categorias', () => {
     limpar();
   });
 
-  test('editar no modal: endereço repetido mostra erro no campo e mantém o modal aberto', async () => {
+  test('editar no modal: não há campo de endereço e o update não envia o endereço', async () => {
+    let enviado = null;
     const { ctx } = criarCtx({
       responder: (c) => {
-        if (operacao(c) === 'update') return { error: { code: '23505', details: 'Key (slug)=(biojoias) already exists.' }, status: 409 };
+        if (operacao(c) === 'update') {
+          enviado = passo(c, 'update')[1];
+          return { data: { ...dados()[0], ...enviado } };
+        }
         return { data: dados() };
       },
     });
@@ -1007,12 +927,11 @@ describe('tela: categorias', () => {
     botaoPorRotulo(ctx.raiz, 'Editar Body Splash').click();
     await esperar(() => dialogo(), 'modal');
     assert.equal(dialogo().querySelector('[name="nome"]').value, 'Body Splash');
-    digitar(dialogo().querySelector('[name="slug"]'), 'biojoias');
+    assert.equal(dialogo().querySelector('[name="slug"]'), null);
+    digitar(dialogo().querySelector('[name="nome"]'), 'Body Splash Novo');
     botaoPorTexto(dialogo(), 'Salvar').click();
-    await esperar(() => dialogo() && dialogo().querySelector('.campo--erro'), 'erro no modal');
-    assert.match(textoDe(dialogo().querySelector('.campo--erro .campo__erro')), /Já existe uma categoria com o endereço "biojoias"/);
-    botaoPorTexto(dialogo(), 'Cancelar').click();
-    await esperar(() => !dialogo(), 'fechar');
+    await esperar(() => enviado, 'update');
+    assert.deepEqual(enviado, { nome: 'Body Splash Novo', descricao: 'Perfumes', ativo: true });
     limpar();
   });
 });

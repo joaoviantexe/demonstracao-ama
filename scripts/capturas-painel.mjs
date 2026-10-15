@@ -238,9 +238,8 @@ async function entrar(pagina, email, senha) {
 async function esperarVisaoGeral(pagina) {
   await pagina.waitForSelector('.painel .pagina[data-pagina="visao-geral"] .metrica__valor', { timeout: 20_000 });
   await pagina.waitForFunction(() => {
-    const integ = document.querySelector('#vg-integracoes')?.closest('.cartao');
     const ult = document.querySelector('#vg-ultimos')?.closest('.cartao');
-    return integ && !integ.querySelector('.carregando') && ult && !ult.querySelector('.carregando');
+    return ult && !ult.querySelector('.carregando');
   }, null, { timeout: 20_000 });
 }
 
@@ -362,7 +361,7 @@ async function testarSeletorDeMidia(pagina, largura) {
   await pagina.getByRole('button', { name: 'Usar esta imagem' }).click();
   await pagina.waitForSelector('dialog.modal--midia', { state: 'detached' });
   const url = (await pagina.locator('#resultado-midia').textContent()).trim();
-  const m = url.match(/\/storage\/v1\/object\/public\/midia\/(site\/\d{4}-\d{2}\/logo-ama-icone-[0-9a-f]{6}\.(webp|png|jpg))$/);
+  const m = url.match(/\/storage\/v1\/object\/public\/midia\/(site\/\d{4}-\d{2}\/logo-ama-icone-[0-9a-f]{6,16}\.(webp|png|jpg))$/);
   if (!m) {
     falhar(`URL escolhida inesperada: ${url}`);
     return;
@@ -409,9 +408,8 @@ async function rodarLargura(navegador, base, largura) {
     if (emailTopo !== ADMIN.email) falhar(`e-mail no topo: ${emailTopo}`);
     const foco = await pagina.evaluate(() => document.activeElement && document.activeElement.tagName);
     if (foco !== 'H1') falhar(`foco depois da rota deveria estar no h1, está em ${foco}`);
-    const integracoes = await pagina.locator('.integracao__nome').allTextContents();
-    if (integracoes.length < 4) falhar(`integrações incompletas: ${integracoes.join(' | ')}`);
-    else ok(`integrações: ${integracoes.map((t) => t.replace(/\s+/g, ' ')).join(' | ')}`);
+    if (await pagina.locator('.integracao__nome, #vg-integracoes').count()) falhar('a visão geral ainda mostra as integrações');
+    else ok('visão geral sem o cartão de integrações');
     await capturar(pagina, `visao-geral-${largura}`);
     await semRolagemHorizontal(pagina, 'visão geral');
 

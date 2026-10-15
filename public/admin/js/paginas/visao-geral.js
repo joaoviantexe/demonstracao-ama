@@ -56,7 +56,6 @@ export async function renderizar(ctx) {
   const metricas = el('div', { class: 'metricas' });
   const ultimos = el('div', { class: 'cartao__corpo cartao__corpo--sem-espaco' });
   const catalogo = el('div', { class: 'cartao__corpo' });
-  const integracoes = el('div', { class: 'cartao__corpo' });
 
   const atalhos = el('div', { class: 'atalhos' },
     [
@@ -88,18 +87,12 @@ export async function renderizar(ctx) {
             el('h2', { class: 'cartao__titulo', id: 'vg-catalogo' }, 'Catálogo'),
             el('a', { class: 'cartao__link', href: '#/produtos' }, 'Produtos', icone('avancar'))),
           catalogo))),
-    el('section', { class: 'cartao', 'aria-labelledby': 'vg-integracoes' },
-      el('div', { class: 'cartao__cabecalho' },
-        el('h2', { class: 'cartao__titulo', id: 'vg-integracoes' }, 'Integrações'),
-        el('p', { class: 'cartao__subtitulo' }, 'O que está ligado e o que falta configurar')),
-      integracoes),
   );
 
   // Esqueletos enquanto carrega.
   metricas.append(...[1, 2, 3, 4].map(() => el('div', { class: 'metrica metrica--carregando' }, el('div', { class: 'esqueleto esqueleto--linha', style: { width: '55%' } }), el('div', { class: 'esqueleto esqueleto--titulo' }))));
   ui.estadoCarregando(ultimos, { linhas: 5, tipo: 'tabela' });
   ui.estadoCarregando(catalogo, { linhas: 3 });
-  ui.estadoCarregando(integracoes, { linhas: 4 });
 
   const inicio = inicioDoMes(agora);
   const contar = (filtro) => api.consultar(filtro(supabase.from('pedidos').select('id', { count: 'exact', head: true })));
@@ -200,86 +193,5 @@ export async function renderizar(ctx) {
     el('div', { class: 'pilha pilha--estreita' }, linhas));
   }
 
-  // Integrações (pode demorar: consulta o saldo do Melhor Envio)
-  carregarIntegracoes(ctx, integracoes);
   return undefined;
-}
-
-function itemIntegracao(ui, { nome, icone: nomeIcone, cor, estado, texto }) {
-  const { el, icone } = ui;
-  return el('li', { class: 'integracao' },
-    el('span', { class: ['integracao__icone', `integracao__icone--${cor}`] }, icone(nomeIcone)),
-    el('div', { class: 'integracao__textos' },
-      el('p', { class: 'integracao__nome' }, nome, el('span', { class: ['selo', `selo--${cor}`] }, estado)),
-      el('p', { class: 'integracao__texto' }, texto)));
-}
-
-/** Linhas da lista de integrações a partir de GET /api/admin/status (função pura, testável). */
-export function descreverIntegracoes(integracoes, formatarPreco) {
-  const i = integracoes || {};
-  const itens = [];
-  const supa = i.supabase || {};
-  itens.push(supa.configurado
-    ? { nome: 'Banco de dados (Supabase)', icone: 'banco', cor: 'verde', estado: 'Funcionando', texto: 'Conteúdo do site, produtos, pedidos e arquivos estão ligados.' }
-    : { nome: 'Banco de dados (Supabase)', icone: 'banco', cor: 'vermelho', estado: 'Incompleto', texto: 'Falta a chave secreta (SUPABASE_SERVICE_ROLE_KEY) na Vercel: sem ela a loja não registra pedidos.' });
-
-  const mp = i.mercadopago || {};
-  if (!mp.configurado) {
-    itens.push({ nome: 'Pagamentos (Mercado Pago)', icone: 'cartao', cor: 'vermelho', estado: 'Não configurado', texto: 'Sem MP_ACCESS_TOKEN a loja não consegue cobrar: o cliente vê "pagamento indisponível".' });
-  } else if (mp.modo === 'teste') {
-    itens.push({ nome: 'Pagamentos (Mercado Pago)', icone: 'cartao', cor: 'ambar', estado: 'Modo teste', texto: 'Usando credenciais de teste: troque pelas de produção (e MP_MODO) antes de vender de verdade.' });
-  } else {
-    itens.push({ nome: 'Pagamentos (Mercado Pago)', icone: 'cartao', cor: 'verde', estado: 'Ativo', texto: 'Pix, cartão e boleto pelo Checkout do Mercado Pago.' });
-  }
-  if (mp.configurado) {
-    itens.push(i.webhook_assinatura
-      ? { nome: 'Avisos de pagamento', icone: 'escudo', cor: 'verde', estado: 'Protegidos', texto: 'Os avisos do Mercado Pago são conferidos com a assinatura secreta.' }
-      : { nome: 'Avisos de pagamento', icone: 'escudo', cor: 'ambar', estado: 'Recomendado', texto: 'Defina MP_WEBHOOK_SECRET (Mercado Pago → Suas integrações → Webhooks → assinatura secreta) para conferir cada aviso.' });
-  }
-
-  const me = i.melhor_envio || {};
-  const ambiente = me.ambiente === 'sandbox' ? ' (sandbox)' : '';
-  if (!me.configurado) {
-    itens.push({ nome: 'Fretes (Melhor Envio)', icone: 'caminhao', cor: 'ambar', estado: 'Recomendado', texto: 'Sem MELHOR_ENVIO_TOKEN a loja oferece só o frete fixo (ligue em Configurações → Frete); sem nenhum dos dois, ninguém consegue finalizar a compra.' });
-  } else if (me.erro) {
-    itens.push({ nome: 'Fretes (Melhor Envio)', icone: 'caminhao', cor: 'vermelho', estado: 'Com erro', texto: `Não foi possível consultar a conta${ambiente}: ${me.erro} Confira o token.` });
-  } else {
-    const saldo = typeof me.saldo_centavos === 'number' ? formatarPreco(me.saldo_centavos) : '—';
-    const pouco = typeof me.saldo_centavos === 'number' && me.saldo_centavos < 3000;
-    itens.push({
-      nome: 'Fretes (Melhor Envio)', icone: 'caminhao', cor: pouco ? 'ambar' : 'verde', estado: pouco ? 'Saldo baixo' : 'Ativo',
-      texto: `Saldo para etiquetas${ambiente}: ${saldo}.${pouco ? ' Adicione saldo no Melhor Envio antes de comprar etiquetas.' : ''}`,
-    });
-  }
-
-  const email = i.email || {};
-  itens.push(email.configurado
-    ? { nome: 'E-mails da loja', icone: 'email', cor: 'verde', estado: 'Ativo', texto: 'Clientes e equipe recebem os e-mails de pedido pago, enviado e entregue.' }
-    : { nome: 'E-mails da loja', icone: 'email', cor: 'cinza', estado: 'Opcional', texto: 'Sem RESEND_API_KEY os e-mails de pedido não são enviados (o cliente acompanha pela página do pedido).' });
-  return itens;
-}
-
-async function carregarIntegracoes(ctx, container) {
-  const { ui, api } = ctx;
-  const { el } = ui;
-  const r = await api.chamarApi('/api/admin/status', { sinal: ctx.sinal });
-  if (!ctx.ativo()) return;
-  if (!r.ok) {
-    ui.estadoErro(container, r.mensagem, { titulo: 'Não foi possível consultar as integrações', aoTentarNovamente: () => {
-      ui.estadoCarregando(container, { linhas: 4 });
-      carregarIntegracoes(ctx, container);
-    } });
-    return;
-  }
-  const integ = r.integracoes || {};
-  const lista = el('ul', { class: 'integracoes' }, descreverIntegracoes(integ, ui.formatarPreco).map((item) => itemIntegracao(ui, item)));
-  const extras = [];
-  if (integ.site_url) {
-    const https = /^https:\/\//.test(integ.site_url);
-    extras.push(el('p', { class: 'texto-pequeno texto-suave integracoes__site' }, 'Endereço do site: ', el('span', { class: 'mono' }, integ.site_url)));
-    if (!https) {
-      extras.push(ui.aviso('Sem https o Mercado Pago não avisa os pagamentos automaticamente (normal só em testes locais). Em produção defina SITE_URL com https://.', 'info'));
-    }
-  }
-  container.replaceChildren(lista, ...extras);
 }

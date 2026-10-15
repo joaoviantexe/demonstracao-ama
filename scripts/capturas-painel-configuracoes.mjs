@@ -10,7 +10,7 @@
 // - Frete: aviso "nenhuma forma de entrega", erro no CEP da origem e no estado da opção fixa; liga o frete
 //   fixo com uma opção (PA) e frete grátis; confere no banco e na cotação da loja (/api/loja/cotacao);
 // - Pagamento (parcelas, boleto, prazo) e Avisos por e-mail (erro e lista de e-mails);
-// - Integrações (lista da /api/admin/status); aba guardada na URL; aviso de alterações não salvas.
+// - sem aba Integrações; aba guardada na URL; aviso de alterações não salvas.
 // As configurações originais são restauradas no fim. Falha (código 1) com erro no console/página,
 // rolagem horizontal, texto "null"/"undefined" na tela ou verificação errada.
 
@@ -258,14 +258,9 @@ async function rodarLargura(navegador, base, largura) {
       `notificações: ${JSON.stringify(config.notificacoes.valor)}`);
     await fecharToasts(pagina);
 
-    // --- Integrações e alterações não salvas -------------------------------------
-    await pagina.getByRole('tab', { name: 'Integrações' }).click();
-    await pagina.waitForSelector('.pagina[data-pagina="configuracoes"] .integracoes .integracao', { timeout: 20_000 });
-    const nomes = await pagina.locator('.integracao__nome').allTextContents();
-    conferir(nomes.some((n) => /Supabase/.test(n)) && nomes.some((n) => /Mercado Pago/.test(n)) && nomes.some((n) => /Melhor Envio/.test(n)),
-      `integrações listadas (${nomes.length})`, `integrações: ${nomes.join(' | ')}`);
-    await capturar(pagina, `integracoes-${largura}`);
-
+    // --- Alterações não salvas ---------------------------------------------------
+    if (await pagina.getByRole('tab', { name: 'Integrações' }).count()) falhar('a aba Integrações ainda existe');
+    else ok('sem aba Integrações');
     await pagina.getByRole('tab', { name: 'Loja' }).click();
     await pagina.locator('form[aria-label="Dados da loja"] input[name="titulo"]').fill('Mudança sem salvar');
     await pagina.evaluate(() => { window.location.hash = '#/'; });

@@ -168,7 +168,8 @@ Chaves usadas (criadas pela migração com valores padrão):
 `peso_gramas int not null default 300 check (> 0)`, `altura_cm numeric(6,1) not null default 4`,
 `largura_cm numeric(6,1) not null default 12`, `comprimento_cm numeric(6,1) not null default 16`,
 `sku text`, `ordem int not null default 0`, `criado_em`, `atualizado_em` (trigger de atualização).
-Preço efetivo = `coalesce(preco_promocional_centavos, preco_centavos)`.
+Preço efetivo = `coalesce(preco_promocional_centavos, preco_centavos)`. O painel não edita promoção, SKU, medidas,
+controle de estoque nem endereço (slug): o slug sai do nome na criação e não muda; a migração zera promoções antigas.
 Produto só é vendável se `ativo` e preço efetivo > 0.
 
 Não existe sistema de cupons: a migração apaga a tabela `cupons` e as colunas `pedidos.desconto_centavos` e
@@ -641,7 +642,7 @@ buscar rastreio → marcar como enviado). Pedido aguardando pagamento pode ser a
 Configurações (`?aba=` na URL): Loja (nome, descrição, WhatsApp, e-mail de contato), Frete
 (Melhor Envio com prazo e valor a mais e seguro; frete fixo com nome, valor, prazo e estados; remetente; frete
 grátis a partir de um valor; sem retirada), Pagamento (parcelas, boleto, prazo para pagar), Avisos por e-mail
-(e-mails da equipe) e Integrações (situação das chaves na Vercel, sem mostrar valores). Cada aba tem o próprio
+(e-mails da equipe); não há tela de integrações (o painel mostra o mínimo). Cada aba tem o próprio
 "Salvar" e grava só a sua linha em `configuracoes` (a aba Frete também grava o frete grátis em `loja`).
 
 ## 9. Testes

@@ -4,7 +4,7 @@
 // As funções puras são testadas em tests/unit/painel-produtos.test.js.
 
 import { moverItem } from '../ui.js';
-import { erroSlug, gerarSlug, MAX_SLUG } from './produtos.js';
+import { gerarSlug, sugerirSlug } from './produtos.js';
 
 export const MAX_NOME_CATEGORIA = 120;
 export const MAX_DESCRICAO_CATEGORIA = 500;
@@ -16,19 +16,16 @@ export function validarCategoria(v) {
   const nome = String(v.nome ?? '').trim();
   if (!nome) erros.nome = 'Informe o nome da categoria.';
   else if (nome.length > MAX_NOME_CATEGORIA) erros.nome = `Use no máximo ${MAX_NOME_CATEGORIA} caracteres (agora tem ${nome.length}).`;
-  const slug = erroSlug(v.slug);
-  if (slug) erros.slug = slug;
   if (String(v.descricao ?? '').trim().length > MAX_DESCRICAO_CATEGORIA) {
     erros.descricao = `Use no máximo ${MAX_DESCRICAO_CATEGORIA} caracteres na descrição.`;
   }
   return erros;
 }
 
-/** Valores já validados → registro para insert/update em categorias. */
+/** Valores já validados → registro para insert/update em categorias (o endereço não é editável: sai do nome na criação). */
 export function montarCategoria(v) {
   return {
     nome: String(v.nome ?? '').trim(),
-    slug: String(v.slug ?? '').trim(),
     descricao: String(v.descricao ?? '').trim(),
     ativo: v.ativo !== false,
   };
@@ -78,48 +75,28 @@ export function editarCategoria(ctx, categoria, { ordem = 1 } = {}) {
   const { el } = ui;
   const nome = ui.campo({
     rotulo: 'Nome', nome: 'nome', obrigatorio: true, valor: categoria ? categoria.nome : '',
-    ajuda: 'Aparece no filtro da loja. Ex.: Body Splash.', attrs: { maxlength: String(MAX_NOME_CATEGORIA), autocomplete: 'off' },
-  });
-  const slug = ui.campo({
-    rotulo: 'Endereço', nome: 'slug', obrigatorio: true, valor: categoria ? categoria.slug : '',
-    ajuda: categoria
-      ? 'Usado no link da loja filtrada (/loja/?categoria=…). Mudar o endereço faz links antigos pararem de funcionar.'
-      : 'Usado no link da loja filtrada (/loja/?categoria=…). Criado sozinho a partir do nome.',
-    attrs: { maxlength: String(MAX_SLUG), autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false' },
+    attrs: { maxlength: String(MAX_NOME_CATEGORIA), autocomplete: 'off' },
   });
   const descricao = ui.campo({
     rotulo: 'Descrição', nome: 'descricao', tipo: 'textarea', linhas: 3, valor: categoria ? categoria.descricao || '' : '',
-    ajuda: 'Opcional. Uma frase sobre o que há nesta categoria.', attrs: { maxlength: String(MAX_DESCRICAO_CATEGORIA) },
+    attrs: { maxlength: String(MAX_DESCRICAO_CATEGORIA) },
   });
   const ativo = ui.campo({
     rotulo: 'Visível na loja', nome: 'ativo', tipo: 'interruptor', valor: categoria ? categoria.ativo !== false : true,
-    ajuda: 'Desligada, a categoria some do filtro da loja. Os produtos dela continuam à venda.',
-  });
-
-  let slugManual = Boolean(categoria);
-  nome.entrada.addEventListener('input', () => {
-    if (slugManual) return;
-    slug.entrada.value = gerarSlug(nome.entrada.value);
-    slug.definirErro(null);
-  });
-  slug.entrada.addEventListener('input', () => { slugManual = slug.entrada.value.trim() !== ''; });
-  slug.entrada.addEventListener('change', () => {
-    const corrigido = gerarSlug(slug.entrada.value);
-    if (corrigido) slug.entrada.value = corrigido;
   });
 
   const controle = ui.modal({
     titulo: categoria ? 'Editar categoria' : 'Nova categoria',
     classe: 'modal--categoria',
-    conteudo: el('div', { class: 'formulario' }, nome.elemento, slug.elemento, descricao.elemento, ativo.elemento),
+    conteudo: el('div', { class: 'formulario' }, nome.elemento, descricao.elemento, ativo.elemento),
     acoes: [
       { texto: 'Cancelar', valor: null },
       {
         texto: categoria ? 'Salvar' : 'Criar categoria', tipo: 'primario', icone: 'check',
         aoClicar: async () => {
-          const valores = { nome: nome.entrada.value, slug: slug.entrada.value, descricao: descricao.entrada.value, ativo: ativo.ler() };
+          const valores = { nome: nome.entrada.value, descricao: descricao.entrada.value, ativo: ativo.ler() };
           const erros = validarCategoria(valores);
-          const campos = { nome, slug, descricao };
+          const campos = { nome, descricao };
           for (const c of Object.values(campos)) c.definirErro(null);
           if (Object.keys(erros).length) {
             for (const [campo, mensagem] of Object.entries(erros)) campos[campo].definirErro(mensagem);
@@ -128,15 +105,21 @@ export function editarCategoria(ctx, categoria, { ordem = 1 } = {}) {
           }
           const registro = montarCategoria(valores);
           if (!categoria) registro.ordem = ordem;
-          const r = await api.consultar(categoria
-            ? supabase.from('categorias').update(registro).eq('id', categoria.id).select(COLUNAS).single()
-            : supabase.from('categorias').insert(registro).select(COLUNAS).single());
-          if (!r.ok) {
-            if (r.erro === 'duplicado') {
-              slug.definirErro(`Já existe uma categoria com o endereço "${registro.slug}". Mude o final, por exemplo "${registro.slug}-2".`);
-              slug.entrada.focus();
-              return false;
+          let r;
+          if (categoria) {
+            r = await api.consultar(supabase.from('categorias').update(registro).eq('id', categoria.id).select(COLUNAS).single());
+          } else {
+            // O endereço da categoria sai do nome (primeiro livre); se outra categoria pegar o mesmo no meio do caminho, tenta de novo.
+            const base = gerarSlug(registro.nome) || 'categoria';
+            for (let tentativa = 0; tentativa < 3; tentativa += 1) {
+              const raiz = base.replace(/-\d+$/, '');
+              const usados = await api.consultar(supabase.from('categorias').select('slug').like('slug', `${raiz}%`).limit(1000));
+              const slugs = usados.ok ? (usados.dados || []).map((l) => l.slug) : [];
+              r = await api.consultar(supabase.from('categorias').insert({ ...registro, slug: sugerirSlug(base, slugs) }).select(COLUNAS).single());
+              if (r.ok || r.erro !== 'duplicado') break;
             }
+          }
+          if (!r.ok) {
             if (r.erro === 'nao_encontrado') throw new Error('Esta categoria foi apagada enquanto você editava. Feche e atualize a lista.');
             throw new Error(r.mensagem);
           }
@@ -179,8 +162,7 @@ export async function renderizar(ctx) {
 
   function celulaNome(c) {
     return el('div', { class: 'categoria-celula' },
-      el('span', { class: 'categoria-celula__nome' }, c.nome),
-      el('span', { class: 'categoria-celula__slug mono' }, c.slug));
+      el('span', { class: 'categoria-celula__nome' }, c.nome));
   }
 
   function celulaProdutos(c) {

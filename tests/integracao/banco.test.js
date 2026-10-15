@@ -868,7 +868,7 @@ describe('catálogo inicial (seção 10 da migração, rodada isolada numa trans
     }
   });
 
-  test('seed (dev): 1 promoção e 2–3 destaques na coleção Ama Bioessência; biojoias com os preços de teste', () => {
+  test('seed (dev): sem promoção, 2–3 destaques na coleção Ama Bioessência; biojoias com os preços de teste', () => {
     const { produtos, cotacao } = fotos.seed;
     const ama = produtos.filter((p) => !BIOJOIAS.includes(p.slug));
     for (const p of ama) {
@@ -877,8 +877,7 @@ describe('catálogo inicial (seção 10 da migração, rodada isolada numa trans
       assert.equal(p.ativo, true, `${p.slug} ativo`);
     }
     const promocoes = ama.filter((p) => p.promocional !== null);
-    assert.equal(promocoes.length, 1);
-    assert.ok(promocoes[0].promocional > 0 && promocoes[0].promocional < promocoes[0].preco);
+    assert.equal(promocoes.length, 0, 'não há mais preço promocional');
     const destaques = ama.filter((p) => p.destaque).length;
     assert.ok(destaques >= 2 && destaques <= 3, `destaques: ${destaques}`);
     for (const p of produtos.filter((x) => BIOJOIAS.includes(x.slug))) {

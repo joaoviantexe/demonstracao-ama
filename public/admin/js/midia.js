@@ -79,7 +79,7 @@ function hexAleatorio(tamanho = 6) {
  * Caminho seguro no bucket: <pasta>/<aaaa-mm>/<slug-do-nome>-<6 hex>.<ext>.
  * - pasta: só a-z, 0-9 e hífen (padrão "site"); outra coisa lança TypeError.
  * - ext: do tipo MIME (opções.tipo) ou do nome; "jpeg" vira "jpg"; desconhecida → "bin".
- * - opções: { tipo, data (Date, mês em UTC), sufixo (6 hex; padrão aleatório) }.
+ * - opções: { tipo, data (Date, mês em UTC), sufixo (6 a 16 hex; padrão: 6 aleatórios) }.
  */
 export function nomeSeguroArquivo(nomeOriginal, pasta = 'site', { tipo, data = new Date(), sufixo } = {}) {
   const p = String(pasta || 'site');
@@ -93,7 +93,7 @@ export function nomeSeguroArquivo(nomeOriginal, pasta = 'site', { tipo, data = n
   const base = slugify(semExtensao, { max: 60 }) || 'arquivo';
   const dataValida = data instanceof Date && !Number.isNaN(data.getTime()) ? data : new Date();
   const mes = dataValida.toISOString().slice(0, 7);
-  const fim = typeof sufixo === 'string' && /^[0-9a-f]{6}$/.test(sufixo) ? sufixo : hexAleatorio(6);
+  const fim = typeof sufixo === 'string' && /^[0-9a-f]{6,16}$/.test(sufixo) ? sufixo : hexAleatorio(6);
   return `${p}/${mes}/${base}-${fim}.${ext}`;
 }
 
@@ -261,6 +261,27 @@ function enviarComProgresso({ url, token, chave, arquivo, tipo, aoProgresso, sin
   });
 }
 
+/** Primeiros 12 caracteres hexadecimais do SHA-256 do arquivo; '' se o navegador não calcula. */
+async function impressaoDigital(arquivo) {
+  try {
+    if (!globalThis.crypto || !globalThis.crypto.subtle || typeof arquivo.arrayBuffer !== 'function') return '';
+    const bytes = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', await arquivo.arrayBuffer()));
+    return Array.from(bytes.slice(0, 6), (b) => b.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return '';
+  }
+}
+
+/** Arquivo da pasta cujo nome termina com a impressão digital, ou null (qualquer falha vira null: envia normalmente). */
+async function acharPorImpressao(pasta, impressao) {
+  try {
+    const arquivos = await listarArquivos(pasta);
+    return arquivos.find((a) => a.nome.replace(/\.[^.]+$/, '').endsWith(`-${impressao}`)) || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Envia um arquivo para o bucket. pasta: 'site' | 'produtos' | 'videos' (ou outra pasta a-z0-9-;
  * vazia → 'site'). opções: { otimizar = true (imagens JPEG/PNG/WebP), aoProgresso({ enviados, total, fracao }), sinal }.
@@ -275,6 +296,18 @@ export async function enviarArquivo(arquivo, pasta = 'site', { otimizar = true, 
   if (!arquivo) throw new ErroMidia('Nenhum arquivo escolhido.', 'sem_arquivo');
   const validacao = validarArquivo(arquivo);
   if (!validacao.ok) throw new ErroMidia(validacao.erro, 'arquivo_invalido');
+  // Arquivo idêntico a um que já está no bucket: reaproveita em vez de gastar armazenamento de novo.
+  // O nome termina com o início do SHA-256 do arquivo original, então basta procurar por ele.
+  const impressao = await impressaoDigital(arquivo);
+  if (impressao) {
+    const existente = await acharPorImpressao(destino, impressao);
+    if (existente) {
+      return {
+        url: existente.url, caminho: existente.caminho, tamanho: existente.tamanho || arquivo.size, tipo: existente.tipo || tipoDoArquivo(arquivo),
+        nome: existente.nome, otimizado: false, reutilizado: true, avisos: [],
+      };
+    }
+  }
   let final = arquivo;
   let otimizado = false;
   if (otimizar && validacao.categoria === 'imagem') {
@@ -292,7 +325,7 @@ export async function enviarArquivo(arquivo, pasta = 'site', { otimizar = true, 
   if (!token) throw new ErroMidia('Sua sessão expirou. Entre novamente.', 'nao_autenticado');
 
   for (let tentativa = 0; tentativa < 2; tentativa += 1) {
-    const caminho = nomeSeguroArquivo(arquivo.name, destino, { tipo });
+    const caminho = nomeSeguroArquivo(arquivo.name, destino, { tipo, sufixo: tentativa === 0 && impressao ? impressao : undefined });
     const url = `${supabaseUrl}/storage/v1/object/${BUCKET}/${caminho.split('/').map(encodeURIComponent).join('/')}`;
     const { status, json } = await enviarComProgresso({ url, token, chave: supabaseAnonKey, arquivo: final, tipo, aoProgresso, sinal });
     if (status >= 200 && status < 300) {
@@ -399,7 +432,6 @@ export function escolherArquivos({ tipo, multiplo = false } = {}) {
  * opções: { tipo: 'imagem'|'video', multiplo, texto }. → { elemento, definirProgresso(fracao|null, texto), desativar(bool) }
  */
 export function criarAreaUpload({ tipo, multiplo = false, aoEscolher, texto } = {}) {
-  const formatos = tipo === 'video' ? 'MP4 ou WebM, até 50 MB' : tipo === 'imagem' ? 'JPG, PNG, WebP, GIF ou AVIF, até 50 MB' : 'Imagens ou vídeos (MP4/WebM), até 50 MB';
   const escolher = botao({ texto: multiplo ? 'Escolher arquivos' : 'Escolher arquivo', tipo: 'secundario', icone: 'upload' });
   const barra = el('div', { class: 'progresso__barra' });
   const textoProgresso = el('p', { class: 'progresso__texto', 'aria-live': 'polite' });
@@ -408,7 +440,6 @@ export function criarAreaUpload({ tipo, multiplo = false, aoEscolher, texto } = 
     el('div', { class: 'area-upload__icone' }, icone(tipo === 'video' ? 'video' : 'upload')),
     el('p', { class: 'area-upload__texto' }, texto || (multiplo ? 'Arraste os arquivos para cá' : 'Arraste o arquivo para cá'), el('span', { class: 'texto-suave' }, ' ou ')),
     escolher,
-    el('p', { class: 'area-upload__formatos' }, formatos),
     progresso,
     textoProgresso);
   let desativada = false;

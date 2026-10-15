@@ -117,7 +117,6 @@
 .pagina[data-pagina="categorias"] .categorias-cartao{overflow:hidden}
 .pagina[data-pagina="categorias"] .categoria-celula{display:flex;flex-direction:column;gap:2px;min-width:0}
 .pagina[data-pagina="categorias"] .categoria-celula__nome{font-weight:700;color:var(--verde-950);overflow-wrap:anywhere}
-.pagina[data-pagina="categorias"] .categoria-celula__slug{font-size:.8rem;font-weight:500;color:var(--tinta-suave);overflow-wrap:anywhere}
 .pagina[data-pagina="categorias"] .categorias-tabela .categorias-col-descricao{max-width:340px;color:var(--tinta-suave);font-size:.9rem}
 .pagina[data-pagina="categorias"] .categoria-produtos{font-weight:700;white-space:nowrap}
 .pagina[data-pagina="categorias"] .categoria-ordem,

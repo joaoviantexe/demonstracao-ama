@@ -303,68 +303,11 @@ export function validarNotificacoes(v) {
 }
 
 // ---------------------------------------------------------------------------
-// Integrações (texto para a AMA a partir de /api/admin/status)
-
-/**
- * → [{ id, nome, icone, cor: 'verde'|'ambar'|'vermelho'|'cinza', estado, texto, acao? }]
- */
-export function itensIntegracoes(i) {
-  const integ = ehObjeto(i) ? i : {};
-  const itens = [];
-  const supa = integ.supabase || {};
-  itens.push(supa.configurado
-    ? { id: 'supabase', nome: 'Banco de dados (Supabase)', icone: 'banco', cor: 'verde', estado: 'Funcionando', texto: 'Produtos, pedidos, conteúdo do site e fotos estão ligados.' }
-    : { id: 'supabase', nome: 'Banco de dados (Supabase)', icone: 'banco', cor: 'vermelho', estado: 'Incompleto', texto: 'Falta a chave secreta do Supabase na Vercel: sem ela a loja não registra pedidos.', acao: 'Na Vercel, cadastre SUPABASE_SERVICE_ROLE_KEY (Settings → Environment Variables) e publique de novo.' });
-
-  const mp = integ.mercadopago || {};
-  if (!mp.configurado) {
-    itens.push({ id: 'mercadopago', nome: 'Pagamentos (Mercado Pago)', icone: 'cartao', cor: 'vermelho', estado: 'Desligado', texto: 'Sem o Mercado Pago a loja mostra os produtos, mas ninguém consegue pagar.', acao: 'Cadastre MP_ACCESS_TOKEN na Vercel (veja docs/CONFIGURACAO.md, passo 5).' });
-  } else if (mp.modo === 'teste') {
-    itens.push({ id: 'mercadopago', nome: 'Pagamentos (Mercado Pago)', icone: 'cartao', cor: 'ambar', estado: 'Modo teste', texto: 'As compras são de teste: nenhum dinheiro de verdade entra.', acao: 'Para vender de verdade, troque pelas credenciais de produção e tire o MP_MODO=teste.' });
-  } else {
-    itens.push({ id: 'mercadopago', nome: 'Pagamentos (Mercado Pago)', icone: 'cartao', cor: 'verde', estado: 'Vendendo', texto: 'Pix, cartão e boleto funcionando com as credenciais de produção.' });
-  }
-  if (mp.configurado) {
-    itens.push(integ.webhook_assinatura
-      ? { id: 'webhook', nome: 'Avisos de pagamento', icone: 'escudo', cor: 'verde', estado: 'Protegidos', texto: 'Cada aviso do Mercado Pago é conferido com a assinatura secreta.' }
-      : { id: 'webhook', nome: 'Avisos de pagamento', icone: 'escudo', cor: 'ambar', estado: 'Recomendado', texto: 'Os pagamentos são confirmados, mas os avisos não são conferidos pela assinatura.', acao: 'Cadastre MP_WEBHOOK_SECRET (Mercado Pago → Suas integrações → Webhooks → assinatura secreta).' });
-  }
-
-  const me = integ.melhor_envio || {};
-  if (!me.configurado) {
-    itens.push({ id: 'melhor_envio', nome: 'Fretes (Melhor Envio)', icone: 'caminhao', cor: 'ambar', estado: 'Desligado', texto: 'Sem o Melhor Envio a loja só oferece o frete fixo.', acao: 'Cadastre MELHOR_ENVIO_TOKEN (e MELHOR_ENVIO_EMAIL) na Vercel.' });
-  } else if (me.erro) {
-    itens.push({ id: 'melhor_envio', nome: 'Fretes (Melhor Envio)', icone: 'caminhao', cor: 'vermelho', estado: 'Com erro', texto: `Não foi possível consultar a conta: ${me.erro}`, acao: 'Confira se o token é do ambiente certo (produção ou sandbox) e se não venceu.' });
-  } else {
-    const saldo = typeof me.saldo_centavos === 'number' ? formatarPreco(me.saldo_centavos) : '—';
-    const pouco = typeof me.saldo_centavos === 'number' && me.saldo_centavos < 3000;
-    itens.push({
-      id: 'melhor_envio', nome: 'Fretes (Melhor Envio)', icone: 'caminhao', cor: pouco ? 'ambar' : 'verde', estado: pouco ? 'Saldo baixo' : 'Ativo',
-      texto: `${me.ambiente === 'sandbox' ? 'Ambiente de testes (sandbox). ' : ''}Saldo para etiquetas: ${saldo}.`,
-      acao: pouco ? 'Coloque saldo na carteira do Melhor Envio antes de pagar as próximas etiquetas.' : undefined,
-    });
-  }
-
-  const email = integ.email || {};
-  itens.push(email.configurado
-    ? { id: 'email', nome: 'E-mails da loja', icone: 'email', cor: 'verde', estado: 'Ligados', texto: 'A cliente recebe a confirmação do pagamento e do envio; a equipe recebe os pedidos novos.' }
-    : { id: 'email', nome: 'E-mails da loja', icone: 'email', cor: 'cinza', estado: 'Opcional', texto: 'Sem e-mail, a cliente acompanha o pedido pela página dele.', acao: 'Para ligar, cadastre RESEND_API_KEY (e EMAIL_REMETENTE) na Vercel.' });
-
-  if (integ.site_url !== undefined) {
-    const https = /^https:\/\//.test(String(integ.site_url || ''));
-    itens.push(https
-      ? { id: 'site', nome: 'Endereço do site', icone: 'link', cor: 'verde', estado: 'OK', texto: String(integ.site_url) }
-      : { id: 'site', nome: 'Endereço do site', icone: 'link', cor: 'ambar', estado: 'Sem https', texto: `${integ.site_url || '(vazio)'}: sem https o Mercado Pago não avisa os pagamentos sozinho.`, acao: 'Em produção, cadastre SITE_URL com o endereço https:// do site.' });
-  }
-  return itens;
-}
-
-// ---------------------------------------------------------------------------
 // Página
 
 const CHAVES = Object.freeze(['loja', 'frete', 'checkout', 'notificacoes']);
 const PUBLICO = Object.freeze({ loja: true, frete: false, checkout: false, notificacoes: false });
-const ABAS = Object.freeze(['loja', 'frete', 'pagamento', 'avisos', 'integracoes']);
+const ABAS = Object.freeze(['loja', 'frete', 'pagamento', 'avisos']);
 
 export async function renderizar(ctx) {
   const { ui, api, supabase } = ctx;
@@ -662,7 +605,6 @@ export async function renderizar(ctx) {
   }
 
   // --- Aba Pagamento ------------------------------------------------------------
-  const resumoMercadoPago = el('div', { class: 'pilha pilha--estreita' });
   function abaPagamento() {
     const v = valores.checkout;
     const parcelas = ui.campo({
@@ -678,7 +620,6 @@ export async function renderizar(ctx) {
     });
     const c = { parcelas_max: parcelas, prazo_dias: prazo };
     return montarFormulario('pagamento', 'Pagamento', [
-      cartao('cf-mp', 'Mercado Pago', 'A cliente paga no ambiente do Mercado Pago e volta para a página do pedido.', resumoMercadoPago),
       cartao('cf-pagamento', 'Formas de pagamento', null, parcelas.elemento, boleto.elemento, prazo.elemento),
     ], async () => {
       const { erros, valor } = validarCheckout({ parcelas_max: parcelas.ler(), aceitar_boleto: boleto.ler(), prazo_dias: prazo.ler() });
@@ -695,7 +636,6 @@ export async function renderizar(ctx) {
   }
 
   // --- Aba Avisos ---------------------------------------------------------------
-  const resumoEmail = el('div', { class: 'pilha pilha--estreita' });
   function abaAvisos() {
     const v = valores.notificacoes;
     const email = ui.campo({
@@ -704,7 +644,7 @@ export async function renderizar(ctx) {
       attrs: { inputmode: 'email', autocomplete: 'off', maxlength: '800' },
     });
     return montarFormulario('avisos', 'Avisos por e-mail', [
-      cartao('cf-email', 'Avisos de pedidos novos', null, resumoEmail, email.elemento),
+      cartao('cf-email', 'Avisos de pedidos novos', null, email.elemento),
     ], async () => {
       const { erros, valor } = validarNotificacoes({ email_admin: email.ler() });
       if (mostrarErros(erros, { email_admin: email })) return MSG_ERROS;
@@ -720,57 +660,12 @@ export async function renderizar(ctx) {
     });
   }
 
-  // --- Aba Integrações ----------------------------------------------------------
-  const listaIntegracoes = el('div', {});
-  const botaoAtualizarIntegracoes = ui.botao({ texto: 'Atualizar', icone: 'atualizar', tamanho: 'pequeno', aoClicar: () => carregarIntegracoes(botaoAtualizarIntegracoes) });
-  function abaIntegracoes() {
-    return el('div', { class: 'pilha' },
-      el('section', { class: 'cartao', 'aria-labelledby': 'cf-integracoes' },
-        el('div', { class: 'cartao__cabecalho' },
-          el('h2', { class: 'cartao__titulo', id: 'cf-integracoes' }, 'Integrações'),
-          botaoAtualizarIntegracoes,
-          el('p', { class: 'cartao__subtitulo' }, 'As chaves ficam guardadas na Vercel (Settings → Environment Variables), nunca aqui no painel. Depois de mudar uma chave, publique o site de novo.')),
-        el('div', { class: 'cartao__corpo' }, listaIntegracoes)));
-  }
-
-  function desenharIntegracoes(erro) {
-    if (!integracoes) {
-      if (erro) ui.estadoErro(listaIntegracoes, erro, { titulo: 'Não foi possível consultar as integrações', aoTentarNovamente: () => carregarIntegracoes() });
-      else ui.estadoCarregando(listaIntegracoes, { linhas: 4, mensagem: 'Consultando as integrações…' });
-      resumoMercadoPago.replaceChildren(el('p', { class: 'texto-suave texto-pequeno' }, erro ? 'Situação indisponível agora.' : 'Consultando…'));
-      resumoEmail.replaceChildren();
-      return;
-    }
-    const itens = itensIntegracoes(integracoes);
-    listaIntegracoes.replaceChildren(el('ul', { class: 'integracoes' }, itens.map((item) => el('li', { class: 'integracao' },
-      el('span', { class: ['integracao__icone', item.cor !== 'cinza' && `integracao__icone--${item.cor}`] }, ui.icone(item.icone)),
-      el('div', { class: 'integracao__textos' },
-        el('p', { class: 'integracao__nome' }, item.nome, el('span', { class: ['selo', `selo--${item.cor === 'ambar' ? 'ambar' : item.cor}`] }, item.estado)),
-        el('p', { class: 'integracao__texto' }, item.texto),
-        item.acao ? el('p', { class: 'integracao__texto config-integracao__acao' }, item.acao) : null)))));
-    const mp = itens.find((i) => i.id === 'mercadopago');
-    const hook = itens.find((i) => i.id === 'webhook');
-    resumoMercadoPago.replaceChildren(...[mp, hook].filter(Boolean).map((i) => el('p', { class: 'config-resumo' },
-      el('span', { class: ['selo', `selo--${i.cor}`] }, i.estado), ' ', i.texto)));
-    const em = itens.find((i) => i.id === 'email');
-    resumoEmail.replaceChildren(em
-      ? el('p', { class: 'config-resumo' }, el('span', { class: ['selo', `selo--${em.cor}`] }, em.estado), ' ', em.cor === 'verde' ? 'Os e-mails da loja estão ligados.' : 'Os e-mails da loja estão desligados: estes avisos só são enviados depois de ligar o envio de e-mails (veja a aba Integrações).')
-      : null);
+  // A situação do Melhor Envio só serve para o aviso da aba Frete (nada de integrações na tela).
+  async function carregarIntegracoes() {
+    const resp = await api.chamarApi('/api/admin/status', { sinal: ctx.sinal });
+    if (!resp || !ctx.ativo() || !resp.ok || !resp.integracoes) return;
+    integracoes = resp.integracoes;
     if (formFrete && formFrete.atualizarAviso) formFrete.atualizarAviso();
-  }
-
-  async function carregarIntegracoes(botao) {
-    const tarefa = () => api.chamarApi('/api/admin/status', { sinal: ctx.sinal });
-    const resp = botao ? await ui.ocupado(botao, tarefa) : await tarefa();
-    if (!resp || !ctx.ativo() || resp.erro === 'cancelado') return;
-    if (resp.ok && resp.integracoes) {
-      integracoes = resp.integracoes;
-      desenharIntegracoes();
-    } else if (!integracoes) {
-      desenharIntegracoes(resp.mensagem || 'Tente de novo em instantes.');
-    } else {
-      ui.toast(resp.mensagem, 'erro');
-    }
   }
 
   // --- Montagem -----------------------------------------------------------------
@@ -785,11 +680,9 @@ export async function renderizar(ctx) {
       { id: 'frete', rotulo: 'Frete', icone: 'caminhao', conteudo: formFrete },
       { id: 'pagamento', rotulo: 'Pagamento', icone: 'cartao', conteudo: abaPagamento() },
       { id: 'avisos', rotulo: 'Avisos por e-mail', icone: 'email', conteudo: abaAvisos() },
-      { id: 'integracoes', rotulo: 'Integrações', icone: 'configuracoes', conteudo: abaIntegracoes() },
     ],
   });
   corpo.replaceChildren(abas.elemento);
-  desenharIntegracoes();
   carregarIntegracoes();
   return undefined;
 }
