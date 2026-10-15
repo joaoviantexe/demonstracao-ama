@@ -8,7 +8,7 @@ import {
   salvarPreferencias, sincronizarComCotacao,
 } from './carrinho.js';
 import {
-  aplicarMascara, blocoEstado, botaoWhatsapp, el, icone, iniciarPagina, toast, trocarConteudo,
+  aplicarMascara, blocoEstado, el, icone, iniciarPagina, toast, trocarConteudo,
 } from './comum.js';
 import {
   descreverMotivo, formatarPreco, mascararCep, pluralizar, somenteDigitos, validarCep,
@@ -161,9 +161,6 @@ function linhaItem(item) {
         type: 'button', class: 'botao botao--principal botao--sm', 'data-foco': `ajustar-${id}`,
         onclick: () => mudarQuantidade(id, cotado.estoque_disponivel),
       }, `Ajustar para ${cotado.estoque_disponivel}`));
-    }
-    if (semPreco) {
-      acoes.push(botaoWhatsapp('Encomendar pelo WhatsApp', `Olá, AMA! Tenho interesse em encomendar: ${nome}.`, { classe: 'botao botao--whatsapp-contorno botao--sm' }));
     }
     aviso = el('div', { class: 'carrinho-item-aviso' },
       icone('alerta'),

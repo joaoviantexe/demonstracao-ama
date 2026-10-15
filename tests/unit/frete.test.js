@@ -22,7 +22,7 @@ function configBase() {
     loja: { titulo: 'Loja AMA', frete_gratis_acima_centavos: null },
     frete: {
       origem: { ...FRETE_PADRAO.origem, cep: '67125-866' },
-      retirada: { ativa: true, nome: 'Retirar na sede da AMA', endereco: 'Icuí, Ananindeua', prazo_texto: 'Combine a retirada pelo WhatsApp' },
+      retirada: { ativa: true, nome: 'Retirar na sede da AMA', endereco: 'Icuí, Ananindeua', prazo_texto: 'Disponível após a confirmação do pagamento' },
       fixo: {
         ativo: true,
         opcoes: [
@@ -205,7 +205,7 @@ describe('cotarFrete', () => {
     assert.equal(sedex.preco_centavos, 3930);
     assert.equal(sedex.prazo_dias, 5);
     assert.equal(retirada.preco_centavos, 0);
-    assert.equal(retirada.prazo_texto, 'Combine a retirada pelo WhatsApp');
+    assert.equal(retirada.prazo_texto, 'Disponível após a confirmação do pagamento');
 
     const [cotacao] = chamadasCotacao();
     assert.deepEqual(cotacao.corpo.from, { postal_code: '67125866' });

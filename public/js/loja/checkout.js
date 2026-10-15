@@ -10,7 +10,7 @@ import {
 } from './carrinho.js';
 import { lojaConfigurada } from './config.js';
 import {
-  aplicarMascara, blocoEstado, botaoWhatsapp, el, icone, iniciarPagina, trocarConteudo,
+  aplicarMascara, blocoEstado, el, icone, iniciarPagina, trocarConteudo,
 } from './comum.js';
 import {
   descreverMotivo, formatarPreco, formatarPrazo, mascararCep, mascararCpf, mascararTelefone,
@@ -216,8 +216,8 @@ function aplicarTipoEntrega() {
       el('span', { class: 'retirada-icone' }, icone('local')),
       el('div', {},
         el('strong', { texto: opcao.nome }),
-        el('p', { texto: formatarPrazo(opcao) || 'Combine a retirada pelo WhatsApp.' }),
-        el('p', { class: 'retirada-nota', texto: 'Não precisa informar endereço. Depois do pagamento, a AMA combina com você o dia e o horário da retirada.' })));
+        el('p', { texto: formatarPrazo(opcao) || 'Disponível após a confirmação do pagamento.' }),
+        el('p', { class: 'retirada-nota', texto: 'Não precisa informar endereço. Depois do pagamento, acompanhe pela página do pedido quando ele estiver pronto para retirada.' })));
   }
 }
 
@@ -457,47 +457,6 @@ async function aoMudarCep({ forcar = false } = {}) {
 // ---------------------------------------------------------------------------
 // Envio
 
-function linhaWhatsapp(rotulo, valor) {
-  return valor ? `${rotulo}: ${valor}` : '';
-}
-
-/** Resumo do pedido em texto para finalizar pelo WhatsApp (sem CPF). */
-function mensagemPedidoWhatsapp(dados) {
-  const c = estado.cotacao;
-  const opcao = opcaoAtual();
-  const linhas = ['Olá, AMA! Quero finalizar este pedido feito pela loja virtual:', ''];
-  const porId = new Map((c ? c.itens : []).map((i) => [i.produto_id, i]));
-  estado.itens.slice(0, 20).forEach((item) => {
-    const cotado = porId.get(item.produto_id);
-    const nome = (cotado && cotado.nome) || item.nome || 'Produto';
-    const total = cotado && cotado.disponivel ? ` — ${formatarPreco(cotado.total_centavos)}` : '';
-    linhas.push(`• ${item.quantidade}x ${nome}${total}`);
-  });
-  if (c) {
-    linhas.push('', `Subtotal: ${formatarPreco(c.subtotal_centavos)}`);
-    if (c.desconto_centavos > 0) linhas.push(`Desconto${c.cupom && c.cupom.valido ? ` (${c.cupom.codigo})` : ''}: − ${formatarPreco(c.desconto_centavos)}`);
-    if (opcao) linhas.push(`Entrega: ${opcao.nome}${opcao.empresa ? ` (${opcao.empresa})` : ''} — ${opcao.preco_centavos ? formatarPreco(opcao.preco_centavos) : 'sem custo'}`);
-    linhas.push(`Total: ${formatarPreco(totalExibido(c, opcao))}`);
-  }
-  const nome = normalizarTexto(dados.cliente.nome, 120);
-  linhas.push('', linhaWhatsapp('Nome', nome), linhaWhatsapp('Telefone', mascararTelefone(dados.cliente.telefone)),
-    linhaWhatsapp('E-mail', normalizarTexto(dados.cliente.email, 160)));
-  if (dados.endereco && dados.endereco.cep) {
-    const e = dados.endereco;
-    const partes = [
-      [normalizarTexto(e.logradouro, 200), normalizarTexto(e.numero, 20)].filter(Boolean).join(', '),
-      normalizarTexto(e.complemento, 100),
-      normalizarTexto(e.bairro, 100),
-      [normalizarTexto(e.cidade, 100), e.uf].filter(Boolean).join('/'),
-      `CEP ${mascararCep(e.cep)}`,
-    ].filter(Boolean);
-    linhas.push(`Endereço: ${partes.join(' — ')}`);
-  }
-  const obs = normalizarTexto(dados.observacoes, 300);
-  if (obs) linhas.push(`Observações: ${obs}`);
-  return linhas.filter((l, i, todas) => l || (todas[i - 1] && todas[i - 1] !== '')).join('\n').trim();
-}
-
 function definirEnviando(enviando) {
   estado.enviando = enviando;
   botaoPagar.disabled = enviando;
@@ -513,8 +472,7 @@ function tratarErroEnvio(erro, dados) {
       icone('cartao'),
       el('div', {},
         el('strong', { texto: 'Pagamento online em configuração' }),
-        el('p', { texto: 'O pagamento pelo site ainda está sendo configurado pela AMA. Você pode finalizar agora pelo WhatsApp: a mensagem já vai com o resumo do seu pedido.' }),
-        botaoWhatsapp('Finalizar pelo WhatsApp', mensagemPedidoWhatsapp(dados), { classe: 'botao botao--whatsapp' })));
+        el('p', { texto: 'O pagamento pelo site ainda está sendo configurado pela AMA. Tente novamente mais tarde: seu carrinho fica guardado neste aparelho.' })));
     return;
   }
   if (erro.status === 409 && erro.erro === 'item_indisponivel') {
@@ -564,8 +522,7 @@ function tratarErroEnvio(erro, dados) {
       el('strong', { texto: 'Não foi possível ir para o pagamento' }),
       el('p', { texto: erro.mensagem || 'Tente novamente em instantes. Nenhuma cobrança foi feita.' }),
       el('div', { class: 'alerta-acoes' },
-        el('button', { type: 'button', class: 'botao botao--principal botao--sm', onclick: () => form.requestSubmit(botaoPagar) }, 'Tentar novamente'),
-        botaoWhatsapp('Falar com a AMA', mensagemPedidoWhatsapp(dados), { classe: 'botao botao--whatsapp-contorno botao--sm' }))));
+        el('button', { type: 'button', class: 'botao botao--principal botao--sm', onclick: () => form.requestSubmit(botaoPagar) }, 'Tentar novamente'))));
 }
 
 form.addEventListener('submit', async (evento) => {
@@ -633,8 +590,8 @@ function renderizarNaoConfigurada() {
   trocarConteudo(areaEstado, blocoEstado({
     icone: 'folha',
     titulo: 'Loja em configuração',
-    texto: 'A compra pelo site ainda não está disponível. Faça seu pedido pelo WhatsApp.',
-    acoes: [botaoWhatsapp('Pedir pelo WhatsApp', 'Olá, AMA! Quero fazer um pedido.')],
+    texto: 'A compra pelo site ainda não está disponível. Volte em breve.',
+    acoes: [el('a', { class: 'botao botao--principal', href: '/loja/' }, 'Ver os produtos')],
   }));
 }
 

@@ -129,7 +129,7 @@ describe('modelos de e-mail', () => {
   // configuracoes.frete.retirada (docs/ARQUITETURA.md §3).
   const CONFIG_RETIRADA = Object.freeze({
     ativa: true, nome: 'Retirar na sede da AMA', endereco: 'Conjunto Uirapuru, Quadra 28, Casa 02, Icuí, Ananindeua - PA',
-    prazo_texto: 'Combine a retirada pelo WhatsApp',
+    prazo_texto: 'Disponível após a confirmação do pagamento',
   });
   const pedidoRetirada = (extra = {}) => pedidoBase({
     endereco: {}, entrega: { ...ENTREGA_RETIRADA }, frete_centavos: 0, total_centavos: 11691, ...extra,
@@ -140,17 +140,17 @@ describe('modelos de e-mail', () => {
       const { html, texto } = modelo(pedidoRetirada(), { siteUrl: SITE, retirada: CONFIG_RETIRADA });
       assert.match(html, /<strong>Retirar na sede da AMA<\/strong>/, nome);
       assert.ok(html.includes(escaparHtml(CONFIG_RETIRADA.endereco)), `${nome}: endereço da sede`);
-      assert.match(texto, /Combine a retirada pelo WhatsApp\./, nome);
+      assert.match(texto, /Disponível após a confirmação do pagamento\./, nome);
       assert.match(html, />Retirada</, nome);
       assert.doesNotMatch(html, /CEP /, nome);
     }
   });
 
-  test('retirada sem opcoes.retirada: não inventa endereço e orienta a combinar pelo WhatsApp', () => {
+  test('retirada sem opcoes.retirada: não inventa endereço e orienta a retirar na sede', () => {
     const { html, texto } = emailPedidoPago(pedidoRetirada(), SITE);
     assert.match(html, /Retirar na sede da AMA/);
     assert.doesNotMatch(texto, /Uirapuru/);
-    assert.match(texto, /Combine o melhor dia e horário da retirada com a AMA pelo WhatsApp\./);
+    assert.match(texto, /Retire o pedido na sede da AMA assim que ele estiver pronto\./);
     // Nome vazio na entrega cai para o nome configurado.
     const semNome = emailPedidoPago(pedidoRetirada({ entrega: { ...ENTREGA_RETIRADA, nome: '' } }), { siteUrl: SITE, retirada: { nome: 'Sede AMA' } });
     assert.match(semNome.html, /<strong>Sede AMA<\/strong>/);

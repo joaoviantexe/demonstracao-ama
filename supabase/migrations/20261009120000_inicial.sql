@@ -1617,7 +1617,7 @@ insert into public.configuracoes (chave, publico, valor) values
 (
   'loja', true,
   '{
-    "titulo": "Loja AMA",
+    "titulo": "Cosméticos",
     "subtitulo": "Biojoias e cosméticos feitos à mão por mulheres da Amazônia. Cada compra fortalece os projetos da AMA.",
     "whatsapp": "5591981056049",
     "instagram": "oscdemulheres",
@@ -1646,7 +1646,7 @@ insert into public.configuracoes (chave, publico, valor) values
       "ativa": true,
       "nome": "Retirar na sede da AMA",
       "endereco": "Conjunto Uirapuru, Quadra 28, Casa 02, Icuí, Ananindeua - PA",
-      "prazo_texto": "Combine a retirada pelo WhatsApp"
+      "prazo_texto": "Disponível após a confirmação do pagamento"
     },
     "fixo": {
       "ativo": false,
@@ -1673,6 +1673,15 @@ insert into public.configuracoes (chave, publico, valor) values
   '{ "email_admin": "" }'::jsonb
 )
 on conflict (chave) do nothing;
+
+-- Projetos criados com a versão anterior desta migração: troca só os textos padrão antigos
+-- (se a AMA já tiver editado esses campos no painel, nada muda).
+update public.configuracoes
+   set valor = jsonb_set(valor, '{titulo}', '"Cosméticos"')
+ where chave = 'loja' and valor ->> 'titulo' = 'Loja AMA';
+update public.configuracoes
+   set valor = jsonb_set(valor, '{retirada,prazo_texto}', '"Disponível após a confirmação do pagamento"')
+ where chave = 'frete' and valor #>> '{retirada,prazo_texto}' = 'Combine a retirada pelo WhatsApp';
 
 insert into public.categorias (nome, slug, descricao, ordem) values
   ('Body Splash',             'body-splash',             'Perfumaria corporal Ama Bioessência em frasco de 200 mL com válvula spray.', 1),

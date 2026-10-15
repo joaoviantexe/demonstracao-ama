@@ -68,7 +68,7 @@ function situacao(pedido) {
       return { titulo: `Obrigada${nome}!`, texto: 'Seu pedido está sendo separado com carinho pela equipe da AMA.', tom: 'ok' };
     case 'enviado':
       return retirada
-        ? { titulo: `Tudo pronto${nome}!`, texto: 'Seu pedido está pronto para retirada na sede da AMA. Combine o dia e o horário pelo WhatsApp.', tom: 'ok' }
+        ? { titulo: `Tudo pronto${nome}!`, texto: 'Seu pedido está pronto para retirada na sede da AMA, em Ananindeua (PA).', tom: 'ok' }
         : { titulo: `A caminho${nome}!`, texto: 'Seu pedido foi enviado. Acompanhe a entrega pelo código de rastreio.', tom: 'ok' };
     case 'entregue':
       return { titulo: `Obrigada${nome}!`, texto: retirada ? 'Pedido retirado. Obrigada por comprar na AMA!' : 'Pedido entregue. Obrigada por comprar na AMA!', tom: 'ok' };
@@ -149,8 +149,7 @@ function blocoEntrega(pedido) {
     el('span', {}, el('strong', { texto: entrega.nome || (retirada ? 'Retirada na sede da AMA' : 'Entrega') }),
       entrega.empresa ? el('span', { class: 'entrega-empresa', texto: ` · ${entrega.empresa}` }) : null)));
   if (retirada) {
-    conteudo.push(el('p', { class: 'entrega-texto', texto: 'Retire na sede da AMA, em Ananindeua (PA). Combine o dia e o horário pelo WhatsApp.' }));
-    conteudo.push(botaoWhatsapp('Combinar a retirada', `Olá, AMA! Quero combinar a retirada do pedido ${numero}.`, { classe: 'botao botao--whatsapp botao--sm' }));
+    conteudo.push(el('p', { class: 'entrega-texto', texto: 'Retire na sede da AMA, em Ananindeua (PA), quando o pedido estiver pronto. Acompanhe a situação por esta página.' }));
   } else if (Number.isInteger(entrega.prazo_dias) && entrega.prazo_dias > 0) {
     conteudo.push(el('p', { class: 'entrega-texto', texto: `Prazo estimado: até ${pluralizar(entrega.prazo_dias, 'dia útil', 'dias úteis')} após o envio.` }));
   }
@@ -175,7 +174,7 @@ function blocoEntrega(pedido) {
 function renderizarPedido(pedido) {
   const numero = formatarNumeroPedido(pedido.numero);
   const info = situacao(pedido);
-  definirMeta({ titulo: `Pedido ${numero} — Loja AMA` });
+  definirMeta({ titulo: `Pedido ${numero} — Cosméticos` });
   migalha.textContent = `Pedido ${numero}`;
 
   const acoes = [];
@@ -224,7 +223,7 @@ function renderizarPedido(pedido) {
 }
 
 function renderizarNaoEncontrado() {
-  definirMeta({ titulo: 'Pedido não encontrado — Loja AMA' });
+  definirMeta({ titulo: 'Pedido não encontrado — Cosméticos' });
   migalha.textContent = 'Pedido não encontrado';
   raiz.setAttribute('aria-busy', 'false');
   const guardados = lerPedidosGuardados().filter((p) => p.id !== id.toLowerCase());
@@ -316,7 +315,7 @@ function listaPedidos(pedidos, titulo) {
 }
 
 function renderizarMeusPedidos() {
-  definirMeta({ titulo: 'Meus pedidos — Loja AMA' });
+  definirMeta({ titulo: 'Meus pedidos — Cosméticos' });
   raiz.setAttribute('aria-busy', 'false');
   const pedidos = lerPedidosGuardados();
   const cabecalho = el('header', { class: 'pagina-cabecalho' },

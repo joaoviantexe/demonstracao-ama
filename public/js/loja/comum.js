@@ -246,11 +246,7 @@ function mostrarAvisoConfiguracao() {
         el('span', { class: 'aviso-config-icone' }, icone('folha')),
         el('div', { class: 'aviso-config-texto' },
           el('strong', { texto: 'Loja em configuração' }),
-          el('p', { texto: 'Estamos preparando a loja virtual da AMA. Enquanto isso, faça seu pedido pelo WhatsApp.' })),
-        el('a', {
-          class: 'botao botao--whatsapp botao--sm', href: linkWhatsappLoja('Olá, AMA! Quero conhecer os produtos da loja.'),
-          target: '_blank', rel: 'noopener', 'data-whatsapp-loja': true,
-        }, icone('whatsapp'), 'Falar no WhatsApp'))));
+          el('p', { texto: 'Estamos preparando a loja virtual da AMA. Volte em breve!' })))));
   main.prepend(aviso);
 }
 

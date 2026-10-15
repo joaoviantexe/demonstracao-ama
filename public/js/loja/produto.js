@@ -4,14 +4,14 @@ import { cotar } from './api.js';
 import { lerCarrinho, lerPreferencias, salvarPreferencias, definirQuantidade } from './carrinho.js';
 import { buscarProdutoPorSlug, buscarRelacionados, lojaConfigurada } from './config.js';
 import {
-  ajustarFoto, aplicarMascara, blocoEstado, botaoWhatsapp, definirMeta, el, icone, iniciarPagina,
+  ajustarFoto, aplicarMascara, blocoEstado, definirMeta, el, icone, iniciarPagina,
   parametros, trocarConteudo,
 } from './comum.js';
 import {
   formatarPreco, formatarPrazo, mascararCep, somenteDigitos, validarCep,
 } from './formatos.js';
 import {
-  analisarProduto, imagemPrincipal, mensagemWhatsappProduto, normalizarProduto,
+  analisarProduto, imagemPrincipal, normalizarProduto,
 } from './produtos.js';
 import {
   adicionarComAviso, blocoPreco, cartaoProduto, esqueletoCartao, selosDoProduto,
@@ -157,7 +157,7 @@ function calculadoraFrete(produto, lerQuantidade) {
         opcoes.length ? lista : null,
         cotacao.frete && cotacao.frete.erro ? el('p', { class: 'frete-aviso', texto: cotacao.frete.erro }) : null,
         !opcoes.length && !(cotacao.frete && cotacao.frete.erro)
-          ? el('p', { class: 'frete-aviso', texto: 'Nenhuma opção de entrega para este CEP. Fale com a AMA pelo WhatsApp.' }) : null);
+          ? el('p', { class: 'frete-aviso', texto: 'Nenhuma opção de entrega para este CEP. Confira o CEP digitado.' }) : null);
     } catch (erro) {
       trocarConteudo(resultado, el('p', { class: 'campo-erro', texto: erro.mensagem || 'Não foi possível calcular o frete agora.' }));
     } finally {
@@ -182,7 +182,6 @@ function calculadoraFrete(produto, lerQuantidade) {
 }
 
 function areaCompra(produto, situacao) {
-  const url = location.href;
   const blocos = [];
   if (situacao.vendavel) {
     let quantidadeAtual = 1;
@@ -219,7 +218,6 @@ function areaCompra(produto, situacao) {
           ajuda),
         el('div', { class: 'ficha-botoes' }, adicionar, comprar)),
     );
-    blocos.push(botaoWhatsapp('Tirar dúvidas no WhatsApp', mensagemWhatsappProduto(produto, { url }), { classe: 'link-whatsapp' }));
     blocos.push(calculadoraFrete(produto, () => quantidadeAtual));
   } else if (situacao.emBreve) {
     blocos.push(
@@ -227,11 +225,10 @@ function areaCompra(produto, situacao) {
         icone('folha'),
         el('div', {},
           el('strong', { texto: 'Em breve na loja' }),
-          el('p', { texto: 'Este produto ainda está em produção. Encomende pelo WhatsApp e a AMA te conta quando ele estiver disponível.' }))),
+          el('p', { texto: 'Este produto ainda está em produção e logo estará disponível para compra aqui na loja.' }))),
       el('div', { class: 'ficha-botoes' },
         el('button', { type: 'button', class: 'botao botao--principal ficha-botao', disabled: true }, icone('carrinho'), 'Adicionar ao carrinho'),
         el('button', { type: 'button', class: 'botao botao--ouro ficha-botao', disabled: true }, 'Comprar agora')),
-      botaoWhatsapp('Encomendar pelo WhatsApp', mensagemWhatsappProduto(produto, { url, motivo: 'encomenda' }), { classe: 'botao botao--whatsapp ficha-botao ficha-botao--largo' }),
     );
   } else {
     blocos.push(
@@ -239,11 +236,10 @@ function areaCompra(produto, situacao) {
         icone('info'),
         el('div', {},
           el('strong', { texto: 'Esgotado no momento' }),
-          el('p', { texto: 'Fale com a AMA pelo WhatsApp para saber quando chega a próxima leva.' }))),
+          el('p', { texto: 'Este produto acabou. Volte em breve para conferir a reposição.' }))),
       el('div', { class: 'ficha-botoes' },
         el('button', { type: 'button', class: 'botao botao--principal ficha-botao', disabled: true }, icone('carrinho'), 'Adicionar ao carrinho'),
         el('button', { type: 'button', class: 'botao botao--ouro ficha-botao', disabled: true }, 'Comprar agora')),
-      botaoWhatsapp('Avise-me pelo WhatsApp', mensagemWhatsappProduto(produto, { url, motivo: 'encomenda' }), { classe: 'botao botao--whatsapp ficha-botao ficha-botao--largo' }),
     );
   }
   return blocos;
@@ -255,7 +251,7 @@ function renderizarProduto(produto) {
   const situacao = analisarProduto(produto);
   const img = imagemPrincipal(produto);
   definirMeta({
-    titulo: `${produto.nome} — Loja AMA`,
+    titulo: `${produto.nome} — Cosméticos`,
     descricao: produto.descricao || `${produto.nome} na loja virtual da AMA — Associação de Mulheres na Amazônia.`,
   });
   if (img) document.querySelector('meta[property="og:image"]')?.setAttribute('content', img.src);
@@ -305,7 +301,7 @@ function renderizarProduto(produto) {
 }
 
 function renderizarNaoEncontrado() {
-  definirMeta({ titulo: 'Produto não encontrado — Loja AMA' });
+  definirMeta({ titulo: 'Produto não encontrado — Cosméticos' });
   migalhaProduto.textContent = 'Produto não encontrado';
   raiz.setAttribute('aria-busy', 'false');
   trocarConteudo(raiz, blocoEstado({
@@ -315,7 +311,6 @@ function renderizarNaoEncontrado() {
     texto: 'Este produto não está disponível. Ele pode ter saído da loja ou o endereço pode estar incompleto.',
     acoes: [
       el('a', { class: 'botao botao--principal', href: '/loja/' }, 'Ver todos os produtos'),
-      botaoWhatsapp('Falar com a AMA', 'Olá, AMA! Procurei um produto na loja e não encontrei.', { classe: 'botao botao--fantasma' }),
     ],
   }));
 }
@@ -367,7 +362,6 @@ async function carregar() {
       nivel: 'h1',
       titulo: 'Loja em configuração',
       texto: 'Os produtos aparecem aqui assim que a AMA terminar de configurar a loja virtual.',
-      acoes: [botaoWhatsapp('Encomendar pelo WhatsApp', 'Olá, AMA! Quero conhecer os produtos da loja.')],
     }));
     return;
   }

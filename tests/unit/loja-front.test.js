@@ -314,12 +314,6 @@ describe('produtos: regras da vitrine', () => {
     ]);
   });
 
-  test('mensagem de WhatsApp do produto', () => {
-    const p = lista[1];
-    assert.equal(produtos.mensagemWhatsappProduto(p, { motivo: 'encomenda', url: 'https://ama.org/loja/produto?slug=biojoia-01' }),
-      'Olá, AMA! Tenho interesse em encomendar: Nome em Produção.\nhttps://ama.org/loja/produto?slug=biojoia-01');
-    assert.match(produtos.mensagemWhatsappProduto(p), /dúvida/);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -535,7 +529,7 @@ describe('config e APIs (fetch simulado)', () => {
     assert.equal(cfg.frete_gratis_acima_centavos, 20000);
     assert.equal(cfg.aviso_topo, 'Frete grátis!');
     const padrao = config.normalizarConfigLoja(null);
-    assert.equal(padrao.titulo, 'Loja AMA');
+    assert.equal(padrao.titulo, 'Cosméticos');
     assert.equal(padrao.whatsapp, '5591981056049');
     assert.equal(padrao.frete_gratis_acima_centavos, null);
     assert.equal(config.normalizarConfigLoja({ frete_gratis_acima_centavos: -5 }).frete_gratis_acima_centavos, null);

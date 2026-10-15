@@ -38,7 +38,8 @@ Serviços usados, todos com plano gratuito:
    - Deve aparecer *Success. No rows returned*.
    - Isso cria as tabelas, as regras de segurança, a pasta de fotos (`midia`) e o catálogo inicial: os 10 produtos
      Ama Bioessência e 6 biojoias, todos com preço **R$ 00,00** (aparecem na loja como "Em breve").
-   - Pode rodar de novo sem problema: o arquivo não duplica nada.
+   - Pode rodar de novo sem problema: o arquivo não duplica nada. Se você já tinha rodado uma versão anterior, rodar
+     de novo também atualiza os textos padrão antigos (nome "Loja AMA" e retirada "pelo WhatsApp").
 5. **Bloqueie o cadastro público** (importante para a segurança): **Authentication** → **Sign In / Providers**
    (ou **Settings**) → desligue **Allow new users to sign up**. Só quem você criar consegue entrar no painel.
 6. **Crie o usuário do painel**: **Authentication** → **Users** → **Add user** → **Create new user**.
@@ -122,15 +123,15 @@ Necessário para o "Esqueci minha senha" do painel funcionar.
 | Endereço | O que deve aparecer |
 |---|---|
 | `/` | A página inicial da AMA, com o banner novo "Ama Bioessência" e o item **Loja** no menu |
-| `/loja/` | Os 16 produtos, com preço **R$ 00,00**, selo **Em breve** e botão **Encomendar pelo WhatsApp** |
+| `/loja/` | Os 16 produtos, com preço **R$ 00,00** e selo **Em breve** (a compra fica liberada quando o produto ganha preço) |
 | `/loja/produto?slug=body-splash-raiz` | A página do produto |
 | `/admin/` | O login do painel. Entre com o usuário do passo 1.6 |
 
 **Para mostrar uma compra de verdade na demonstração**, dê preço e estoque a um produto: no Supabase, **Table
 Editor** → **produtos** → na linha do produto, mude `preco_centavos` (ex.: `5990` = R$ 59,90) e `estoque`
 (ex.: `10`) e salve. Em alguns segundos ele aparece com preço e botão **Adicionar ao carrinho**.
-Sem o Mercado Pago configurado, o checkout mostra "Pagamento online em configuração" e oferece finalizar o
-pedido pelo WhatsApp. Para testar o pagamento, faça o passo 5.
+Sem o Mercado Pago configurado, o checkout mostra "Pagamento online em configuração" e não deixa finalizar a
+compra. Para testar o pagamento, faça o passo 5.
 
 ### Passo 5 (opcional). Pagamento em modo teste no Mercado Pago
 
