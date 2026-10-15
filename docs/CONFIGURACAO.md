@@ -130,6 +130,12 @@ Necessário para os links de e-mail do Supabase (convite de novo usuário e rede
 | `/loja/produto?slug=body-splash-raiz` | A página do produto |
 | `/admin/` | O login do painel. Entre com o usuário do passo 1.6 |
 
+Para ver o painel de pedidos cheio, rode no **SQL Editor** o arquivo
+[`supabase/exemplos/pedidos-exemplo.sql`](../supabase/exemplos/pedidos-exemplo.sql): ele cria 8 pedidos de exemplo
+(aguardando pagamento, em análise, pagos, em separação, enviado, entregue e cancelado), sem precisar de nenhuma
+integração. Para apagá-los e devolver o estoque, rode
+[`supabase/exemplos/remover-pedidos-exemplo.sql`](../supabase/exemplos/remover-pedidos-exemplo.sql).
+
 Os produtos já vêm com preço e estoque de teste, então dá para comprar até o fim. Mas **não existe retirada na
 sede**: para a loja oferecer uma entrega, configure o Melhor Envio (Parte 2, item 4) **ou** ligue o frete fixo no
 painel, em **Configurações → Frete → Oferecer frete fixo** (ex.: R$ 15,00 para o PA). Sem nenhum dos dois, o
