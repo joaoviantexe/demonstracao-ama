@@ -40,7 +40,8 @@ Serviços usados, todos com plano gratuito:
      Ama Bioessência e 6 biojoias, todos com preço **R$ 00,00** (aparecem na loja normalmente; a compra só fecha
      depois que o produto ganha preço).
    - Pode rodar de novo sem problema: o arquivo não duplica nada. Se você já tinha rodado uma versão anterior, rodar
-     de novo também atualiza os textos padrão antigos (nome "Loja AMA" e retirada "pelo WhatsApp").
+     de novo também aplica as mudanças: remove o sistema de cupons e a retirada na sede e atualiza os textos padrão
+     antigos (nome "Loja AMA").
 5. **Bloqueie o cadastro público** (importante para a segurança): **Authentication** → **Sign In / Providers**
    (ou **Settings**) → desligue **Allow new users to sign up**. Só quem você criar consegue entrar no painel.
 6. **Crie o usuário do painel**: **Authentication** → **Users** → **Add user** → **Create new user**.

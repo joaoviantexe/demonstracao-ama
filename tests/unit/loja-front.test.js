@@ -139,6 +139,12 @@ describe('formatos: validações iguais às do servidor', () => {
     const casos = [
       { cliente: {}, endereco: {}, frete_id: '' },
       { cliente: { nome: 'Maria', email: 'x', telefone: '123', cpf: '111' }, endereco: { cep: '1' }, frete_id: 'me-1' },
+      {
+        cliente: { nome: 'Maria da Silva', email: 'maria@exemplo.com', telefone: '91981056049', cpf: '52998224725' },
+        endereco: { cep: '66010000', logradouro: 'Rua A', numero: '1', bairro: 'Campina', cidade: 'Belém', uf: 'PA' },
+        frete_id: 'fixo-1',
+      },
+      // Sem endereço: sempre obrigatório (não existe retirada na sede).
       { cliente: { nome: 'Maria da Silva', email: 'maria@exemplo.com', telefone: '91981056049', cpf: '52998224725' }, endereco: {}, frete_id: 'retirada' },
       {
         cliente: { nome: 'Maria da Silva', email: 'maria@exemplo.com', telefone: '91981056049', cpf: '529.982.247-25' },
@@ -158,6 +164,7 @@ describe('formatos: validações iguais às do servidor', () => {
     }
     const ok = formatos.validarFormularioCheckout(casos[2]);
     assert.equal(ok.ok, true);
+    assert.equal(formatos.validarFormularioCheckout(casos[3]).ok, false);
   });
 });
 
@@ -578,7 +585,7 @@ describe('config e APIs (fetch simulado)', () => {
 describe('resumo: total exibido com os números do servidor', () => {
   const cotacao = {
     subtotal_centavos: 17970,
-    frete: { opcoes: [{ id: 'me-1', preco_centavos: 2440 }, { id: 'retirada', preco_centavos: 0 }] },
+    frete: { opcoes: [{ id: 'me-1', preco_centavos: 2440 }, { id: 'fixo-gratis', preco_centavos: 0 }] },
   };
 
   test('opcaoEscolhida e totalExibido', () => {
@@ -586,7 +593,7 @@ describe('resumo: total exibido com os números do servidor', () => {
     assert.equal(opcaoEscolhida(cotacao, 'nao-existe'), null);
     assert.equal(opcaoEscolhida(null, 'me-1'), null);
     assert.equal(totalExibido(cotacao, opcaoEscolhida(cotacao, 'me-1')), 20410);
-    assert.equal(totalExibido(cotacao, opcaoEscolhida(cotacao, 'retirada')), 17970);
+    assert.equal(totalExibido(cotacao, opcaoEscolhida(cotacao, 'fixo-gratis')), 17970);
     assert.equal(totalExibido(cotacao, null), 17970);
     assert.equal(totalExibido(null, null), 0);
   });

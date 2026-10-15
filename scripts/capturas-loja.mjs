@@ -9,7 +9,7 @@
 //   (webhook assinado com MP_WEBHOOK_SECRET=segredo-teste para o próprio dev-server) e o Melhor Envio falso.
 // - ViaCEP é interceptado com uma resposta falsa; as fontes do Google são buscadas pelo Node
 //   (com proxy, rode com NODE_USE_ENV_PROXY=1); sem acesso, as páginas usam as fontes de reserva.
-// - Fluxo: catálogo → produto → adicionar → carrinho (CEP 66010-000, retirada) →
+// - Fluxo: catálogo → produto → adicionar → carrinho (CEP 66010-000, PAC) →
 //   checkout preenchido → Mercado Pago falso (Aprovar) → pedido "Pago" → meus pedidos.
 //   Também: carrinho vazio, produto sem preço, o catálogo no "modo apresentação" (todos os preços 0),
 //   carrinho com itens indisponíveis e produto inexistente.
@@ -224,14 +224,14 @@ async function fluxoCompra(navegador, base) {
     await pagina.waitForSelector('.ficha-nome');
     await capturar(pagina, '04-produto-sem-preco');
 
-    // Carrinho: CEP e retirada
+    // Carrinho: CEP e PAC
     await pagina.goto(`${base}/loja/carrinho`);
     await esperarTotais(pagina);
     await pagina.fill('#carrinho-cep', '66010000');
     await pagina.getByRole('button', { name: 'Calcular' }).click();
-    await pagina.waitForSelector('.opcao-frete input[value="retirada"]');
+    await pagina.waitForSelector('.opcao-frete input[value="me-1"]');
     await esperarTotais(pagina);
-    await pagina.locator('.opcao-frete', { has: pagina.locator('input[value="retirada"]') }).click();
+    await pagina.locator('.opcao-frete', { has: pagina.locator('input[value="me-1"]') }).click();
     await esperarTotais(pagina);
     await capturar(pagina, '05-carrinho');
 
@@ -245,16 +245,17 @@ async function fluxoCompra(navegador, base) {
     await pagina.fill('#cpf', '52998224725');
     await pagina.fill('#observacoes', 'É para presente: se possível, embalar com carinho.');
     // Entrega pelos Correios para mostrar o endereço preenchido pelo ViaCEP
-    await pagina.locator('.opcao-frete', { has: pagina.locator('input:not([value="retirada"])') }).first().click();
+    if (await pagina.locator('.opcao-frete input[value="retirada"]').count()) registrarProblema('o checkout ainda oferece a retirada na sede');
+    await pagina.locator('.opcao-frete', { has: pagina.locator('input[value="me-1"]') }).click();
     await pagina.waitForFunction(() => document.getElementById('logradouro').value === 'Avenida Presidente Vargas');
     await pagina.fill('#numero', '123');
     await pagina.fill('#complemento', 'Apto 401');
     await esperarTotais(pagina);
     await capturar(pagina, '06-checkout-entrega');
-    // Volta para a retirada (o fluxo pedido)
-    await pagina.locator('.opcao-frete', { has: pagina.locator('input[value="retirada"]') }).click();
+    // Troca para o SEDEX (o fluxo pedido): o total acompanha o frete escolhido
+    await pagina.locator('.opcao-frete', { has: pagina.locator('input[value="me-2"]') }).click();
     await esperarTotais(pagina);
-    await capturar(pagina, '07-checkout-retirada');
+    await capturar(pagina, '07-checkout-sedex');
 
     // Pagamento no Mercado Pago falso
     await Promise.all([

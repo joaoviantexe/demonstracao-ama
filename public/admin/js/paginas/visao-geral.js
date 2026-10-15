@@ -240,7 +240,7 @@ export function descreverIntegracoes(integracoes, formatarPreco) {
   const me = i.melhor_envio || {};
   const ambiente = me.ambiente === 'sandbox' ? ' (sandbox)' : '';
   if (!me.configurado) {
-    itens.push({ nome: 'Fretes (Melhor Envio)', icone: 'caminhao', cor: 'cinza', estado: 'Opcional', texto: 'Sem MELHOR_ENVIO_TOKEN a loja oferece só o frete fixo e a retirada na sede.' });
+    itens.push({ nome: 'Fretes (Melhor Envio)', icone: 'caminhao', cor: 'ambar', estado: 'Recomendado', texto: 'Sem MELHOR_ENVIO_TOKEN a loja oferece só o frete fixo (ligue em Configurações → Frete); sem nenhum dos dois, ninguém consegue finalizar a compra.' });
   } else if (me.erro) {
     itens.push({ nome: 'Fretes (Melhor Envio)', icone: 'caminhao', cor: 'vermelho', estado: 'Com erro', texto: `Não foi possível consultar a conta${ambiente}: ${me.erro} Confira o token.` });
   } else {

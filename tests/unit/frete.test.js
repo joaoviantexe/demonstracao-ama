@@ -5,7 +5,7 @@ import { iniciar } from '../apoio/melhorenvio-falso.js';
 import { AMBIENTE_VAZIO, aplicarAmbiente } from '../apoio/servidor.js';
 import {
   CACHE_COTACAO_MS, FRETE_PADRAO, MINIMOS_CORREIOS, TIMEOUT_COTACAO_MS, aplicarFreteGratis, cotarFrete, freteGratisAtivo,
-  limparCacheCotacoes, montarProdutosMelhorEnvio, normalizarConfigFrete, opcaoMelhorEnvio, opcaoRetirada, opcoesFixas,
+  limparCacheCotacoes, montarProdutosMelhorEnvio, normalizarConfigFrete, opcaoMelhorEnvio, opcoesFixas,
   ordenarOpcoes, textoPrazo,
 } from '../../lib/frete.js';
 
@@ -22,7 +22,6 @@ function configBase() {
     loja: { titulo: 'Loja AMA', frete_gratis_acima_centavos: null },
     frete: {
       origem: { ...FRETE_PADRAO.origem, cep: '67125-866' },
-      retirada: { ativa: true, nome: 'Retirar na sede da AMA', endereco: 'Icuí, Ananindeua', prazo_texto: 'Disponível após a confirmação do pagamento' },
       fixo: {
         ativo: true,
         opcoes: [
@@ -123,15 +122,6 @@ describe('funções puras', () => {
     assert.deepEqual(opcoesFixas(undefined, 'PA'), []);
   });
 
-  test('opcaoRetirada: preço 0, prazo_texto da config; null se desativada', () => {
-    assert.deepEqual(opcaoRetirada({ ativa: true, nome: 'Retirar na AMA', prazo_texto: 'Combine pelo WhatsApp' }), {
-      id: 'retirada', tipo: 'retirada', nome: 'Retirar na AMA', empresa: null, prazo_dias: null,
-      prazo_texto: 'Combine pelo WhatsApp', preco_centavos: 0, preco_original_centavos: 0, gratis: false, servico_id: null,
-    });
-    assert.equal(opcaoRetirada({ ativa: false }), null);
-    assert.equal(opcaoRetirada(undefined).nome, FRETE_PADRAO.retirada.nome);
-  });
-
   test('freteGratisAtivo', () => {
     assert.equal(freteGratisAtivo({ subtotalCentavos: 20_000, limiteCentavos: 20_000 }), true);
     assert.equal(freteGratisAtivo({ subtotalCentavos: 19_999, limiteCentavos: 20_000 }), false);
@@ -141,13 +131,12 @@ describe('funções puras', () => {
     assert.equal(freteGratisAtivo(), false);
   });
 
-  test('aplicarFreteGratis: só a opção PAGA mais barata; retirada e opções já grátis ficam como estão', () => {
+  test('aplicarFreteGratis: só a opção PAGA mais barata; opções já grátis ficam como estão', () => {
     const opcoes = [
       { id: 'me-2', tipo: 'melhor_envio', nome: 'SEDEX', preco_centavos: 3900, preco_original_centavos: 3900, gratis: false, prazo_dias: 5 },
       { id: 'fixo-zero', tipo: 'fixo', nome: 'Entrega no bairro', preco_centavos: 0, preco_original_centavos: 0, gratis: false, prazo_dias: 1 },
       { id: 'me-1', tipo: 'melhor_envio', nome: 'PAC', preco_centavos: 2400, preco_original_centavos: 2400, gratis: false, prazo_dias: 10 },
       { id: 'fixo-1', tipo: 'fixo', nome: 'Local', preco_centavos: 2400, preco_original_centavos: 2400, gratis: false, prazo_dias: 3 },
-      { id: 'retirada', tipo: 'retirada', nome: 'Retirada', preco_centavos: 0, preco_original_centavos: 0, gratis: false, prazo_dias: null },
     ];
     const saida = aplicarFreteGratis(opcoes);
     // Empate de preço: vence o menor prazo.
@@ -157,29 +146,27 @@ describe('funções puras', () => {
     assert.equal(gratis[0].preco_original_centavos, 2400);
     assert.equal(saida.find((o) => o.id === 'fixo-zero').gratis, false);
     assert.equal(opcoes[3].preco_centavos, 2400, 'não altera a entrada');
-    assert.deepEqual(aplicarFreteGratis([opcoes[4]]), [opcoes[4]]);
-    // A retirada nunca é a escolhida, mesmo que um dia tenha preço.
-    const retiradaPaga = { ...opcoes[4], preco_centavos: 500, preco_original_centavos: 500 };
-    assert.deepEqual(aplicarFreteGratis([retiradaPaga, opcoes[0]]).map((o) => [o.id, o.gratis]), [['retirada', false], ['me-2', true]]);
+    assert.deepEqual(aplicarFreteGratis([opcoes[1]]), [opcoes[1]]);
+    assert.deepEqual(aplicarFreteGratis([]), []);
   });
 
-  test('ordenarOpcoes: retirada por último; demais por preço, prazo e nome', () => {
+  test('ordenarOpcoes: por preço, prazo e nome', () => {
     const lista = ordenarOpcoes([
-      { id: 'retirada', tipo: 'retirada', nome: 'Retirada', preco_centavos: 0, prazo_dias: null },
       { id: 'me-2', tipo: 'melhor_envio', nome: 'SEDEX', preco_centavos: 3900, prazo_dias: 5 },
       { id: 'b', tipo: 'fixo', nome: 'B', preco_centavos: 1500, prazo_dias: null },
       { id: 'a', tipo: 'fixo', nome: 'A', preco_centavos: 1500, prazo_dias: null },
       { id: 'c', tipo: 'fixo', nome: 'C', preco_centavos: 1500, prazo_dias: 2 },
       { id: 'gratis', tipo: 'melhor_envio', nome: 'PAC', preco_centavos: 0, prazo_dias: 10 },
     ]);
-    assert.deepEqual(lista.map((o) => o.id), ['gratis', 'c', 'a', 'b', 'me-2', 'retirada']);
+    assert.deepEqual(lista.map((o) => o.id), ['gratis', 'c', 'a', 'b', 'me-2']);
   });
 
   test('normalizarConfigFrete preenche os padrões da §4.1', () => {
     const cfg = normalizarConfigFrete({ frete: { melhor_envio: { ativo: false } } });
     assert.equal(cfg.melhor_envio.ativo, false);
     assert.deepEqual(cfg.melhor_envio.servicos, [1, 2]);
-    assert.equal(cfg.retirada.ativa, true);
+    assert.equal('retirada' in cfg, false, 'não existe retirada na sede');
+    assert.equal('retirada' in FRETE_PADRAO, false);
     assert.equal(cfg.fixo.ativo, false);
     assert.equal(cfg.origem.cep, '');
     assert.equal(cfg.embalagem_padrao.peso_gramas, 300);
@@ -189,14 +176,14 @@ describe('funções puras', () => {
 
 // ---------------------------------------------------------------------------
 describe('cotarFrete', () => {
-  test('SP: Melhor Envio + fixo nacional + retirada, ordenados; corpo da cotação por products', async () => {
+  test('SP: Melhor Envio + fixo nacional, ordenados; corpo da cotação por products', async () => {
     const itens = [item(), item({ produto_id: 'esgotado', disponivel: false, motivo: 'sem_estoque', peso_gramas: 90_000 })];
     const r = await cotarFrete({ itens, cep: '01310-100', subtotalCentavos: 9000, config: configBase() });
     assert.equal(r.erro, null);
     assert.equal(r.uf, 'SP');
-    assert.deepEqual(ids(r), ['me-1', 'fixo-nacional', 'me-2', 'retirada']);
+    assert.deepEqual(ids(r), ['me-1', 'fixo-nacional', 'me-2']);
 
-    const [pac, , sedex, retirada] = r.opcoes;
+    const [pac, , sedex] = r.opcoes;
     // PAC do falso: R$ 23,50 + taxa extra R$ 1,00; prazo 8 + 2.
     assert.deepEqual(pac, {
       id: 'me-1', tipo: 'melhor_envio', nome: 'PAC', empresa: 'Correios', prazo_dias: 10, prazo_texto: 'até 10 dias úteis',
@@ -204,8 +191,6 @@ describe('cotarFrete', () => {
     });
     assert.equal(sedex.preco_centavos, 3930);
     assert.equal(sedex.prazo_dias, 5);
-    assert.equal(retirada.preco_centavos, 0);
-    assert.equal(retirada.prazo_texto, 'Disponível após a confirmação do pagamento');
 
     const [cotacao] = chamadasCotacao();
     assert.deepEqual(cotacao.corpo.from, { postal_code: '67125866' });
@@ -219,7 +204,7 @@ describe('cotarFrete', () => {
   test('PA: inclui o frete fixo regional', async () => {
     const r = await cotarFrete({ itens: [item()], cep: '66010000', subtotalCentavos: 9000, config: configBase() });
     assert.equal(r.uf, 'PA');
-    assert.deepEqual(ids(r), ['fixo-1', 'me-1', 'fixo-nacional', 'me-2', 'retirada']);
+    assert.deepEqual(ids(r), ['fixo-1', 'me-1', 'fixo-nacional', 'me-2']);
   });
 
   test('frete grátis: a opção paga mais barata fica com preço 0', async () => {
@@ -233,7 +218,6 @@ describe('cotarFrete', () => {
     assert.equal(primeira.gratis, true);
     assert.equal(r.opcoes.filter((o) => o.gratis).length, 1);
     assert.equal(r.opcoes.find((o) => o.id === 'me-1').preco_centavos, 2450);
-    assert.equal(r.opcoes.at(-1).id, 'retirada');
   });
 
   test('frete grátis por valor mínimo', async () => {
@@ -242,7 +226,7 @@ describe('cotarFrete', () => {
     config.frete.fixo.ativo = false;
 
     const sim = await cotarFrete({ itens: [item()], cep: '01310-100', subtotalCentavos: 20_000, config });
-    assert.deepEqual(ids(sim), ['me-1', 'me-2', 'retirada']);
+    assert.deepEqual(ids(sim), ['me-1', 'me-2']);
     assert.equal(sim.opcoes[0].gratis, true);
     assert.equal(sim.opcoes[0].preco_centavos, 0);
     assert.equal(sim.opcoes[0].preco_original_centavos, 2450);
@@ -255,7 +239,7 @@ describe('cotarFrete', () => {
     falso.estado.ajustesServicos = { 1: { custom_price: '20.00', custom_delivery_time: 6 }, 2: { error: 'Trecho não atendido.' } };
     const r = await cotarFrete({ itens: [item()], cep: '01310-100', subtotalCentavos: 9000, config: configBase() });
     assert.equal(r.erro, null);
-    assert.deepEqual(ids(r), ['me-1', 'fixo-nacional', 'retirada']);
+    assert.deepEqual(ids(r), ['me-1', 'fixo-nacional']);
     assert.equal(r.opcoes[0].preco_centavos, 2100);
     assert.equal(r.opcoes[0].prazo_dias, 8);
   });
@@ -271,14 +255,14 @@ describe('cotarFrete', () => {
       ],
     });
     const r = await cotarFrete({ itens: [item()], cep: '01310-100', subtotalCentavos: 9000, config });
-    assert.deepEqual(ids(r), ['me-1', 'fixo-nacional', 'retirada']);
+    assert.deepEqual(ids(r), ['me-1', 'fixo-nacional']);
   });
 
   test('erro do Melhor Envio (500) não derruba: outras opções + mensagem amigável', async (t) => {
     t.mock.method(console, 'warn', () => {});
     falso.estado.forcar('/shipment/calculate', { status: 500, corpo: { message: 'Server Error' } });
     const r = await cotarFrete({ itens: [item()], cep: '66010-000', subtotalCentavos: 9000, config: configBase() });
-    assert.deepEqual(ids(r), ['fixo-1', 'fixo-nacional', 'retirada']);
+    assert.deepEqual(ids(r), ['fixo-1', 'fixo-nacional']);
     assert.equal(r.uf, 'PA');
     assert.match(r.erro, /Não foi possível calcular o frete/);
     assert.doesNotMatch(r.erro, /500|Server Error/);
@@ -289,7 +273,7 @@ describe('cotarFrete', () => {
     falso.estado.forcar('/shipment/calculate', { status: 429, corpo: { message: 'Too Many Attempts.' }, cabecalhos: { 'Retry-After': '0' } });
     const r = await cotarFrete({ itens: [item()], cep: '01310-100', subtotalCentavos: 9000, config: configBase() });
     assert.equal(r.erro, null);
-    assert.deepEqual(ids(r), ['me-1', 'fixo-nacional', 'me-2', 'retirada']);
+    assert.deepEqual(ids(r), ['me-1', 'fixo-nacional', 'me-2']);
     assert.equal(chamadasCotacao().length, 2);
   });
 
@@ -297,13 +281,13 @@ describe('cotarFrete', () => {
     t.mock.method(console, 'warn', () => {});
     falso.estado.forcar('/shipment/calculate', { status: 200, corpo: [], atrasoMs: 300 });
     const r = await cotarFrete({ itens: [item()], cep: '01310-100', subtotalCentavos: 9000, config: configBase(), timeoutMs: 40 });
-    assert.deepEqual(ids(r), ['fixo-nacional', 'retirada']);
+    assert.deepEqual(ids(r), ['fixo-nacional']);
     assert.match(r.erro, /Tente de novo/);
   });
 
   test('nenhum serviço atende (pacote pesado demais): erro informativo e demais opções', async () => {
     const r = await cotarFrete({ itens: [item({ quantidade: 1, peso_gramas: 45_000 })], cep: '01310-100', subtotalCentavos: 4500, config: configBase() });
-    assert.deepEqual(ids(r), ['fixo-nacional', 'retirada']);
+    assert.deepEqual(ids(r), ['fixo-nacional']);
     assert.match(r.erro, /transportadoras não atendem/);
   });
 
@@ -329,13 +313,13 @@ describe('cotarFrete', () => {
     const desativado = configBase();
     desativado.frete.melhor_envio.ativo = false;
     let r = await cotarFrete({ itens: [item()], cep: '01310-100', subtotalCentavos: 9000, config: desativado });
-    assert.deepEqual(ids(r), ['fixo-nacional', 'retirada']);
+    assert.deepEqual(ids(r), ['fixo-nacional']);
     assert.equal(r.erro, null);
 
     const semOrigem = configBase();
     semOrigem.frete.origem.cep = '';
     r = await cotarFrete({ itens: [item()], cep: '01310-100', subtotalCentavos: 9000, config: semOrigem });
-    assert.deepEqual(ids(r), ['fixo-nacional', 'retirada']);
+    assert.deepEqual(ids(r), ['fixo-nacional']);
     assert.equal(r.erro, null);
 
     const semServicos = configBase();
@@ -345,7 +329,7 @@ describe('cotarFrete', () => {
 
     aplicarAmbiente({ MELHOR_ENVIO_TOKEN: undefined });
     r = await cotarFrete({ itens: [item()], cep: '01310-100', subtotalCentavos: 9000, config: configBase() });
-    assert.deepEqual(ids(r), ['fixo-nacional', 'retirada']);
+    assert.deepEqual(ids(r), ['fixo-nacional']);
     assert.equal(r.erro, null);
 
     assert.equal(falso.estado.requisicoes.length, 0);
@@ -353,28 +337,25 @@ describe('cotarFrete', () => {
 
   test('só itens indisponíveis: não cota no Melhor Envio', async () => {
     const r = await cotarFrete({ itens: [item({ disponivel: false })], cep: '01310-100', subtotalCentavos: 0, config: configBase() });
-    assert.deepEqual(ids(r), ['fixo-nacional', 'retirada']);
+    assert.deepEqual(ids(r), ['fixo-nacional']);
     assert.equal(falso.estado.requisicoes.length, 0);
   });
 
-  test('CEP inválido ou fora das faixas: só a retirada e erro amigável', async () => {
+  test('CEP inválido ou fora das faixas: nenhuma opção e erro amigável', async () => {
     for (const cep of ['123', '', undefined, 'abcde-fgh', '00999-999']) {
       const r = await cotarFrete({ itens: [item()], cep, subtotalCentavos: 9000, config: configBase() });
-      assert.deepEqual(ids(r), ['retirada'], `CEP ${cep}`);
+      assert.deepEqual(r.opcoes, [], `CEP ${cep}`);
       assert.equal(r.uf, null);
       assert.match(r.erro, /CEP/);
+      assert.doesNotMatch(r.erro, /retirada/);
     }
-    const semRetirada = configBase();
-    semRetirada.frete.retirada.ativa = false;
-    const r = await cotarFrete({ itens: [item()], cep: '1', subtotalCentavos: 9000, config: semRetirada });
-    assert.deepEqual(r.opcoes, []);
+    const r = await cotarFrete({ itens: [item()], cep: '1', subtotalCentavos: 9000, config: configBase() });
     assert.match(r.erro, /CEP inválido/);
     assert.equal(falso.estado.requisicoes.length, 0);
   });
 
   test('nenhuma forma de entrega: erro', async () => {
     const config = configBase();
-    config.frete.retirada.ativa = false;
     config.frete.fixo.ativo = false;
     config.frete.melhor_envio.ativo = false;
     const r = await cotarFrete({ itens: [item()], cep: '01310-100', subtotalCentavos: 9000, config });
@@ -383,10 +364,10 @@ describe('cotarFrete', () => {
     assert.match(r.erro, /Não há forma de entrega/);
   });
 
-  test('config ausente: padrões (retirada ativa; Melhor Envio sem origem não é chamado)', async () => {
+  test('config ausente: padrões (frete fixo desligado; Melhor Envio sem origem não é chamado) → sem opções', async () => {
     const r = await cotarFrete({ itens: [item()], cep: '01310-100', subtotalCentavos: 9000 });
-    assert.deepEqual(ids(r), ['retirada']);
-    assert.equal(r.erro, null);
+    assert.deepEqual(r.opcoes, []);
+    assert.match(r.erro, /Não há forma de entrega/);
     assert.equal(falso.estado.requisicoes.length, 0);
   });
 });
@@ -406,7 +387,7 @@ describe('cotarFrete: cache, duplicados e prazo', () => {
       ],
     });
     const r = await cotarFrete(pedido(config));
-    assert.deepEqual(ids(r), ['me-1', 'retirada']);
+    assert.deepEqual(ids(r), ['me-1']);
     assert.equal(r.opcoes[0].preco_centavos, 2450);
   });
 
@@ -433,7 +414,7 @@ describe('cotarFrete: cache, duplicados e prazo', () => {
     const inicio = Date.now();
     const r = await cotarFrete(pedido(config, { timeoutMs: 1000 }));
     assert.ok(Date.now() - inicio < 1150, `levou ${Date.now() - inicio} ms`);
-    assert.deepEqual(ids(r), ['retirada']);
+    assert.deepEqual(r.opcoes, []);
     assert.match(r.erro, /Tente de novo/);
   });
 
@@ -509,7 +490,7 @@ describe('cotarFrete: cache, duplicados e prazo', () => {
     t.mock.method(console, 'warn', (...args) => { avisos.push(args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ')); });
     aplicarAmbiente({ MELHOR_ENVIO_TOKEN: 'segredo-SUPER\nsecreto' });
     const r = await cotarFrete(pedido(configBase()));
-    assert.deepEqual(ids(r), ['fixo-nacional', 'retirada']);
+    assert.deepEqual(ids(r), ['fixo-nacional']);
     assert.match(r.erro, /Não foi possível calcular/);
     assert.equal(falso.estado.requisicoes.length, 0);
     assert.equal(avisos.length, 1);

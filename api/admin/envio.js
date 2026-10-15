@@ -375,7 +375,7 @@ export default async function handler(req, res) {
     const pedido = await buscarPedido(pedidoId, SELECT);
     if (!pedido) throw new ErroHttp(404, 'pedido_nao_encontrado', 'Pedido não encontrado.');
     if (!pedido.entrega || pedido.entrega.tipo !== 'melhor_envio') {
-      throw new ErroHttp(409, 'envio_indisponivel', 'Este pedido não usa o Melhor Envio (frete fixo ou retirada).');
+      throw new ErroHttp(409, 'envio_indisponivel', 'Este pedido não usa o Melhor Envio (frete fixo).');
     }
     if (!STATUS_PERMITIDOS.includes(pedido.status)) {
       throw new ErroHttp(409, 'status_nao_permite_envio',

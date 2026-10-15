@@ -120,41 +120,20 @@ describe('modelos de e-mail', () => {
     assert.ok(texto.includes(`${SITE}/loja/pedido?id=${PEDIDO_ID}&token=a%26b%3Dc`));
   });
 
-  // Exatamente o que criar_pedido grava em pedidos.entrega numa retirada (sem endereço da sede).
-  const ENTREGA_RETIRADA = Object.freeze({
-    tipo: 'retirada', id: 'retirada', nome: 'Retirar na sede da AMA', empresa: null, prazo_dias: null, preco_centavos: 0, servico_id: null,
-  });
-  // configuracoes.frete.retirada (docs/ARQUITETURA.md §3).
-  const CONFIG_RETIRADA = Object.freeze({
-    ativa: true, nome: 'Retirar na sede da AMA', endereco: 'Conjunto Uirapuru, Quadra 28, Casa 02, Icuí, Ananindeua - PA',
-    prazo_texto: 'Disponível após a confirmação do pagamento',
-  });
-  const pedidoRetirada = (extra = {}) => pedidoBase({
-    endereco: {}, entrega: { ...ENTREGA_RETIRADA }, frete_centavos: 0, total_centavos: 11691, ...extra,
-  });
-
-  test('retirada: endereço da sede e combinado vêm de opcoes.retirada; frete como "Retirada"', () => {
+  test('pedido antigo de retirada (anterior à remoção) aparece como entrega comum, sem citar a sede', () => {
+    const antigo = pedidoBase({
+      endereco: {}, frete_centavos: 0, total_centavos: 12990,
+      entrega: { tipo: 'retirada', id: 'retirada', nome: 'Retirar na sede da AMA', empresa: null, prazo_dias: null, preco_centavos: 0, servico_id: null },
+    });
     for (const [nome, modelo] of MODELOS) {
-      const { html, texto } = modelo(pedidoRetirada(), { siteUrl: SITE, retirada: CONFIG_RETIRADA });
+      const { html, texto } = modelo(antigo, SITE);
       assert.match(html, /<strong>Retirar na sede da AMA<\/strong>/, nome);
-      assert.ok(html.includes(escaparHtml(CONFIG_RETIRADA.endereco)), `${nome}: endereço da sede`);
-      assert.match(texto, /Disponível após a confirmação do pagamento\./, nome);
-      assert.match(html, />Retirada</, nome);
-      assert.doesNotMatch(html, /CEP /, nome);
+      assert.doesNotMatch(texto, /Uirapuru|Retire o pedido/, nome);
+      assert.doesNotMatch(html, />Retirada</, nome);
     }
   });
 
-  test('retirada sem opcoes.retirada: não inventa endereço e orienta a retirar na sede', () => {
-    const { html, texto } = emailPedidoPago(pedidoRetirada(), SITE);
-    assert.match(html, /Retirar na sede da AMA/);
-    assert.doesNotMatch(texto, /Uirapuru/);
-    assert.match(texto, /Retire o pedido na sede da AMA assim que ele estiver pronto\./);
-    // Nome vazio na entrega cai para o nome configurado.
-    const semNome = emailPedidoPago(pedidoRetirada({ entrega: { ...ENTREGA_RETIRADA, nome: '' } }), { siteUrl: SITE, retirada: { nome: 'Sede AMA' } });
-    assert.match(semNome.html, /<strong>Sede AMA<\/strong>/);
-  });
-
-  test('frete zero fora da retirada aparece como "Grátis"', () => {
+  test('frete zero aparece como "Grátis"', () => {
     const { html } = emailPedidoPago(pedidoBase({ frete_centavos: 0, total_centavos: 12990 }), SITE);
     assert.match(html, />Grátis</);
   });
@@ -260,26 +239,26 @@ describe('modelos de e-mail', () => {
     assert.match(html, /href="https:\/\/wa\.me\/5591981056049"/);
   });
 
-  // Variantes que passam por todos os ramos que interpolam dados do banco (entrega por transportadora e
-  // retirada, método de pagamento conhecido e desconhecido, e-mail inválido e e-mail que injetaria no mailto).
+  // Variantes que passam por todos os ramos que interpolam dados do banco (entrega por transportadora, frete fixo
+  // e pedido antigo de retirada, método de pagamento conhecido e desconhecido, e-mail inválido e e-mail que
+  // injetaria no mailto).
   const VARIANTES_XSS = [
     ['entrega por transportadora', {
       cliente_email: '"><script>alert(3)</script>@x.com',
       entrega: { tipo: 'melhor_envio', nome: '<iframe src=//mal.example>', empresa: '<marquee>', prazo_dias: 3 },
       endereco: { cep: '<b>', logradouro: '<svg/onload=alert(5)>', numero: '1', bairro: '"onmouseover="x', cidade: 'Belém', uf: 'pa' },
     }, {}],
-    ['retirada e método desconhecido', {
+    ['frete fixo e método desconhecido', {
       cliente_email: 'a?cc=x%40evil.com&body=<b>oi</b>@x.com',
       metodo_pagamento: '<script>alert(8)</script>',
-      entrega: { tipo: 'retirada', id: 'retirada', nome: '<img src=x onerror=alert(9)>', endereco: '<svg/onload=alert(10)>', prazo_texto: '<marquee>' },
-      endereco: {},
+      entrega: { tipo: 'fixo', id: 'fixo-1', nome: '<img src=x onerror=alert(9)>', empresa: '<svg/onload=alert(10)>', prazo_dias: null },
     }, {}],
-    ['retirada com opcoes.retirada', {
+    ['pedido antigo de retirada', {
       cliente_email: 'a&bcc=x@evil.com',
       metodo_pagamento: '<iframe>',
-      entrega: { tipo: 'retirada', id: 'retirada', nome: '', empresa: null, prazo_dias: null, preco_centavos: 0, servico_id: null },
+      entrega: { tipo: 'retirada', id: 'retirada', nome: '<img src=x onerror=alert(11)>', endereco: '<svg/onload=alert(12)>', prazo_texto: '"><script>alert(13)</script>' },
       endereco: {},
-    }, { retirada: { nome: '<img src=x onerror=alert(11)>', endereco: '<svg/onload=alert(12)>', prazo_texto: '"><script>alert(13)</script>' } }],
+    }, {}],
   ];
 
   for (const [nome, modelo] of MODELOS) {

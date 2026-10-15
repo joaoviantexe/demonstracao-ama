@@ -13,7 +13,7 @@ import {
   aplicarMascara, blocoEstado, el, icone, iniciarPagina, trocarConteudo,
 } from './comum.js';
 import {
-  descreverMotivo, formatarPreco, formatarPrazo, mascararCep, mascararCpf, mascararTelefone,
+  descreverMotivo, formatarPreco, mascararCep, mascararCpf, mascararTelefone,
   normalizarTexto, somenteDigitos, UFS, urlSegura, validarCep, validarFormularioCheckout, validarUf,
 } from './formatos.js';
 import {
@@ -27,8 +27,6 @@ const areaEstado = document.getElementById('checkout-estado');
 const alerta = document.getElementById('alerta-checkout');
 const opcoesFrete = document.getElementById('opcoes-frete');
 const erroFrete = document.getElementById('erro-frete');
-const enderecoCampos = document.getElementById('endereco-campos');
-const retiradaInfo = document.getElementById('retirada-info');
 const avisoCep = document.getElementById('aviso-cep');
 const cepCarregando = document.getElementById('cep-carregando');
 const resumoConteudo = document.getElementById('resumo-conteudo');
@@ -146,13 +144,7 @@ function opcaoAtual() {
   return opcaoEscolhida(estado.cotacao, estado.freteId);
 }
 
-function ehRetirada() {
-  const opcao = opcaoAtual();
-  return !!(opcao && opcao.tipo === 'retirada');
-}
-
 function coletarDados() {
-  const retirada = ehRetirada();
   return {
     cliente: {
       nome: campo.nome.value,
@@ -160,7 +152,7 @@ function coletarDados() {
       telefone: somenteDigitos(campo.telefone.value),
       cpf: somenteDigitos(campo.cpf.value),
     },
-    endereco: retirada ? {} : {
+    endereco: {
       cep: somenteDigitos(campo.cep.value),
       logradouro: campo.logradouro.value,
       numero: campo.numero.value,
@@ -201,23 +193,7 @@ function esconderAlerta() {
 }
 
 // ---------------------------------------------------------------------------
-// Entrega: opções de frete e retirada
-
-function aplicarTipoEntrega() {
-  const opcao = opcaoAtual();
-  const retirada = !!(opcao && opcao.tipo === 'retirada');
-  enderecoCampos.hidden = retirada;
-  enderecoCampos.querySelectorAll('input, select').forEach((entrada) => { entrada.disabled = retirada; });
-  retiradaInfo.hidden = !retirada;
-  if (retirada) {
-    trocarConteudo(retiradaInfo,
-      el('span', { class: 'retirada-icone' }, icone('local')),
-      el('div', {},
-        el('strong', { texto: opcao.nome }),
-        el('p', { texto: formatarPrazo(opcao) || 'Disponível após a confirmação do pagamento.' }),
-        el('p', { class: 'retirada-nota', texto: 'Não precisa informar endereço. Depois do pagamento, acompanhe pela página do pedido quando ele estiver pronto para retirada.' })));
-  }
-}
+// Entrega: opções de frete
 
 function renderizarOpcoesFrete() {
   const c = estado.cotacao;
@@ -234,7 +210,6 @@ function renderizarOpcoesFrete() {
     trocarConteudo(opcoesFrete,
       el('p', { class: 'opcoes-frete-vazio' }, icone('caminhao'),
         c && c.frete && c.frete.erro ? c.frete.erro : 'Informe o CEP para ver as opções de entrega e o prazo.'));
-    aplicarTipoEntrega();
     return;
   }
   trocarConteudo(opcoesFrete,
@@ -247,7 +222,6 @@ function renderizarOpcoesFrete() {
       opcoesFrete.querySelector(`input[value="${CSS.escape(id)}"]`)?.focus();
     }, { nome: 'frete' }),
     c.frete.erro ? el('p', { class: 'frete-aviso', texto: c.frete.erro }) : null);
-  aplicarTipoEntrega();
 }
 
 // ---------------------------------------------------------------------------
@@ -416,10 +390,8 @@ async function aoMudarCep({ forcar = false } = {}) {
     ? 'Endereço encontrado. Confira e informe o número.'
     : 'Cidade encontrada. Informe a rua, o número e o bairro.');
   salvarRascunho();
-  if (!enderecoCampos.hidden) {
-    const proximo = endereco.logradouro ? campo.numero : campo.logradouro;
-    if (document.activeElement === campo.cep || document.activeElement === document.body) proximo.focus();
-  }
+  const proximo = endereco.logradouro ? campo.numero : campo.logradouro;
+  if (document.activeElement === campo.cep || document.activeElement === document.body) proximo.focus();
 }
 
 // ---------------------------------------------------------------------------

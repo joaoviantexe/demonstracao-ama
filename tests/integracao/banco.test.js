@@ -87,8 +87,12 @@ async function criarCategoria(campos = {}) {
 const ENTREGA_FIXO = {
   tipo: 'fixo', id: 'fixo-1', nome: 'Entrega local', empresa: null, prazo_dias: 3, preco_centavos: 1500, servico_id: null,
 };
-const RETIRADA = {
-  tipo: 'retirada', id: 'retirada', nome: 'Retirar na sede da AMA', empresa: null, prazo_dias: null, preco_centavos: 0, servico_id: null,
+// Frete fixo sem custo: deixa o total igual ao subtotal nos testes de pagamento.
+const ENTREGA_GRATIS = {
+  tipo: 'fixo', id: 'fixo-gratis', nome: 'Entrega grátis', empresa: null, prazo_dias: 3, preco_centavos: 0, servico_id: null,
+};
+const ENDERECO_DIRETO = {
+  cep: '66010000', logradouro: 'Avenida Presidente Vargas', numero: '100', complemento: '', bairro: 'Campina', cidade: 'Belém', uf: 'PA',
 };
 
 function dadosPedido(itens, extra = {}) {
@@ -116,12 +120,12 @@ async function erroRpc(cl, nome, args) {
   return error;
 }
 
-/** Produto + pedido (retirada, sem frete) prontos para os testes de pagamento. */
+/** Produto + pedido (frete fixo sem custo) prontos para os testes de pagamento. */
 async function cenario({ estoque = 10, quantidade = 2, preco = 2500, controlar = true, itensExtras = [] } = {}) {
   const produto = await criarProduto({ preco_centavos: preco, estoque, controlar_estoque: controlar });
   const pedido = await criarPedido(dadosPedido(
     [{ produto_id: produto.id, quantidade }, ...itensExtras],
-    { entrega: { ...RETIRADA }, endereco: undefined },
+    { entrega: { ...ENTREGA_GRATIS } },
   ));
   return { produto, pedido };
 }
@@ -358,7 +362,7 @@ describe('RLS: matriz da tabela 4.3', () => {
   before(async () => {
     pedidoBase = await semErro(servico.from('pedidos').insert({
       cliente_nome: 'Cliente RLS', cliente_email: EMAIL_CLIENTE, cliente_telefone: '91981056049',
-      cliente_cpf: '52998224725', entrega: RETIRADA, subtotal_centavos: 1000, total_centavos: 1000,
+      cliente_cpf: '52998224725', entrega: ENTREGA_GRATIS, endereco: ENDERECO_DIRETO, subtotal_centavos: 1000, total_centavos: 1000,
     }).select().single(), 'pedido base');
   });
 
@@ -452,7 +456,7 @@ describe('RLS: matriz da tabela 4.3', () => {
       criar: async () => {
         const linhas = [1, 2].map(() => ({
           id: randomUUID(), cliente_nome: 'Cliente RLS', cliente_email: EMAIL_CLIENTE, cliente_telefone: '91981056049',
-          cliente_cpf: '52998224725', entrega: RETIRADA, subtotal_centavos: 1000, total_centavos: 1000,
+          cliente_cpf: '52998224725', entrega: ENTREGA_GRATIS, endereco: ENDERECO_DIRETO, subtotal_centavos: 1000, total_centavos: 1000,
         }));
         await semErro(servico.from('pedidos').insert(linhas), 'pedidos');
         const ids = linhas.map((l) => l.id);
@@ -460,7 +464,7 @@ describe('RLS: matriz da tabela 4.3', () => {
       },
       nova: () => ({
         id: randomUUID(), cliente_nome: 'Intruso', cliente_email: EMAIL_CLIENTE, cliente_telefone: '91981056049',
-        cliente_cpf: '52998224725', entrega: RETIRADA, subtotal_centavos: 1000, total_centavos: 1000,
+        cliente_cpf: '52998224725', entrega: ENTREGA_GRATIS, endereco: ENDERECO_DIRETO, subtotal_centavos: 1000, total_centavos: 1000,
       }),
       patch: { notas_internas: 'alterado', status: 'cancelado' },
       esperado: {
@@ -620,13 +624,13 @@ describe('RLS: matriz da tabela 4.3', () => {
     for (const cl of [anon, comum, admin]) {
       const { error } = await cl.from('pedidos').insert({
         cliente_nome: 'X', cliente_email: EMAIL_CLIENTE, cliente_telefone: '91981056049', cliente_cpf: '52998224725',
-        entrega: RETIRADA, subtotal_centavos: 1, total_centavos: 1,
+        entrega: ENTREGA_GRATIS, endereco: ENDERECO_DIRETO, subtotal_centavos: 1, total_centavos: 1,
       });
       assert.equal(error?.code, '42501');
     }
     const direto = await semErro(servico.from('pedidos').insert({
       cliente_nome: 'Serviço', cliente_email: EMAIL_CLIENTE, cliente_telefone: '91981056049', cliente_cpf: '52998224725',
-      entrega: RETIRADA, subtotal_centavos: 1, total_centavos: 1,
+      entrega: ENTREGA_GRATIS, endereco: ENDERECO_DIRETO, subtotal_centavos: 1, total_centavos: 1,
     }).select('numero, token_acesso').single(), 'pedido pelo serviço');
     assert.ok(direto.numero >= 1001);
     assert.match(direto.token_acesso, /^[0-9a-f]{64}$/);
@@ -1334,15 +1338,23 @@ describe('criar_pedido', () => {
     assert.equal(await contarPedidosDoCliente(), antes);
   });
 
-  test('retirada dispensa endereço (gravado vazio)', async () => {
-    for (const endereco of [undefined, 'lixo', { cep: '1' }]) {
-      const r = await criarPedido(dadosPedido([{ produto_id: pB.id, quantidade: 1 }], { entrega: { ...RETIRADA }, endereco }));
-      assert.equal(r.frete_centavos, 0);
-      assert.equal(r.total_centavos, 3000);
-      const pedido = await lerPedido(r.id);
-      assert.deepEqual(pedido.endereco, {});
-      assert.equal(pedido.entrega.tipo, 'retirada');
+  test('retirada na sede não existe mais: tipo recusado e endereço sempre obrigatório', async () => {
+    const antes = await contarPedidosDoCliente();
+    const retirada = { tipo: 'retirada', id: 'retirada', nome: 'Retirar na sede da AMA', empresa: null, prazo_dias: null, preco_centavos: 0, servico_id: null };
+    const erro = await erroCriar(dadosPedido([{ produto_id: pB.id, quantidade: 1 }], { entrega: retirada, endereco: undefined }));
+    assert.equal(erro.message, 'dados_invalidos');
+    assert.equal(erro.details, 'entrega.tipo');
+    for (const endereco of [undefined, 'lixo']) {
+      const semEndereco = await erroCriar(dadosPedido([{ produto_id: pB.id, quantidade: 1 }], { entrega: { ...ENTREGA_GRATIS }, endereco }));
+      assert.equal(semEndereco.details, 'endereco');
     }
+    assert.equal(await contarPedidosDoCliente(), antes);
+    // Gravação direta com tipo retirada também é recusada pelo check da tabela.
+    const { error } = await servico.from('pedidos').insert({
+      cliente_nome: 'Cliente', cliente_email: EMAIL_CLIENTE, cliente_telefone: '91981056049', cliente_cpf: '52998224725',
+      entrega: retirada, endereco: {}, subtotal_centavos: 1000, total_centavos: 1000,
+    });
+    assert.equal(error?.code, '23514');
   });
 
   test('melhor_envio exige servico_id', async () => {

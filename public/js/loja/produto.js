@@ -152,7 +152,7 @@ function calculadoraFrete(produto, lerQuantidade) {
           o.empresa ? el('span', { class: 'frete-opcao-empresa', texto: o.empresa }) : null,
           el('span', { class: 'frete-opcao-prazo', texto: formatarPrazo(o) })),
         el('span', { class: `frete-opcao-preco${o.gratis ? ' frete-opcao-preco--gratis' : ''}` },
-          o.gratis || o.preco_centavos === 0 ? (o.tipo === 'retirada' ? 'Sem custo' : 'Grátis') : formatarPreco(o.preco_centavos)))));
+          o.gratis || o.preco_centavos === 0 ? 'Grátis' : formatarPreco(o.preco_centavos)))));
       trocarConteudo(resultado,
         opcoes.length ? lista : null,
         cotacao.frete && cotacao.frete.erro ? el('p', { class: 'frete-aviso', texto: cotacao.frete.erro }) : null,

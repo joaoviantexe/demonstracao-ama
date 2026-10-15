@@ -75,7 +75,7 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
    - "Compra segura pelo Mercado Pago" e "Pague com Pix, cartão ou boleto pelo Mercado Pago" → sem citar o Mercado Pago.
    - Avisos do checkout como "Você será levado ao ambiente seguro do Mercado Pago…".
    No painel, o nome da integração pode continuar (confirme com o dono se tiver dúvida).
-4. **Remover por completo a opção de retirar na sede da AMA:**
+4. **(Feito; sem retirada, a loja só vende com o Melhor Envio configurado ou o frete fixo ligado)** **Remover por completo a opção de retirar na sede da AMA:**
    - opção `retirada` do frete (`lib/frete.js`), configuração `frete.retirada`, interface do checkout (hoje ela esconde o
      endereço), textos da página do pedido e dos e-mails;
    - aceitação de `entrega.tipo = 'retirada'` em `criar_pedido` (ajuste o check);

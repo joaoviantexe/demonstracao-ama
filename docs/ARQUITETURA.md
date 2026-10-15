@@ -12,7 +12,7 @@ encaixem sem retrabalho.
 | Hospedagem | Vercel (preset "Other", sem build) | Estático em `public/`, funções Node em `api/` |
 | Banco, login, arquivos | Supabase (Postgres + Auth + Storage) | RLS em todas as tabelas |
 | Pagamento | Mercado Pago Checkout Pro (API REST, sem SDK) | Pix, cartão, boleto |
-| Frete | Melhor Envio (API REST, token pessoal) + frete fixo + retirada | Melhor Envio é opcional |
+| Frete | Melhor Envio (API REST, token pessoal) + frete fixo | Sem Melhor Envio, o frete fixo precisa estar ligado (não há retirada na sede) |
 | E-mail (opcional) | Resend (API REST) | Sem chave, os e-mails são simplesmente pulados |
 
 Princípios:
@@ -147,7 +147,6 @@ Chaves usadas (criadas pela migração com valores padrão):
   `{ "titulo": "Cosméticos", "subtitulo": "…", "whatsapp": "5591981056049", "instagram": "oscdemulheres", "email_contato": "", "aviso_topo": "", "frete_gratis_acima_centavos": null }`
 - `frete` (privado):
   `{ "origem": { "cep": "", "nome": "AMA - Associação de Mulheres na Amazônia", "telefone": "", "email": "", "documento": "", "endereco": "", "numero": "", "complemento": "", "bairro": "", "cidade": "Ananindeua", "uf": "PA" },
-     "retirada": { "ativa": true, "nome": "Retirar na sede da AMA", "endereco": "Conjunto Uirapuru, Quadra 28, Casa 02, Icuí, Ananindeua - PA", "prazo_texto": "Disponível após a confirmação do pagamento" },
      "fixo": { "ativo": false, "opcoes": [ { "id": "fixo-1", "nome": "Entrega local", "preco_centavos": 1500, "prazo_dias": 3, "ufs": ["PA"] } ] },
      "melhor_envio": { "ativo": true, "servicos": [1, 2], "seguro": true, "prazo_extra_dias": 2, "taxa_extra_centavos": 0 },
      "embalagem_padrao": { "peso_gramas": 300, "altura_cm": 4, "largura_cm": 12, "comprimento_cm": 16 } }`
@@ -183,8 +182,10 @@ Não existe sistema de cupons: a migração apaga a tabela `cupons` e as colunas
 `status_pagamento text`, `status_pagamento_detalhe text`, `metodo_pagamento text`,
 `mp_preference_id text`, `mp_init_point text`, `mp_payment_id text`,
 `cliente_nome text not null`, `cliente_email text not null`, `cliente_telefone text not null`, `cliente_cpf text not null` (só dígitos),
-`endereco jsonb not null default '{}'` (`{cep, logradouro, numero, complemento, bairro, cidade, uf}` — vazio na retirada),
-`entrega jsonb not null` (`{tipo, id, nome, empresa, prazo_dias, preco_centavos, servico_id}`; `tipo` ∈ `melhor_envio|fixo|retirada`),
+`endereco jsonb not null default '{}'` (`{cep, logradouro, numero, complemento, bairro, cidade, uf}`, sempre preenchido),
+`entrega jsonb not null` (`{tipo, id, nome, empresa, prazo_dias, preco_centavos, servico_id}`; `tipo` ∈ `melhor_envio|fixo`).
+Não existe retirada na sede: em projetos criados antes, a migração troca o check de `entrega` por um `not valid` (pedidos
+antigos de retirada continuam lá, os novos são recusados) e apaga `frete.retirada` da configuração.
 `subtotal_centavos int not null`, `frete_centavos int not null default 0`,
 `total_centavos int not null check (> 0)`,
 `codigo_rastreio text`, `url_rastreio text`, `me_ordens jsonb not null default '[]'` (ids das etiquetas no Melhor Envio), `etiqueta_url text`,
@@ -457,7 +458,7 @@ export async function removerDoCarrinho(id) ; obterEtiqueta(id)
 export async function enviarEmail({ para, assunto, html })  // no-op (false) sem RESEND_API_KEY; nunca lança
 export function emailPedidoPago(pedido, opcoes) ; emailPedidoEnviado(pedido, opcoes) ; emailNovoPedidoAdmin(pedido, opcoes)
 export function emailStatusPedido(pedido, opcoes) // → { assunto, html } | null
-// opcoes = { siteUrl, whatsapp: configuracoes.loja.whatsapp, retirada: configuracoes.frete.retirada }
+// opcoes = { siteUrl, whatsapp: configuracoes.loja.whatsapp }
 ```
 
 Servidores falsos para testes (`tests/apoio/`): `mercadopago-falso.js` e `melhorenvio-falso.js` exportam
@@ -479,17 +480,16 @@ Saída:
   "frete": { "opcoes": [Opcao], "erro": "mensagem" | null } | null,
   "frete_gratis_acima_centavos": 20000 | null }
 ```
-`Opcao = { "id": "me-1" | "fixo-1" | "retirada", "tipo": "melhor_envio"|"fixo"|"retirada", "nome": "PAC", "empresa": "Correios",
+`Opcao = { "id": "me-1" | "fixo-1", "tipo": "melhor_envio"|"fixo", "nome": "PAC", "empresa": "Correios",
  "prazo_dias": 7 | null, "prazo_texto": "até 7 dias úteis", "preco_centavos": 2350, "preco_original_centavos": 2350, "gratis": false, "servico_id": 1 | null }`.
 `frete` é `null` quando não veio CEP. Regras de frete (`lib/frete.js`):
 - Melhor Envio (se configurado e `melhor_envio.ativo`): cota os serviços configurados com origem `frete.origem.cep`,
   produtos com peso/dimensões (mínimos dos Correios garantidos), seguro = valor dos itens se `seguro`.
   Soma `prazo_extra_dias` e `taxa_extra_centavos`. Ignora serviços com `error`. Usa `custom_price`/`custom_delivery_time` quando existirem.
 - Fixo (se `fixo.ativo`): opções cuja lista `ufs` contém a UF do CEP (a UF sai da tabela de faixas de CEP em `lib/cep.js`, sem rede; lista vazia = todas).
-- Retirada (se `retirada.ativa`): sempre disponível, preço 0.
 - Frete grátis: se o subtotal ≥ `loja.frete_gratis_acima_centavos`,
   a opção paga **mais barata** fica com preço 0 e `gratis: true`.
-- Ordenação: retirada por último; as demais por preço.
+- Ordenação: por preço, depois prazo e nome. CEP inválido ou sem nenhuma forma de entrega: `opcoes: []` e `erro`.
 - Erro do Melhor Envio não derruba a cotação: devolve as outras opções e `frete.erro`.
 
 ### 6.3 `POST /api/loja/checkout`
@@ -500,8 +500,8 @@ Entrada:
   "endereco": { "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "uf" },
   "observacoes": "…"? }
 ```
-Valida (nome ≥ 2 palavras, e-mail, telefone 10–11 dígitos, CPF com dígitos verificadores, endereço completo exceto na
-retirada), recota no servidor, acha a opção `frete_id` (senão 409 `frete_indisponivel`), chama `criar_pedido`,
+Valida (nome ≥ 2 palavras, e-mail, telefone 10–11 dígitos, CPF com dígitos verificadores, endereço sempre completo),
+recota no servidor, acha a opção `frete_id` (senão 409 `frete_indisponivel`), chama `criar_pedido`,
 cria a preferência no Mercado Pago, grava `mp_preference_id` e `mp_init_point`, devolve
 `{ "ok": true, "pedido": { "id", "numero", "token" }, "redirecionar": "<init_point>" }`.
 Sem Mercado Pago configurado → 503 `pagamento_indisponivel` **antes** de criar o pedido.

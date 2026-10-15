@@ -119,14 +119,14 @@ create table if not exists public.pedidos (
   -- Só dígitos.
   cliente_cpf              text not null
                            constraint pedidos_cpf_check check (cliente_cpf ~ '^[0-9]{11}$'),
-  -- { cep, logradouro, numero, complemento, bairro, cidade, uf } — vazio na retirada.
+  -- { cep, logradouro, numero, complemento, bairro, cidade, uf } (sempre preenchido: não há retirada).
   endereco                 jsonb not null default '{}'::jsonb
                            constraint pedidos_endereco_check check (jsonb_typeof(endereco) = 'object'),
   -- { tipo, id, nome, empresa, prazo_dias, preco_centavos, servico_id }
   entrega                  jsonb not null
                            constraint pedidos_entrega_check check (
                              jsonb_typeof(entrega) = 'object'
-                             and (entrega ->> 'tipo') in ('melhor_envio', 'fixo', 'retirada')),
+                             and (entrega ->> 'tipo') in ('melhor_envio', 'fixo')),
   subtotal_centavos        int not null
                            constraint pedidos_subtotal_check check (subtotal_centavos >= 0),
   frete_centavos           int not null default 0
@@ -156,6 +156,20 @@ create table if not exists public.pedidos (
 alter table public.pedidos
   drop column if exists desconto_centavos,
   drop column if exists cupom_codigo;
+
+-- A retirada na sede foi removida: projetos criados antes recebem o check novo.
+-- "not valid" mantém pedidos antigos de retirada (se houver) e vale para os novos.
+do $$
+begin
+  if exists (select 1 from pg_constraint
+              where conrelid = 'public.pedidos'::regclass and conname = 'pedidos_entrega_check'
+                and pg_get_constraintdef(oid) like '%retirada%') then
+    alter table public.pedidos drop constraint pedidos_entrega_check;
+    alter table public.pedidos add constraint pedidos_entrega_check check (
+      jsonb_typeof(entrega) = 'object' and (entrega ->> 'tipo') in ('melhor_envio', 'fixo')) not valid;
+  end if;
+end;
+$$;
 
 -- Rastreio: as mesmas regras de alterar_status_pedido também para quem grava
 -- direto na tabela (o admin pode dar update em pedidos pela API). O valor vai
@@ -616,7 +630,7 @@ begin
   end if;
 
   v_tipo := case when jsonb_typeof(v_ent -> 'tipo') = 'string' then v_ent ->> 'tipo' end;
-  if v_tipo is null or v_tipo not in ('melhor_envio', 'fixo', 'retirada') then
+  if v_tipo is null or v_tipo not in ('melhor_envio', 'fixo') then
     raise exception 'dados_invalidos' using detail = 'entrega.tipo';
   end if;
 
@@ -678,57 +692,55 @@ begin
     'tipo', v_tipo, 'id', v_ent_id, 'nome', v_ent_nome, 'empresa', v_empresa,
     'prazo_dias', v_prazo, 'preco_centavos', v_frete, 'servico_id', v_servico);
 
-  -- Endereço (não se aplica à retirada) --------------------------------------
-  if v_tipo <> 'retirada' then
-    v_end := p -> 'endereco';
-    if jsonb_typeof(v_end) is distinct from 'object' then
-      raise exception 'dados_invalidos' using detail = 'endereco';
-    end if;
+  -- Endereço (sempre obrigatório) -------------------------------------------------
+  v_end := p -> 'endereco';
+  if jsonb_typeof(v_end) is distinct from 'object' then
+    raise exception 'dados_invalidos' using detail = 'endereco';
+  end if;
 
-    v_cep := case when jsonb_typeof(v_end -> 'cep') = 'string'
-                  then regexp_replace(v_end ->> 'cep', '[^0-9]', '', 'g') end;
-    if v_cep is null or length(v_cep) <> 8 then
-      raise exception 'dados_invalidos' using detail = 'endereco.cep';
-    end if;
+  v_cep := case when jsonb_typeof(v_end -> 'cep') = 'string'
+                then regexp_replace(v_end ->> 'cep', '[^0-9]', '', 'g') end;
+  if v_cep is null or length(v_cep) <> 8 then
+    raise exception 'dados_invalidos' using detail = 'endereco.cep';
+  end if;
 
-    v_logr := case when jsonb_typeof(v_end -> 'logradouro') = 'string' then btrim(v_end ->> 'logradouro') end;
-    if v_logr is null or length(v_logr) not between 1 and 200 then
-      raise exception 'dados_invalidos' using detail = 'endereco.logradouro';
-    end if;
+  v_logr := case when jsonb_typeof(v_end -> 'logradouro') = 'string' then btrim(v_end ->> 'logradouro') end;
+  if v_logr is null or length(v_logr) not between 1 and 200 then
+    raise exception 'dados_invalidos' using detail = 'endereco.logradouro';
+  end if;
 
-    v_num := case when jsonb_typeof(v_end -> 'numero') in ('string', 'number') then btrim(v_end ->> 'numero') end;
-    if v_num is null or length(v_num) not between 1 and 20 then
-      raise exception 'dados_invalidos' using detail = 'endereco.numero';
-    end if;
+  v_num := case when jsonb_typeof(v_end -> 'numero') in ('string', 'number') then btrim(v_end ->> 'numero') end;
+  if v_num is null or length(v_num) not between 1 and 20 then
+    raise exception 'dados_invalidos' using detail = 'endereco.numero';
+  end if;
 
-    if jsonb_typeof(v_end -> 'complemento') = 'string' then
-      v_compl := nullif(btrim(v_end ->> 'complemento'), '');
-      if length(v_compl) > 100 then
-        raise exception 'dados_invalidos' using detail = 'endereco.complemento';
-      end if;
-    elsif coalesce(jsonb_typeof(v_end -> 'complemento'), 'null') <> 'null' then
+  if jsonb_typeof(v_end -> 'complemento') = 'string' then
+    v_compl := nullif(btrim(v_end ->> 'complemento'), '');
+    if length(v_compl) > 100 then
       raise exception 'dados_invalidos' using detail = 'endereco.complemento';
     end if;
-
-    v_bairro := case when jsonb_typeof(v_end -> 'bairro') = 'string' then btrim(v_end ->> 'bairro') end;
-    if v_bairro is null or length(v_bairro) not between 1 and 100 then
-      raise exception 'dados_invalidos' using detail = 'endereco.bairro';
-    end if;
-
-    v_cidade := case when jsonb_typeof(v_end -> 'cidade') = 'string' then btrim(v_end ->> 'cidade') end;
-    if v_cidade is null or length(v_cidade) not between 1 and 100 then
-      raise exception 'dados_invalidos' using detail = 'endereco.cidade';
-    end if;
-
-    v_uf := case when jsonb_typeof(v_end -> 'uf') = 'string' then upper(btrim(v_end ->> 'uf')) end;
-    if v_uf is null or v_uf !~ '^[A-Z]{2}$' then
-      raise exception 'dados_invalidos' using detail = 'endereco.uf';
-    end if;
-
-    v_endereco := jsonb_build_object(
-      'cep', v_cep, 'logradouro', v_logr, 'numero', v_num, 'complemento', coalesce(v_compl, ''),
-      'bairro', v_bairro, 'cidade', v_cidade, 'uf', v_uf);
+  elsif coalesce(jsonb_typeof(v_end -> 'complemento'), 'null') <> 'null' then
+    raise exception 'dados_invalidos' using detail = 'endereco.complemento';
   end if;
+
+  v_bairro := case when jsonb_typeof(v_end -> 'bairro') = 'string' then btrim(v_end ->> 'bairro') end;
+  if v_bairro is null or length(v_bairro) not between 1 and 100 then
+    raise exception 'dados_invalidos' using detail = 'endereco.bairro';
+  end if;
+
+  v_cidade := case when jsonb_typeof(v_end -> 'cidade') = 'string' then btrim(v_end ->> 'cidade') end;
+  if v_cidade is null or length(v_cidade) not between 1 and 100 then
+    raise exception 'dados_invalidos' using detail = 'endereco.cidade';
+  end if;
+
+  v_uf := case when jsonb_typeof(v_end -> 'uf') = 'string' then upper(btrim(v_end ->> 'uf')) end;
+  if v_uf is null or v_uf !~ '^[A-Z]{2}$' then
+    raise exception 'dados_invalidos' using detail = 'endereco.uf';
+  end if;
+
+  v_endereco := jsonb_build_object(
+    'cep', v_cep, 'logradouro', v_logr, 'numero', v_num, 'complemento', coalesce(v_compl, ''),
+    'bairro', v_bairro, 'cidade', v_cidade, 'uf', v_uf);
 
   -- Observações do cliente ----------------------------------------------------
   if jsonb_typeof(p -> 'observacoes') = 'string' then
@@ -1531,12 +1543,6 @@ insert into public.configuracoes (chave, publico, valor) values
       "cidade": "Ananindeua",
       "uf": "PA"
     },
-    "retirada": {
-      "ativa": true,
-      "nome": "Retirar na sede da AMA",
-      "endereco": "Conjunto Uirapuru, Quadra 28, Casa 02, Icuí, Ananindeua - PA",
-      "prazo_texto": "Disponível após a confirmação do pagamento"
-    },
     "fixo": {
       "ativo": false,
       "opcoes": [
@@ -1568,9 +1574,10 @@ on conflict (chave) do nothing;
 update public.configuracoes
    set valor = jsonb_set(valor, '{titulo}', '"Cosméticos"')
  where chave = 'loja' and valor ->> 'titulo' = 'Loja AMA';
+-- A retirada na sede foi removida: tira a configuração antiga dela.
 update public.configuracoes
-   set valor = jsonb_set(valor, '{retirada,prazo_texto}', '"Disponível após a confirmação do pagamento"')
- where chave = 'frete' and valor #>> '{retirada,prazo_texto}' = 'Combine a retirada pelo WhatsApp';
+   set valor = valor - 'retirada'
+ where chave = 'frete' and valor ? 'retirada';
 update public.configuracoes
    set valor = jsonb_set(valor, '{subtitulo}', '"Cosméticos e biojoias feitos à mão por mulheres da Amazônia."')
  where chave = 'loja' and valor ->> 'subtitulo' = 'Biojoias e cosméticos feitos à mão por mulheres da Amazônia. Cada compra fortalece os projetos da AMA.';

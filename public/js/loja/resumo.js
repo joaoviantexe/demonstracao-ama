@@ -19,7 +19,7 @@ export function totalExibido(cotacao, opcao) {
 
 function textoFrete(opcao) {
   if (!opcao) return null;
-  if (opcao.preco_centavos === 0) return opcao.tipo === 'retirada' ? 'Sem custo' : 'Grátis';
+  if (opcao.preco_centavos === 0) return 'Grátis';
   return formatarPreco(opcao.preco_centavos);
 }
 
@@ -77,11 +77,11 @@ export function listaOpcoesFrete(opcoes, freteId, aoEscolher, { nome = 'frete' }
       ? el('span', { class: 'opcao-frete-preco opcao-frete-preco--gratis' },
         o.gratis && o.preco_original_centavos > 0
           ? el('s', {}, el('span', { class: 'sr-only', texto: 'De ' }), formatarPreco(o.preco_original_centavos)) : null,
-        o.tipo === 'retirada' ? 'Sem custo' : 'Grátis')
+        'Grátis')
       : el('span', { class: 'opcao-frete-preco', texto: formatarPreco(o.preco_centavos) });
     return el('label', { class: `opcao-frete${marcado ? ' opcao-frete--marcada' : ''}` },
       radio,
-      el('span', { class: 'opcao-frete-icone' }, icone(o.tipo === 'retirada' ? 'local' : 'caminhao')),
+      el('span', { class: 'opcao-frete-icone' }, icone('caminhao')),
       el('span', { class: 'opcao-frete-texto' },
         el('span', { class: 'opcao-frete-nome' },
           o.nome, o.empresa ? el('span', { class: 'opcao-frete-empresa', texto: ` · ${o.empresa}` }) : null),

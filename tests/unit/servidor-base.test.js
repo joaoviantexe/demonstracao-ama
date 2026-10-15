@@ -638,15 +638,17 @@ describe('lib/validacao.js', () => {
       assert.equal(r.dados.cliente.email, 'ana@ex.com');
     });
 
-    test('retirada dispensa o endereço (endereco = {})', () => {
+    test('endereço é sempre obrigatório (não existe retirada na sede)', () => {
       const corpo = valido();
       corpo.frete_id = 'retirada';
       corpo.endereco = { cep: 'xx' };
       const r = validarDadosCheckout(corpo);
-      assert.equal(r.ok, true, JSON.stringify(r.erros));
-      assert.deepEqual(r.dados.endereco, {});
+      assert.equal(r.ok, false);
+      for (const campo of ['endereco.cep', 'endereco.logradouro', 'endereco.numero', 'endereco.bairro', 'endereco.cidade', 'endereco.uf']) {
+        assert.equal(typeof r.erros[campo], 'string', campo);
+      }
       delete corpo.endereco;
-      assert.equal(validarDadosCheckout(corpo).ok, true);
+      assert.equal(validarDadosCheckout(corpo).ok, false);
     });
 
     test('observações ausentes: null; campo antigo de cupom é ignorado', () => {

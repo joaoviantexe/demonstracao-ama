@@ -43,10 +43,6 @@ const FRETE_TESTE = {
     documento: '11222333000181', endereco: 'Conjunto Uirapuru, Quadra 28', numero: '02', complemento: 'Casa 02',
     bairro: 'Icuí-Guajará', cidade: 'Ananindeua', uf: 'PA',
   },
-  retirada: {
-    ativa: true, nome: 'Retirar na sede da AMA', endereco: 'Conjunto Uirapuru, Quadra 28, Casa 02, Icuí, Ananindeua - PA',
-    prazo_texto: 'Combine a retirada pelo WhatsApp',
-  },
   fixo: { ativo: true, opcoes: [{ id: 'fixo-1', nome: 'Entrega local', preco_centavos: 1500, prazo_dias: 3, ufs: ['PA'] }] },
   melhor_envio: { ativo: true, servicos: [1, 2], seguro: true, prazo_extra_dias: 2, taxa_extra_centavos: 0 },
   embalagem_padrao: { peso_gramas: 300, altura_cm: 4, largura_cm: 12, comprimento_cm: 16 },
@@ -357,14 +353,14 @@ describe('POST /api/loja/cotacao', () => {
     assert.equal(c.subtotal_centavos, 16_000);
   });
 
-  test('com CEP do PA: Melhor Envio + frete fixo + retirada (por último), ordenados por preço', async () => {
+  test('com CEP do PA: Melhor Envio + frete fixo, ordenados por preço (sem retirada)', async () => {
     limparCacheCotacoes();
     const antes = me.estado.requisicoes.length;
     const r = await cotar({ itens: [{ produto_id: P.principal.id, quantidade: 1 }], cep: '66010-000' });
     assert.equal(r.status, 200, r.texto);
     const { opcoes, erro } = r.json.frete;
     assert.equal(erro, null);
-    assert.deepEqual(opcoes.map((o) => o.id), ['fixo-1', 'me-1', 'me-2', 'retirada']);
+    assert.deepEqual(opcoes.map((o) => o.id), ['fixo-1', 'me-1', 'me-2']);
 
     // Falso do Melhor Envio: base + por kg + 1% do seguro (R$ 45,00): PAC 1850 + 410 + 45; SEDEX 2990 + 750 + 45.
     const pac = opcoes.find((o) => o.id === 'me-1');
@@ -378,9 +374,7 @@ describe('POST /api/loja/cotacao', () => {
     const fixo = opcoes.find((o) => o.id === 'fixo-1');
     assert.equal(fixo.tipo, 'fixo');
     assert.equal(fixo.preco_centavos, 1500);
-    const retirada = opcoes.at(-1);
-    assert.equal(retirada.tipo, 'retirada');
-    assert.equal(retirada.preco_centavos, 0);
+    assert.ok(opcoes.every((o) => o.tipo !== 'retirada'));
 
     const chamada = me.estado.requisicoes.slice(antes).find((q) => q.caminho === '/shipment/calculate');
     assert.ok(chamada, 'cotou no Melhor Envio');
@@ -391,14 +385,14 @@ describe('POST /api/loja/cotacao', () => {
     assert.match(chamada.cabecalhos['user-agent'], /^AMA Loja \(tecnico@ama\.local\)$/);
   });
 
-  test('CEP de SP: o frete fixo (só PA) não aparece; CEP inválido: só retirada com erro', async () => {
+  test('CEP de SP: o frete fixo (só PA) não aparece; CEP inválido: sem opções e com erro', async () => {
     const sp = await cotar({ itens: [{ produto_id: P.principal.id, quantidade: 1 }], cep: '01310100' });
     assert.equal(sp.status, 200, sp.texto);
-    assert.deepEqual(sp.json.frete.opcoes.map((o) => o.id), ['me-1', 'me-2', 'retirada']);
+    assert.deepEqual(sp.json.frete.opcoes.map((o) => o.id), ['me-1', 'me-2']);
 
     const invalido = await cotar({ itens: [{ produto_id: P.principal.id, quantidade: 1 }], cep: '123' });
     assert.equal(invalido.status, 200);
-    assert.deepEqual(invalido.json.frete.opcoes.map((o) => o.id), ['retirada']);
+    assert.deepEqual(invalido.json.frete.opcoes, []);
     assert.match(invalido.json.frete.erro, /CEP/);
   });
 
@@ -408,7 +402,7 @@ describe('POST /api/loja/cotacao', () => {
     me.estado.forcar('/shipment/calculate', { status: 500 });
     const r = await cotar({ itens: [{ produto_id: P.principal.id, quantidade: 1 }], cep: '66010000' });
     assert.equal(r.status, 200, r.texto);
-    assert.deepEqual(r.json.frete.opcoes.map((o) => o.id), ['fixo-1', 'retirada']);
+    assert.deepEqual(r.json.frete.opcoes.map((o) => o.id), ['fixo-1']);
     assert.match(r.json.frete.erro, /frete/);
     limparCacheCotacoes();
   });
@@ -576,12 +570,22 @@ describe('POST /api/loja/checkout', () => {
     assert.equal(pref.items[1].title, 'Frete — PAC');
   });
 
-  test('retirada não exige endereço', async () => {
-    const r = await checkoutOk({ frete_id: 'retirada', endereco: undefined });
+  test('retirada na sede não existe: frete_id "retirada" → 409 e sem endereço → 400', async () => {
+    const retirada = await checkout({ frete_id: 'retirada' });
+    assert.equal(retirada.status, 409);
+    assert.equal(retirada.json.erro, 'frete_indisponivel');
+    const semEndereco = await checkout({ endereco: undefined });
+    assert.equal(semEndereco.status, 400);
+    assert.equal(semEndereco.json.erro, 'dados_invalidos');
+    assert.match(semEndereco.json.campo, /^endereco\./);
+  });
+
+  test('frete fixo: pedido com o endereço e o frete da configuração', async () => {
+    const r = await checkoutOk({ frete_id: 'fixo-1' });
     const banco = await pedidoDoBanco(r.pedido.id);
-    assert.equal(banco.entrega.tipo, 'retirada');
-    assert.equal(banco.frete_centavos, 0);
-    assert.deepEqual(banco.endereco, {});
+    assert.equal(banco.entrega.tipo, 'fixo');
+    assert.equal(banco.frete_centavos, 1500);
+    assert.equal(banco.endereco.cep, '66010000');
   });
 
   test('falha ao criar a preferência → 502 e o pedido é cancelado com evento', async (t) => {
@@ -776,7 +780,7 @@ describe('pagamento: página do Mercado Pago, webhook e GET /api/loja/pedido', (
   });
 
   test('Pendente → pagamento_em_analise (sem pode_pagar); aprovado depois → pago', async () => {
-    const novo = await checkoutOk({ frete_id: 'retirada', endereco: undefined });
+    const novo = await checkoutOk({ frete_id: 'fixo-1' });
     const { id, token } = novo.pedido;
     const { paymentId: pendente } = await pagarNaPagina(novo.redirecionar, 'pendente');
 
@@ -796,7 +800,7 @@ describe('pagamento: página do Mercado Pago, webhook e GET /api/loja/pedido', (
   });
 
   test('Recusar → continua aguardando e pode pagar de novo', async () => {
-    const novo = await checkoutOk({ frete_id: 'retirada', endereco: undefined });
+    const novo = await checkoutOk({ frete_id: 'fixo-1' });
     const { id, token } = novo.pedido;
     await pagarNaPagina(novo.redirecionar, 'recusar');
 
@@ -813,8 +817,8 @@ describe('pagamento: página do Mercado Pago, webhook e GET /api/loja/pedido', (
   });
 
   test('GET do pedido com payment_id sincroniza mesmo sem webhook (e ignora pagamento de outro pedido)', async () => {
-    const novo = await checkoutOk({ frete_id: 'retirada', endereco: undefined });
-    const outro = await checkoutOk({ frete_id: 'retirada', endereco: undefined });
+    const novo = await checkoutOk({ frete_id: 'fixo-1' });
+    const outro = await checkoutOk({ frete_id: 'fixo-1' });
     const { id, token } = novo.pedido;
     const prefOutro = prefIdDe(outro.redirecionar);
     const { pagamento: doOutro } = await semWebhook(() => mp.estado.pagar(prefOutro, 'aprovar'));
@@ -993,9 +997,9 @@ describe('rotas de admin', () => {
   });
 
   test('POST /api/admin/envio: regras de pedido e ação', async () => {
-    const retirada = await checkoutOk({ frete_id: 'retirada', endereco: undefined });
-    await pagarNaPagina(retirada.redirecionar, 'aprovar');
-    const r1 = await api('/api/admin/envio', { metodo: 'POST', token: tokenAdmin, corpo: { pedido_id: retirada.pedido.id, acao: 'adicionar_carrinho' } });
+    const fixo = await checkoutOk({ frete_id: 'fixo-1' });
+    await pagarNaPagina(fixo.redirecionar, 'aprovar');
+    const r1 = await api('/api/admin/envio', { metodo: 'POST', token: tokenAdmin, corpo: { pedido_id: fixo.pedido.id, acao: 'adicionar_carrinho' } });
     assert.equal(r1.status, 409);
     assert.equal(r1.json.erro, 'envio_indisponivel');
 
@@ -1185,7 +1189,7 @@ describe('rotas de admin', () => {
   });
 
   test('POST /api/admin/pagamento: conferência pelo search escolhe o aprovado', async () => {
-    const vazio = await checkoutOk({ frete_id: 'retirada', endereco: undefined });
+    const vazio = await checkoutOk({ frete_id: 'fixo-1' });
     const nada = await api('/api/admin/pagamento', { metodo: 'POST', token: tokenAdmin, corpo: { pedido_id: vazio.pedido.id } });
     assert.equal(nada.status, 200, nada.texto);
     assert.equal(nada.json.encontrado, false);
@@ -1195,7 +1199,7 @@ describe('rotas de admin', () => {
     const inexistente = await api('/api/admin/pagamento', { metodo: 'POST', token: tokenAdmin, corpo: { pedido_id: randomUUID() } });
     assert.equal(inexistente.status, 404);
 
-    const novo = await checkoutOk({ frete_id: 'retirada', endereco: undefined });
+    const novo = await checkoutOk({ frete_id: 'fixo-1' });
     const pref = prefIdDe(novo.redirecionar);
     const { aprovado } = await semWebhook(async () => {
       await mp.estado.pagar(pref, 'recusar');
