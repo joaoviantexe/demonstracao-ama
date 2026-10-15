@@ -369,7 +369,7 @@ describe('templates/home.html — estrutura', () => {
     assert.ok(loja);
     assert.equal(loja.getAttribute('data-cms-grupo'), 'loja');
     assert.ok(loja.hasAttribute('data-cms-ocultavel'));
-    assert.equal(texto($(loja, 'h2')), 'Cosméticos');
+    assert.equal(texto($(loja, 'h2')), 'Produtos AMA');
     assert.match(texto(loja), /Saboaria, perfumaria e biojoias da Amazônia/);
     assert.match(texto(loja), /sabonetes e biojoias com a essência da Amazônia/);
     assert.doesNotMatch(texto(loja), /Nova loja virtual/i);

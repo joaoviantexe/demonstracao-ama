@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Compara, pixel a pixel, a home renderizada pelo projeto (templates/home.html servido pelo
-// dev-server) com a home da main (origin/main: index.html, css/estilo.css, js/main.js + public/img).
+// dev-server) com a home do site estático original (commit b289daa, o último da main antes do novo
+// projeto: index.html, css/estilo.css, js/main.js + public/img).
 //
-// Uso: node scripts/comparar-home.mjs [--ref origin/main] [--larguras 1440,768,390]
+// Uso: node scripts/comparar-home.mjs [--ref b289daa] [--larguras 1440,768,390]
 //
 // - Animações desligadas nos dois lados (prefers-reduced-motion, .reveal visível, sem transições),
 //   iframes do Instagram escondidos (não carregam aqui), vídeo pausado e escondido.
@@ -27,7 +28,7 @@ function argumento(nome, padrao) {
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : padrao;
 }
 
-const REF = argumento('ref', 'origin/main');
+const REF = argumento('ref', 'b289daa');
 const LARGURAS = argumento('larguras', '1440,768,390').split(',').map(Number).filter(Boolean);
 const ALTURAS = { 1440: 900, 768: 1024, 390: 844 };
 
