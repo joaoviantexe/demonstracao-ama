@@ -60,6 +60,21 @@ Serviços usados, todos com plano gratuito:
 
 ### Passo 2. Publicar na Vercel
 
+> **Já tem um projeto na Vercel ligado a este repositório?** (Por exemplo, `demonstracao-site-ama`.) Não apague:
+> reaproveite. Ele já gera uma prévia de cada pull request. Faça só isto:
+>
+> 1. No projeto, **Settings** → **Build and Deployment**: **Framework Preset** = **Other** e deixe **desligados**
+>    os campos de *Build Command*, *Output Directory* e *Install Command* (o `vercel.json` cuida disso).
+> 2. **Settings** → **Environment Variables**: cadastre as variáveis da tabela do item 4 abaixo, marcando
+>    **Production** e **Preview**.
+> 3. Escolha como mostrar a versão nova (veja "Qual versão vai ao ar?" abaixo) e faça **Redeploy**: variável nova
+>    só vale depois de publicar de novo.
+> 4. Se houver um segundo projeto ligado ao mesmo repositório que você não usa (cada envio ao GitHub gera duas
+>    publicações), apague-o em **Settings** → **General** → **Delete Project**. Isso não afeta o outro projeto.
+>
+> Depois siga para o Passo 3.
+
+
 1. Entre em [vercel.com](https://vercel.com) → **Sign Up** → **Continue with GitHub** e escolha o plano **Hobby**.
 2. Clique em **Add New…** → **Project** e importe o repositório **`joaoviantexe/demonstracao-ama`**
    (se ele não aparecer, clique em *Adjust GitHub App Permissions* e libere o repositório).
