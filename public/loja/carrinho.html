@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Carrinho — Loja AMA</title>
+<meta name="description" content="Seu carrinho na loja virtual da AMA.">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0B2A1C">
+<meta property="og:title" content="Carrinho — Loja AMA">
+<meta property="og:description" content="Seu carrinho na loja virtual da AMA.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="/img/logo-ama.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500;1,9..144,600&family=Manrope:wght@400;500;600;700;800&family=Baloo+2:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/estilo.css">
+<link rel="stylesheet" href="/css/loja.css">
+<link rel="icon" type="image/png" href="/img/favicon.png">
+<link rel="apple-touch-icon" href="/img/logo-ama-icone.png">
+</head>
+<body class="loja loja--carrinho">
+
+<a class="pular-conteudo" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="topo">
+  <div class="wrap">
+    <a href="/" class="marca" aria-label="AMA — página inicial">
+      <img src="/img/logo-ama.png" alt="AMA — Associação de Mulheres na Amazônia" class="marca-logo">
+    </a>
+    <nav class="nav-desktop" aria-label="Navegação principal">
+      <a href="/#sobre">Sobre</a>
+      <a href="/#redes">Postagens</a>
+      <a href="/#cursos">Projetos</a>
+      <a href="/loja/" class="ativo" aria-current="page">Cosméticos</a>
+      <a href="/#historia">História</a>
+      <a href="/#depoimentos">Depoimentos</a>
+    </nav>
+    <div class="topo-acoes">
+      <a href="/loja/carrinho" class="topo-carrinho" data-carrinho-link aria-label="Carrinho vazio">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5.5 8h13l-1.1 11.2a1.5 1.5 0 0 1-1.5 1.3H8.1a1.5 1.5 0 0 1-1.5-1.3L5.5 8z"/><path d="M9 10.5V7a3 3 0 0 1 6 0v3.5"/></svg>
+        <span class="topo-carrinho-contador" data-carrinho-contador hidden>0</span>
+      </a>
+      <button class="hamburguer" data-abrir-menu aria-label="Abrir menu" aria-expanded="false" aria-controls="menu-mobile">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<nav id="menu-mobile" class="menu-mobile" aria-label="Menu mobile">
+  <div class="menu-mobile-topo">
+    <img src="/img/logo-ama.png" alt="AMA — Associação de Mulheres na Amazônia" class="menu-mobile-logo">
+    <button class="fechar hamburguer" data-fechar-menu aria-label="Fechar menu">
+      <span style="transform:rotate(45deg) translate(1px,1px)"></span>
+      <span style="transform:rotate(-45deg) translate(1px,-1px);margin-top:-7px"></span>
+    </button>
+  </div>
+  <a href="/#sobre">Sobre</a>
+  <a href="/#redes">Postagens</a>
+  <a href="/#cursos">Projetos</a>
+  <a href="/loja/" aria-current="page">Cosméticos</a>
+  <a href="/#historia">História</a>
+  <a href="/#depoimentos">Depoimentos</a>
+  <a href="/loja/carrinho" class="menu-mobile-carrinho" data-carrinho-texto>Meu carrinho</a>
+  <a href="https://wa.me/5591981056049" class="botao botao--principal" target="_blank" rel="noopener" data-whatsapp-loja>Falar no WhatsApp</a>
+</nav>
+
+<main id="conteudo" class="loja-main" tabindex="-1">
+<div class="wrap pagina-loja">
+    <nav class="migalhas" aria-label="Você está em">
+      <ol>
+        <li><a href="/loja/">Loja</a></li>
+        <li><span aria-current="page">Carrinho</span></li>
+      </ol>
+    </nav>
+    <header class="pagina-cabecalho">
+      <h1>Seu carrinho</h1>
+      <p class="pagina-subtitulo" id="carrinho-subtitulo"></p>
+    </header>
+    <div id="carrinho" class="carrinho-conteiner"></div>
+  </div>
+  <noscript>
+    <div class="wrap"><p class="aviso-noscript">Para comprar na loja, ative o JavaScript do navegador ou fale com a AMA pelo WhatsApp: <a href="https://wa.me/5591981056049">(91) 98105-6049</a>.</p></div>
+  </noscript>
+</main>
+
+<footer class="rodape">
+  <div class="wrap">
+    <div class="rodape-principal">
+      <div class="rodape-marca">
+        <a href="/" aria-label="Voltar ao início">
+          <img src="/img/logo-ama.png" alt="AMA — Associação de Mulheres na Amazônia" class="rodape-logo">
+        </a>
+        <p class="rodape-loja-frase">Cada compra fortalece os projetos da Associação de Mulheres na Amazônia.</p>
+      </div>
+      <div class="rodape-contatos rodape-loja-links">
+        <h2 class="rodape-contatos-titulo">Loja</h2>
+        <p class="rodape-contato-item"><a href="/loja/">Todos os produtos</a></p>
+        <p class="rodape-contato-item"><a href="/loja/carrinho">Meu carrinho</a></p>
+        <p class="rodape-contato-item"><a href="/loja/pedido">Meus pedidos</a></p>
+        <p class="rodape-contato-item rodape-pagamento"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg><span>Pagamento seguro pelo Mercado Pago: Pix, cartão ou boleto.</span></p>
+      </div>
+      <div class="rodape-contatos">
+        <h2 class="rodape-contatos-titulo">Contatos</h2>
+        <p class="rodape-contato-item" data-rodape-item>
+          <strong>WhatsApp:</strong>
+          <a href="https://wa.me/5591981056049" target="_blank" rel="noopener" data-rodape-whatsapp>(91) 98105-6049</a>
+        </p>
+        <p class="rodape-contato-item" data-rodape-item>
+          <strong>Instagram:</strong>
+          <a href="https://www.instagram.com/oscdemulheres/" target="_blank" rel="noopener" data-rodape-instagram>@oscdemulheres</a>
+        </p>
+        <p class="rodape-contato-item" data-rodape-item hidden>
+          <strong>E-mail:</strong>
+          <a href="mailto:" data-rodape-email></a>
+        </p>
+      </div>
+    </div>
+    <div class="rodape-inferior">
+      <p class="rodape-copyright">Copyright © <span id="ano-atual">2026</span> Associação de Mulheres na Amazônia - AMA. Todos os direitos reservados.</p>
+    </div>
+  </div>
+</footer>
+
+<script src="/api/config"></script>
+<script src="/js/main.js"></script>
+<script type="module" src="/js/loja/carrinho-pagina.js"></script>
+</body>
+</html>
