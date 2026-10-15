@@ -11,7 +11,7 @@
 //   (com proxy, rode com NODE_USE_ENV_PROXY=1); sem acesso, as páginas usam as fontes de reserva.
 // - Fluxo: catálogo → produto → adicionar → carrinho (cupom AMA10, CEP 66010-000, retirada) →
 //   checkout preenchido → Mercado Pago falso (Aprovar) → pedido "Pago" → meus pedidos.
-//   Também: carrinho vazio, produto "Em breve", o catálogo no "modo apresentação" (todos os preços 0),
+//   Também: carrinho vazio, produto sem preço, o catálogo no "modo apresentação" (todos os preços 0),
 //   carrinho com itens indisponíveis e produto inexistente.
 // - Cada página é capturada em 390, 768 e 1440 px. O script falha (código 1) se houver erro no console
 //   das páginas da loja ou conteúdo saindo da tela na horizontal.
@@ -219,10 +219,10 @@ async function fluxoCompra(navegador, base) {
     await pagina.getByRole('button', { name: 'Calcular' }).click();
     await pagina.waitForSelector('.frete-opcao-linha');
 
-    // Produto "Em breve" (biojoia sem preço)
+    // Produto sem preço (biojoia): aparece como os demais, com "R$ 00,00"
     await pagina.goto(`${base}/loja/produto?slug=biojoia-01`);
     await pagina.waitForSelector('.ficha-nome');
-    await capturar(pagina, '04-produto-em-breve');
+    await capturar(pagina, '04-produto-sem-preco');
 
     // Carrinho: cupom, CEP e retirada
     await pagina.goto(`${base}/loja/carrinho`);
@@ -342,8 +342,12 @@ async function fluxoApresentacao(navegador, base) {
     if (!precos.length || precos.some((p) => p.trim() !== 'R$ 00,00')) {
       registrarProblema(`modo apresentação: preços diferentes de "R$ 00,00": ${[...new Set(precos)].join(', ')}`);
     }
+    // Versão final: produto sem preço aparece como os demais (sem selo "Em breve" e com o botão de compra).
+    const cartoes = await pagina.locator('.cartao-produto').count();
     const botoesCompra = await pagina.locator('.cartao-produto button:not([disabled])').count();
-    if (botoesCompra) registrarProblema(`modo apresentação: ${botoesCompra} botão(ões) de compra ativos`);
+    if (botoesCompra !== cartoes) registrarProblema(`modo apresentação: ${cartoes - botoesCompra} cartão(ões) sem botão de compra ativo`);
+    const selos = await pagina.locator('.cartao-produto .selo').allTextContents();
+    if (selos.some((t) => /em breve|esgotado/i.test(t))) registrarProblema(`modo apresentação: selos indevidos: ${selos.join(', ')}`);
     await capturar(pagina, '11-catalogo-apresentacao');
     await pagina.goto(`${base}/loja/produto?slug=body-splash-raiz`);
     await pagina.waitForSelector('.ficha-nome');

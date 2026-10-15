@@ -1,5 +1,6 @@
 // Regras de exibição dos produtos (funções puras, testadas em tests/unit/loja-front.test.js).
-// Preço efetivo = promocional ?? normal; preço efetivo 0 = "Em breve" ("R$ 00,00"), nunca vendável.
+// Preço efetivo = promocional ?? normal. Preço efetivo 0 aparece como "R$ 00,00" e o produto é mostrado
+// como qualquer outro (a vitrine é apresentada como versão final); o servidor recusa a compra ('sem_preco').
 
 import { normalizarBusca, urlSegura } from './formatos.js';
 
@@ -52,23 +53,24 @@ export function precoEfetivo(produto) {
 
 /**
  * Situação do produto na vitrine:
- * { preco, precoOriginal (riscado) | null, promocao, emBreve, esgotado, vendavel, maxQuantidade, descontoPercentual }
+ * { preco, precoOriginal (riscado) | null, promocao, semPreco, esgotado, vendavel, maxQuantidade, descontoPercentual }
  */
 export function analisarProduto(produto) {
   const preco = precoEfetivo(produto);
-  const emBreve = preco <= 0;
-  const promocao = !emBreve && produto.preco_promocional_centavos !== null
+  const semPreco = preco <= 0;
+  const promocao = !semPreco && produto.preco_promocional_centavos !== null
     && produto.preco_promocional_centavos < produto.preco_centavos;
   const estoque = produto.controlar_estoque ? Math.max(0, produto.estoque) : MAX_POR_ITEM;
-  const esgotado = !emBreve && produto.controlar_estoque && produto.estoque <= 0;
-  const maxQuantidade = emBreve || esgotado ? 0 : Math.min(MAX_POR_ITEM, estoque);
+  // Sem preço definido o estoque ainda não foi cadastrado: não mostra "Esgotado".
+  const esgotado = !semPreco && produto.controlar_estoque && produto.estoque <= 0;
+  const maxQuantidade = esgotado ? 0 : semPreco ? MAX_POR_ITEM : Math.min(MAX_POR_ITEM, estoque);
   return {
     preco,
     precoOriginal: promocao ? produto.preco_centavos : null,
     promocao,
-    emBreve,
+    semPreco,
     esgotado,
-    vendavel: !emBreve && !esgotado,
+    vendavel: !esgotado,
     maxQuantidade,
     descontoPercentual: promocao ? Math.round((1 - preco / produto.preco_centavos) * 100) : 0,
   };
@@ -101,7 +103,7 @@ const comparadorNome = (a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensiti
 
 /**
  * Ordena sem alterar a lista original. "destaques" mantém a ordem do servidor
- * (destaque, ordem, mais novos). Nos critérios de preço, os produtos "Em breve" vão para o fim.
+ * (destaque, ordem, mais novos). Nos critérios de preço, os produtos sem preço definido vão para o fim.
  */
 export function ordenarProdutos(lista, criterio = 'destaques') {
   const copia = lista.map((p, i) => ({ p, i }));

@@ -85,40 +85,28 @@
   </noscript>
 </main>
 
-<footer class="rodape">
+<footer class="rodape" data-cms-grupo="rodape" data-cms-grupo-rotulo="Rodapé">
   <div class="wrap">
     <div class="rodape-principal">
       <div class="rodape-marca">
         <a href="/" aria-label="Voltar ao início">
-          <img src="/img/logo-ama.png" alt="AMA — Associação de Mulheres na Amazônia" class="rodape-logo">
+          <img src="/img/logo-ama.png" alt="AMA — Associação de Mulheres na Amazônia" class="rodape-logo" data-cms="rodape.logo" data-cms-tipo="imagem" data-cms-rotulo="Logo do rodapé" data-cms-ajuda="Aparece no fim da página, sobre o fundo verde-escuro. Prefira PNG com fundo transparente.">
         </a>
-        <p class="rodape-loja-frase">Cada compra fortalece os projetos da Associação de Mulheres na Amazônia.</p>
       </div>
-      <div class="rodape-contatos rodape-loja-links">
-        <h2 class="rodape-contatos-titulo">Loja</h2>
-        <p class="rodape-contato-item"><a href="/loja/">Todos os produtos</a></p>
-        <p class="rodape-contato-item"><a href="/loja/carrinho">Meu carrinho</a></p>
-        <p class="rodape-contato-item"><a href="/loja/pedido">Meus pedidos</a></p>
-        <p class="rodape-contato-item rodape-pagamento"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg><span>Pagamento seguro pelo Mercado Pago: Pix, cartão ou boleto.</span></p>
-      </div>
-      <div class="rodape-contatos">
-        <h2 class="rodape-contatos-titulo">Contatos</h2>
-        <p class="rodape-contato-item" data-rodape-item>
-          <strong>WhatsApp:</strong>
-          <a href="https://wa.me/5591981056049" target="_blank" rel="noopener" data-rodape-whatsapp>(91) 98105-6049</a>
+      <div class="rodape-contatos" data-cms="rodape.contatos" data-cms-tipo="lista" data-cms-rotulo="Contatos" data-cms-item-rotulo="Contato" data-cms-ajuda="Cada contato tem um nome (ex.: WhatsApp:) e um link. Para e-mail use mailto:nome@exemplo.com; para telefone, tel:+5591999999999.">
+        <h4 class="rodape-contatos-titulo" data-cms="rodape.contatos-titulo" data-cms-tipo="texto" data-cms-rotulo="Título dos contatos" data-cms-ajuda="Aparece acima da lista de contatos.">Contatos</h4>
+        <p class="rodape-contato-item" data-cms-item>
+          <strong data-cms-campo="rotulo" data-cms-tipo="texto" data-cms-rotulo="Nome do contato" data-cms-ajuda="Aparece em branco, antes do link (ex.: WhatsApp:).">WhatsApp:</strong>
+          <a href="https://wa.me/5591981056049" target="_blank" rel="noopener" data-cms-campo="link" data-cms-tipo="link" data-cms-rotulo="Texto e endereço" data-cms-ajuda="O texto que aparece (ex.: o número) e o endereço do link (ex.: https://wa.me/5591981056049).">(91) 98105-6049</a>
         </p>
-        <p class="rodape-contato-item" data-rodape-item>
-          <strong>Instagram:</strong>
-          <a href="https://www.instagram.com/oscdemulheres/" target="_blank" rel="noopener" data-rodape-instagram>@oscdemulheres</a>
-        </p>
-        <p class="rodape-contato-item" data-rodape-item hidden>
-          <strong>E-mail:</strong>
-          <a href="mailto:" data-rodape-email></a>
+        <p class="rodape-contato-item" data-cms-item>
+          <strong data-cms-campo="rotulo" data-cms-tipo="texto" data-cms-rotulo="Nome do contato" data-cms-ajuda="Aparece em branco, antes do link (ex.: WhatsApp:).">Instagram:</strong>
+          <a href="https://www.instagram.com/oscdemulheres/" target="_blank" rel="noopener" data-cms-campo="link" data-cms-tipo="link" data-cms-rotulo="Texto e endereço" data-cms-ajuda="O texto que aparece (ex.: o número) e o endereço do link (ex.: https://wa.me/5591981056049).">@oscdemulheres</a>
         </p>
       </div>
     </div>
     <div class="rodape-inferior">
-      <p class="rodape-copyright">Copyright © <span id="ano-atual">2026</span> Associação de Mulheres na Amazônia - AMA. Todos os direitos reservados.</p>
+      <p class="rodape-copyright">Copyright © <span id="ano-atual">2026</span> <span data-cms="rodape.copyright" data-cms-tipo="texto" data-cms-rotulo="Texto de direitos autorais" data-cms-ajuda="Aparece depois de “Copyright © ano”. O ano é atualizado sozinho.">Associação de Mulheres na Amazônia - AMA. Todos os direitos reservados.</span></p>
     </div>
   </div>
 </footer>

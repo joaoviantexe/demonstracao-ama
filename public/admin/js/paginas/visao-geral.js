@@ -178,7 +178,7 @@ export async function renderizar(ctx) {
     const linhas = [];
     if (resumo.semPreco) {
       linhas.push(ui.aviso(
-        `${resumo.semPreco} ${resumo.semPreco === 1 ? 'produto à venda está' : 'produtos à venda estão'} sem preço: aparecem na loja como "Em breve" e não podem ser comprados.`,
+        `${resumo.semPreco} ${resumo.semPreco === 1 ? 'produto à venda está' : 'produtos à venda estão'} sem preço: aparecem na loja com R$ 00,00 e ninguém consegue finalizar a compra até você definir o preço.`,
         'alerta', { titulo: 'Sem preço' },
       ));
     }

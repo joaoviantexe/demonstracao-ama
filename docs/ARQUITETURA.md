@@ -228,7 +228,7 @@ Todas `security definer`, `set search_path = ''` (nomes totalmente qualificados)
     "frete_gratis_cupom": false }
   ```
   `motivo` ∈ `null | 'inexistente' | 'inativo' | 'sem_preco' | 'sem_estoque' | 'estoque_insuficiente'`.
-  `sem_preco` = produto ativo (visível na vitrine) com preço efetivo 0: a loja mostra "R$ 00,00" e "Em breve".
+  `sem_preco` = produto ativo (visível na vitrine) com preço efetivo 0: a loja mostra "R$ 00,00" e a compra é recusada.
   Itens indisponíveis entram na lista com `disponivel: false` e **não** somam no subtotal.
   Para `inexistente` e `inativo` (produto despublicado) a função **não expõe** dados do produto:
   `nome`, `slug`, `imagem` e `estoque_disponivel` vêm `null` e `preco_unitario_centavos` 0.
@@ -297,7 +297,7 @@ Pastas: `site/` (CMS), `produtos/`, `videos/`. Nome de arquivo: `<pasta>/<aaaa-m
 
 A própria migração cria: as 4 linhas de `configuracoes`; as categorias da coleção **Ama Bioessência**
 (`body-splash`, `cremes-hidratantes`, `sabonete-liquido-intimo`, `sabonete-solido`) e `biojoias`; e o catálogo
-inicial, **ativo e com preço 0** (aparece na vitrine como "R$ 00,00" e só pode ser comprado depois que a AMA
+inicial, **ativo e com preço 0** (aparece na vitrine com "R$ 00,00" e só pode ser comprado depois que a AMA
 definir o preço no painel):
 - 10 produtos Ama Bioessência com nome e descrição da apresentação institucional e fotos em `/img/produtos/…`:
   Body Splash Raiz, Bruma, Orvalho e Âmbar (200 mL); Creme Hidratante Ameixa Negra, Cupuaçu, Cumaru e
@@ -305,7 +305,7 @@ definir o preço no painel):
 - 6 biojoias (`biojoia-01` … `biojoia-06`) com nome "Nome em Produção", descrição "Descrição em Produção" e as fotos do ateliê.
 
 `supabase/seed.sql` (só desenvolvimento) cria um admin `admin@ama.local` / `admin123456`, dá preços e estoque de
-exemplo aos produtos Ama Bioessência (as biojoias ficam com preço 0 para testar o "Em breve"), deixa um produto em
+exemplo aos produtos Ama Bioessência (as biojoias ficam com preço 0 para testar produto sem preço), deixa um produto em
 promoção, cria os cupons `AMA10` e `FRETEGRATIS` e preenche a origem do frete com dados fictícios.
 
 ## 5. CMS — conteúdo editável da home
@@ -593,10 +593,11 @@ Leitura de produtos pelo navegador (RLS garante só ativos):
 Categorias: `GET /rest/v1/categorias?select=id,nome,slug&ativo=eq.true&order=ordem.asc`.
 Configuração pública: `GET /rest/v1/configuracoes?select=valor&chave=eq.loja`.
 
-Produto com preço 0 (ativo): aparece com o preço "R$ 00,00", selo "Em breve" e botões de compra desativados.
-O servidor recusa a venda (`motivo: 'sem_preco'`). **A loja não oferece pedido pelo WhatsApp** em nenhum ponto
-(nem para produtos "Em breve", nem no checkout sem pagamento configurado, nem para combinar a retirada); o
-WhatsApp aparece só como contato institucional (botão flutuante e rodapé) e como suporte na página do pedido.
+Produto com preço 0 (ativo): aparece na vitrine como um produto normal (a loja é apresentada como versão final),
+com o preço "R$ 00,00", sem selo e sem "Esgotado"; pode ir para o carrinho, mas o servidor recusa a compra
+(`motivo: 'sem_preco'`) e o carrinho pede para remover o item. **A loja não oferece pedido pelo WhatsApp** em nenhum
+ponto; o WhatsApp aparece só como contato institucional (botão flutuante e rodapé) e como suporte na página do pedido.
+O rodapé das páginas da loja é o mesmo da página inicial (grupo `rodape` do CMS, aplicado no navegador por `comum.js`).
 
 Funcionalidades: busca, filtro por categoria (na URL `?categoria=`), ordenação, selo de promoção e "esgotado",
 página de produto com galeria e miniaturas, quantidade limitada ao estoque, "Adicionar ao carrinho" e "Comprar agora",

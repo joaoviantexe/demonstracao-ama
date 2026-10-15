@@ -293,7 +293,7 @@ export function descreverMotivo(motivo, estoqueDisponivel) {
   switch (motivo) {
     case 'inexistente': return 'Este produto não está mais na loja.';
     case 'inativo': return 'Este produto saiu da loja por enquanto.';
-    case 'sem_preco': return 'Este produto ainda está em produção e não pode ser comprado pelo site.';
+    case 'sem_preco': return 'O preço deste produto ainda não foi definido. Remova-o do carrinho para continuar a compra.';
     case 'sem_estoque': return 'Esgotado no momento.';
     case 'estoque_insuficiente': {
       const n = Number(estoqueDisponivel);

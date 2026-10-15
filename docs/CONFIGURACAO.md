@@ -37,7 +37,8 @@ Serviços usados, todos com plano gratuito:
    clique em **Raw**, selecione tudo (Ctrl+A), copie e cole no SQL Editor. Clique em **Run**.
    - Deve aparecer *Success. No rows returned*.
    - Isso cria as tabelas, as regras de segurança, a pasta de fotos (`midia`) e o catálogo inicial: os 10 produtos
-     Ama Bioessência e 6 biojoias, todos com preço **R$ 00,00** (aparecem na loja como "Em breve").
+     Ama Bioessência e 6 biojoias, todos com preço **R$ 00,00** (aparecem na loja normalmente; a compra só fecha
+     depois que o produto ganha preço).
    - Pode rodar de novo sem problema: o arquivo não duplica nada. Se você já tinha rodado uma versão anterior, rodar
      de novo também atualiza os textos padrão antigos (nome "Loja AMA" e retirada "pelo WhatsApp").
 5. **Bloqueie o cadastro público** (importante para a segurança): **Authentication** → **Sign In / Providers**
@@ -123,13 +124,13 @@ Necessário para o "Esqueci minha senha" do painel funcionar.
 | Endereço | O que deve aparecer |
 |---|---|
 | `/` | A página inicial da AMA, com o banner novo "Ama Bioessência" e o item **Loja** no menu |
-| `/loja/` | Os 16 produtos, com preço **R$ 00,00** e selo **Em breve** (a compra fica liberada quando o produto ganha preço) |
+| `/loja/` | Os 16 produtos com preço **R$ 00,00** (a compra só fecha quando o produto ganha preço) |
 | `/loja/produto?slug=body-splash-raiz` | A página do produto |
 | `/admin/` | O login do painel. Entre com o usuário do passo 1.6 |
 
 **Para mostrar uma compra de verdade na demonstração**, dê preço e estoque a um produto: no Supabase, **Table
 Editor** → **produtos** → na linha do produto, mude `preco_centavos` (ex.: `5990` = R$ 59,90) e `estoque`
-(ex.: `10`) e salve. Em alguns segundos ele aparece com preço e botão **Adicionar ao carrinho**.
+(ex.: `10`) e salve. Em alguns segundos ele aparece com o preço e pode ser comprado até o fim.
 Sem o Mercado Pago configurado, o checkout mostra "Pagamento online em configuração" e não deixa finalizar a
 compra. Para testar o pagamento, faça o passo 5.
 

@@ -9,10 +9,9 @@ import {
 
 export const urlProduto = (slug) => `/loja/produto?slug=${encodeURIComponent(slug)}`;
 
-/** Selos do produto: Promoção, Esgotado, Em breve. */
+/** Selos do produto: Promoção e Esgotado. */
 export function selosDoProduto(situacao) {
   const selos = [];
-  if (situacao.emBreve) selos.push(el('span', { class: 'selo selo--em-breve', texto: 'Em breve' }));
   if (situacao.promocao) selos.push(el('span', { class: 'selo selo--promocao', texto: 'Promoção' }));
   if (situacao.esgotado) selos.push(el('span', { class: 'selo selo--esgotado', texto: 'Esgotado' }));
   return selos;
@@ -63,7 +62,6 @@ export function cartaoProduto(produto, { nivel = 'h3', carregamento = 'lazy' } =
   const img = imagemPrincipal(produto);
   const href = urlProduto(produto.slug);
   const classes = ['cartao-produto'];
-  if (situacao.emBreve) classes.push('cartao-produto--em-breve');
   if (situacao.esgotado) classes.push('cartao-produto--esgotado');
 
   let foto = null;
@@ -77,9 +75,7 @@ export function cartaoProduto(produto, { nivel = 'h3', carregamento = 'lazy' } =
   }
 
   let acao;
-  if (situacao.emBreve) {
-    acao = el('button', { type: 'button', class: 'botao botao--principal botao--bloco botao--sm cartao-produto-botao', disabled: true }, 'Em breve');
-  } else if (situacao.esgotado) {
+  if (situacao.esgotado) {
     acao = el('button', { type: 'button', class: 'botao botao--principal botao--bloco botao--sm cartao-produto-botao', disabled: true }, 'Esgotado');
   } else {
     acao = el('button', {

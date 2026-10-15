@@ -18,7 +18,7 @@ export const CONSULTAS = Object.freeze({
 /** Valores padrão de configuracoes.loja (os mesmos da migração). */
 export const LOJA_PADRAO = Object.freeze({
   titulo: 'Cosméticos',
-  subtitulo: 'Biojoias e cosméticos feitos à mão por mulheres da Amazônia. Cada compra fortalece os projetos da AMA.',
+  subtitulo: 'Cosméticos e biojoias feitos à mão por mulheres da Amazônia.',
   whatsapp: '5591981056049',
   instagram: 'oscdemulheres',
   email_contato: '',
