@@ -62,7 +62,7 @@ export async function renderizar(ctx) {
     [
       { texto: 'Editar o site', detalhe: 'Textos, fotos e vídeos da página inicial', icone: 'conteudo', href: '#/conteudo' },
       { texto: 'Novo produto', detalhe: 'Cadastrar um item na loja', icone: 'produtos', href: '#/produtos/novo' },
-      { texto: 'Pedidos para enviar', detalhe: 'Pagos e em separação', icone: 'caminhao', href: '#/pedidos?status=pago' },
+      { texto: 'Pedidos para enviar', detalhe: 'Pagos e em separação', icone: 'caminhao', href: '#/pedidos?status=para_enviar' },
       { texto: 'Ver a loja', detalhe: 'Abre em outra aba', icone: 'loja', href: '/loja/', externo: true },
     ].map((a) => el('a', {
       class: 'atalho', href: a.href, target: a.externo ? '_blank' : null, rel: a.externo ? 'noopener' : null,
@@ -130,7 +130,7 @@ export async function renderizar(ctx) {
   const totalAEnviar = aEnviar.ok ? aEnviar.total || 0 : null;
   metricas.replaceChildren(
     metrica({
-      rotulo: 'Pedidos para enviar', icone: 'caminhao', href: '#/pedidos?status=pago', destaque: totalAEnviar > 0,
+      rotulo: 'Pedidos para enviar', icone: 'caminhao', href: '#/pedidos?status=para_enviar', destaque: totalAEnviar > 0,
       valor: valor(aEnviar, (r) => String(r.total || 0)),
       detalhe: totalAEnviar ? 'Pagos, aguardando separação ou envio' : 'Nenhum pedido esperando envio',
     }),

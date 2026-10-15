@@ -1,0 +1,130 @@
+/* ================================================================
+   Painel AMA — pedidos
+   Carregado por paginas/pedidos.js (ui.carregarCss('pedidos')).
+   Usa os tokens de admin.css; tudo dentro da página (ou do modal da página).
+   ================================================================ */
+
+/* ---------- Lista ---------- */
+.pagina[data-pagina="pedidos"] .pedidos-filtros{gap:10px;border-bottom:1px solid var(--linha)}
+.pagina[data-pagina="pedidos"] .pedidos-filtros .filtros > select{flex:1 1 220px;min-width:0;max-width:100%}
+.pagina[data-pagina="pedidos"] .pedidos-contador{font-size:.875rem;color:var(--tinta-suave)}
+.pagina[data-pagina="pedidos"] .pedidos-contador:empty{display:none}
+.pagina[data-pagina="pedidos"] .pedidos-avisos:empty{display:none}
+.pagina[data-pagina="pedidos"] .pedidos-avisos__texto{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
+.pagina[data-pagina="pedidos"] .pedidos-avisos__texto > span{flex:1 1 240px}
+
+.pagina[data-pagina="pedidos"] .pedido-celula{display:flex;flex-direction:column;gap:2px}
+.pagina[data-pagina="pedidos"] .pedido-celula__numero{font-family:var(--display);font-weight:700;font-size:1.02rem;color:var(--verde-950)}
+.pagina[data-pagina="pedidos"] .pedido-celula__data{font-size:.8rem;font-weight:500;color:var(--tinta-suave);white-space:nowrap}
+.pagina[data-pagina="pedidos"] .pedido-cliente{display:flex;flex-direction:column;gap:2px;min-width:0}
+.pagina[data-pagina="pedidos"] .pedido-cliente__nome{font-weight:600;overflow-wrap:anywhere}
+.pagina[data-pagina="pedidos"] .pedido-cliente__email{font-size:.82rem;color:var(--tinta-suave);overflow-wrap:anywhere}
+.pagina[data-pagina="pedidos"] .pedido-total{white-space:nowrap}
+.pagina[data-pagina="pedidos"] .pedidos-tabela td{vertical-align:middle}
+
+@media (max-width:719.98px){
+  .pagina[data-pagina="pedidos"] .pedidos-tabela tr{gap:6px 12px;padding:14px 16px}
+  .pagina[data-pagina="pedidos"] .pedido-celula{flex-direction:row;align-items:baseline;gap:10px;flex-wrap:wrap}
+}
+
+/* ---------- Detalhe: ordem dos blocos ---------- */
+/* Abaixo de 1100 px as duas colunas viram uma só: a situação, a cliente e a entrega sobem para perto
+   dos itens, e a linha do tempo fica no fim. */
+@media (max-width:1099.98px){
+  .pagina[data-pagina="pedidos"] .pedido-colunas > .pilha{display:contents}
+  .pagina[data-pagina="pedidos"] .pedido-bloco--itens{order:1}
+  .pagina[data-pagina="pedidos"] .pedido-bloco--situacao{order:2}
+  .pagina[data-pagina="pedidos"] .pedido-bloco--envio{order:3}
+  .pagina[data-pagina="pedidos"] .pedido-bloco--obs{order:4}
+  .pagina[data-pagina="pedidos"] .pedido-bloco--cliente{order:5}
+  .pagina[data-pagina="pedidos"] .pedido-bloco--entrega{order:6}
+  .pagina[data-pagina="pedidos"] .pedido-bloco--pagamento{order:7}
+  .pagina[data-pagina="pedidos"] .pedido-bloco--tempo{order:8}
+  .pagina[data-pagina="pedidos"] .pedido-bloco--mais{order:9}
+}
+
+/* ---------- Detalhe: próxima ação ---------- */
+.pagina[data-pagina="pedidos"] .pedido-proxima__conteudo{display:flex;flex-direction:column;gap:10px}
+.pagina[data-pagina="pedidos"] .pedido-proxima__conteudo .grupo-botoes{margin-top:2px}
+
+/* ---------- Itens ---------- */
+.pagina[data-pagina="pedidos"] .pedido-itens{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.pagina[data-pagina="pedidos"] .pedido-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--linha)}
+.pagina[data-pagina="pedidos"] .pedido-item:first-child{padding-top:0}
+.pagina[data-pagina="pedidos"] .pedido-item__foto{
+  flex:none;width:52px;height:52px;border-radius:var(--raio);overflow:hidden;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--superficie-2);border:1px solid var(--linha);color:var(--placeholder);
+}
+.pagina[data-pagina="pedidos"] .pedido-item__foto img{width:100%;height:100%;object-fit:cover}
+.pagina[data-pagina="pedidos"] .pedido-item__textos{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.pagina[data-pagina="pedidos"] .pedido-item__nome{font-weight:700;color:var(--verde-950);text-decoration:none;overflow-wrap:anywhere}
+.pagina[data-pagina="pedidos"] a.pedido-item__nome:hover{text-decoration:underline;text-underline-offset:3px}
+.pagina[data-pagina="pedidos"] .pedido-item__detalhe{font-size:.85rem;color:var(--tinta-suave)}
+.pagina[data-pagina="pedidos"] .pedido-item__total{white-space:nowrap}
+.pagina[data-pagina="pedidos"] .pedido-totais{margin-top:6px}
+.pagina[data-pagina="pedidos"] .pedido-totais__total dt{font-weight:700;color:var(--verde-950)}
+.pagina[data-pagina="pedidos"] .pedido-totais__total dd{font-family:var(--display);font-size:1.25rem;color:var(--verde-950)}
+
+/* ---------- Envio pelo Melhor Envio ---------- */
+.pagina[data-pagina="pedidos"] .envio-etapas{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.pagina[data-pagina="pedidos"] .envio-etapa{position:relative;display:flex;gap:14px;padding:0 0 18px}
+.pagina[data-pagina="pedidos"] .envio-etapa:last-child{padding-bottom:0}
+/* Linha que liga as etapas. */
+.pagina[data-pagina="pedidos"] .envio-etapa:not(:last-child)::before{
+  content:"";position:absolute;left:16px;top:34px;bottom:2px;width:2px;background:var(--linha);
+}
+.pagina[data-pagina="pedidos"] .envio-etapa--feita:not(:last-child)::before{background:var(--verde-200)}
+.pagina[data-pagina="pedidos"] .envio-etapa__marca{
+  flex:none;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-family:var(--display);font-weight:700;color:var(--tinta-suave);background:var(--superficie);border:2px solid var(--linha-forte);
+}
+.pagina[data-pagina="pedidos"] .envio-etapa__marca .icone{width:18px;height:18px}
+.pagina[data-pagina="pedidos"] .envio-etapa--feita .envio-etapa__marca{background:var(--verde-600);border-color:var(--verde-600);color:#fff}
+.pagina[data-pagina="pedidos"] .envio-etapa--atual .envio-etapa__marca{background:var(--ouro-100);border-color:var(--ouro-500);color:var(--ouro-700);box-shadow:0 0 0 4px rgba(201,152,43,.18)}
+.pagina[data-pagina="pedidos"] .envio-etapa__corpo{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px;padding-top:5px}
+.pagina[data-pagina="pedidos"] .envio-etapa__titulo{font-weight:700;color:var(--verde-950)}
+.pagina[data-pagina="pedidos"] .envio-etapa:not(.envio-etapa--feita):not(.envio-etapa--atual) .envio-etapa__titulo{color:var(--tinta-suave)}
+.pagina[data-pagina="pedidos"] .envio-etapa__texto{font-size:.9rem;color:var(--tinta-suave)}
+.pagina[data-pagina="pedidos"] .envio-etapa__feito{font-size:.9rem;font-weight:600;color:var(--sucesso)}
+.pagina[data-pagina="pedidos"] .envio-etapa .campo{max-width:420px}
+
+/* ---------- Linha do tempo e notas ---------- */
+.pagina[data-pagina="pedidos"] .pedido-nota{display:flex;flex-direction:column;gap:10px;padding-bottom:16px;border-bottom:1px solid var(--linha)}
+.pagina[data-pagina="pedidos"] .pedido-nota__acoes{justify-content:flex-end}
+.pagina[data-pagina="pedidos"] .pedido-eventos{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.pagina[data-pagina="pedidos"] .pedido-evento{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--linha)}
+.pagina[data-pagina="pedidos"] .pedido-evento:last-child{border-bottom:0;padding-bottom:0}
+.pagina[data-pagina="pedidos"] .pedido-evento--vazio{color:var(--tinta-suave)}
+.pagina[data-pagina="pedidos"] .pedido-evento--nota{background:var(--creme-50);border-radius:var(--raio);padding:12px;border-bottom-color:transparent;margin:4px 0}
+.pagina[data-pagina="pedidos"] .pedido-evento--alerta .pedido-evento__descricao{color:var(--perigo-escuro);font-weight:600}
+.pagina[data-pagina="pedidos"] .pedido-evento__icone{
+  flex:none;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:var(--superficie-2);color:var(--tinta-suave);
+}
+.pagina[data-pagina="pedidos"] .pedido-evento__icone .icone{width:18px;height:18px}
+.pagina[data-pagina="pedidos"] .pedido-evento__icone--verde{background:var(--sucesso-fundo);color:var(--sucesso)}
+.pagina[data-pagina="pedidos"] .pedido-evento__icone--azul{background:var(--info-fundo);color:var(--info)}
+.pagina[data-pagina="pedidos"] .pedido-evento__icone--ouro{background:var(--ouro-100);color:var(--ouro-700)}
+.pagina[data-pagina="pedidos"] .pedido-evento__icone--roxo{background:#EEE6F7;color:#583283}
+.pagina[data-pagina="pedidos"] .pedido-evento__icone--creme{background:var(--creme-200);color:var(--verde-800)}
+.pagina[data-pagina="pedidos"] .pedido-evento__icone--vermelho{background:var(--perigo-fundo);color:var(--perigo)}
+.pagina[data-pagina="pedidos"] .pedido-evento__textos{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.pagina[data-pagina="pedidos"] .pedido-evento__tipo{font-family:var(--display);font-size:.78rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--tinta-suave)}
+.pagina[data-pagina="pedidos"] .pedido-evento__descricao{overflow-wrap:anywhere;white-space:pre-line}
+.pagina[data-pagina="pedidos"] .pedido-evento__meta{font-size:.8rem;color:var(--tinta-suave)}
+
+/* ---------- Coluna lateral ---------- */
+.pagina[data-pagina="pedidos"] .pedido-situacao .selo{font-size:.95rem;padding:6px 12px}
+.pagina[data-pagina="pedidos"] .pedido-cliente-nome{font-weight:700;font-size:1.05rem;color:var(--verde-950);overflow-wrap:anywhere}
+.pagina[data-pagina="pedidos"] .pedido-quebra{overflow-wrap:anywhere;word-break:break-word}
+.pagina[data-pagina="pedidos"] .lista-dados dt{white-space:nowrap}
+.pagina[data-pagina="pedidos"] .lista-dados a{color:var(--verde-600);font-weight:700}
+.pagina[data-pagina="pedidos"] .lista-dados a .icone{width:14px;height:14px;vertical-align:-2px}
+.pagina[data-pagina="pedidos"] .pedido-entrega-nome{display:flex;align-items:center;gap:8px;font-weight:700;color:var(--verde-950)}
+.pagina[data-pagina="pedidos"] .pedido-endereco{font-style:normal;display:flex;flex-direction:column;gap:2px;padding:10px 12px;background:var(--superficie-2);border:1px solid var(--linha);border-radius:var(--raio)}
+.pagina[data-pagina="pedidos"] .pedido-rastreio{display:flex;flex-direction:column;gap:4px;padding-top:8px;border-top:1px solid var(--linha)}
+.pagina[data-pagina="pedidos"] .pedido-rastreio__rotulo{font-size:.85rem;color:var(--tinta-suave)}
+.pagina[data-pagina="pedidos"] .pedido-rastreio a{color:var(--verde-600);font-weight:700}
+.pagina[data-pagina="pedidos"] .pedido-rastreio a .icone{width:14px;height:14px;vertical-align:-2px}
+.pagina[data-pagina="pedidos"] .pedido-observacao{white-space:pre-line;overflow-wrap:anywhere}
