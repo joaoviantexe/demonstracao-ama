@@ -602,8 +602,8 @@ Ao voltar do pagamento aprovado o carrinho é limpo.
 
 `public/admin/index.html` carrega `/api/config`, `/vendor/supabase-2.116.0.js`, `admin/admin.css` e o módulo `admin/js/app.js`.
 
-- `app.js`: cria o cliente (`window.supabase.createClient(url, anonKey)`), tela de login (e-mail e senha), "esqueci minha senha"
-  (`resetPasswordForEmail` com `redirectTo = <origem>/admin/`), tratamento do evento `PASSWORD_RECOVERY` (tela de nova senha),
+- `app.js`: cria o cliente (`window.supabase.createClient(url, anonKey)`), tela de login (e-mail e senha; não há "esqueci minha senha": a senha é trocada pelo Supabase),
+  tratamento do evento `PASSWORD_RECOVERY` e de convites (tela de nova senha),
   verificação de admin (`rpc('eh_admin')`; não admin → mensagem e sair), layout (menu lateral, topo com e-mail, "Ver site", "Sair"),
   roteador por hash e aviso de alterações não salvas.
 - Rotas: `#/` visão geral · `#/conteudo` e `#/conteudo/<grupo>` · `#/midia` · `#/produtos`, `#/produtos/novo`, `#/produtos/<id>` ·

@@ -149,8 +149,8 @@ function lerRetornoDoEmail() {
   const codigoErro = doHash.get('error_code') || daBusca.get('error_code') || '';
   if (erro) {
     estado.avisoLink = codigoErro === 'otp_expired' || /expired|invalid/i.test(erro)
-      ? 'O link do e-mail expirou ou já foi usado. Peça um novo em "Esqueci minha senha".'
-      : 'Não foi possível usar o link do e-mail. Peça um novo em "Esqueci minha senha".';
+      ? 'O link do e-mail expirou ou já foi usado. Peça à AMA um novo acesso.'
+      : 'Não foi possível usar o link do e-mail. Peça à AMA um novo acesso.';
     // Limpa a URL antes do supabase-js lê-la (evita erro no console e o hash cair no roteador).
     window.history.replaceState(null, '', `${window.location.pathname}#/`);
     return;
@@ -220,13 +220,10 @@ function telaLogin({ mensagem = '', tipo = 'erro', email = '' } = {}) {
   });
   const campoSenha = ui.campo({ rotulo: 'Senha', nome: 'senha', tipo: 'senha', obrigatorio: true, attrs: { autofocus: Boolean(email) } });
   const entrar = ui.botao({ texto: 'Entrar', tipo: 'primario', tamanho: 'grande', tipoHtml: 'submit', bloco: true });
-  const esqueci = el('button', { type: 'button', class: 'botao-link' }, 'Esqueci minha senha');
   const form = el('form', { class: 'acesso__formulario', novalidate: true },
     el('h1', { class: 'acesso__titulo' }, 'Painel da AMA'),
-    el('p', { class: 'acesso__texto' }, 'Entre com o e-mail e a senha de administradora.'),
-    caixa, campoEmail.elemento, campoSenha.elemento, entrar, el('p', { class: 'acesso__links' }, esqueci));
+    caixa, campoEmail.elemento, campoSenha.elemento, entrar);
 
-  esqueci.addEventListener('click', () => telaEsqueci(campoEmail.entrada.value.trim()));
   form.addEventListener('submit', async (evento) => {
     evento.preventDefault();
     definirMensagem(caixa, '');
@@ -257,43 +254,6 @@ function telaLogin({ mensagem = '', tipo = 'erro', email = '' } = {}) {
     });
   });
   mostrarAcesso(form, { titulo: 'Entrar' });
-}
-
-function telaEsqueci(emailInicial = '') {
-  const caixa = caixaMensagem('', 'info');
-  const campoEmail = ui.campo({
-    rotulo: 'E-mail', nome: 'email', tipo: 'email', valor: emailInicial, obrigatorio: true,
-    attrs: { autocomplete: 'username', inputmode: 'email', autocapitalize: 'off', spellcheck: 'false', autofocus: true },
-  });
-  const enviar = ui.botao({ texto: 'Enviar link', tipo: 'primario', tamanho: 'grande', tipoHtml: 'submit', bloco: true });
-  const voltar = el('button', { type: 'button', class: 'botao-link' }, icone('voltar'), 'Voltar para o login');
-  const form = el('form', { class: 'acesso__formulario', novalidate: true },
-    el('h1', { class: 'acesso__titulo' }, 'Esqueci minha senha'),
-    el('p', { class: 'acesso__texto' }, 'Informe seu e-mail. Se ele tiver acesso ao painel, você vai receber um link para criar uma senha nova.'),
-    caixa, campoEmail.elemento, enviar, el('p', { class: 'acesso__links' }, voltar));
-  voltar.addEventListener('click', () => telaLogin({ email: campoEmail.entrada.value.trim() }));
-  form.addEventListener('submit', async (evento) => {
-    evento.preventDefault();
-    const email = campoEmail.entrada.value.trim();
-    if (!EMAIL_VALIDO.test(email)) {
-      campoEmail.definirErro(email ? 'Confira o e-mail: parece incompleto.' : 'Informe seu e-mail.');
-      campoEmail.entrada.focus();
-      return;
-    }
-    await ui.ocupado(enviar, async () => {
-      const { error } = await estado.supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/admin/` });
-      // O Supabase responde igual exista ou não a conta: erro aqui é falha real (rede, limite, SMTP).
-      if (error) {
-        definirMensagem(caixa, mensagemErroAuth(error), 'erro');
-        return;
-      }
-      // Mesmo texto exista ou não a conta (não revela quem tem acesso).
-      definirMensagem(caixa, 'Pronto! Se este e-mail tiver acesso, o link chega em alguns minutos. Confira também a caixa de spam. O link vale por pouco tempo e só pode ser usado uma vez.', 'sucesso');
-      caixa.setAttribute('tabindex', '-1');
-      caixa.focus();
-    });
-  });
-  mostrarAcesso(form, { titulo: 'Recuperar senha' });
 }
 
 function telaNovaSenha() {
@@ -333,7 +293,7 @@ function telaNovaSenha() {
       const { error } = await estado.supabase.auth.updateUser({ password: valor });
       if (error) {
         definirMensagem(caixa, error.code === 'session_not_found' || error.status === 401
-          ? 'O link expirou. Volte ao login e peça um novo em "Esqueci minha senha".'
+          ? 'O link expirou. Volte ao login e peça um novo acesso.'
           : mensagemErroAuth(error));
         return;
       }

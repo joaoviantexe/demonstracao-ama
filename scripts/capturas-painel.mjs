@@ -12,7 +12,7 @@
 //   não salvas, modal, toasts e saída. Em 390 px também o seletor de mídia com envio real
 //   para o bucket (o arquivo é apagado no fim).
 // - Usuário comum (criado e apagado aqui) recebe "sem permissão"; rota preservada no login;
-//   sessão encerrada em outra aba mostra o login por cima da página; "Esqueci minha senha";
+//   sessão encerrada em outra aba mostra o login por cima da página; login sem "Esqueci minha senha";
 //   painel sem Supabase mostra "Painel em configuração".
 // - Regressões do núcleo (docs/PAINEL.md §13): botões do topo por largura, "Tentar novamente" da
 //   visão geral, ctx.navegar(hash atual, { substituir: true }), modal fechado pelo botão Voltar e
@@ -492,7 +492,7 @@ async function rodarLargura(navegador, base, largura) {
 }
 
 async function testarAcesso(navegador, base) {
-  console.log('\n== usuário comum, rota preservada, sessão encerrada e "Esqueci minha senha" (390px)');
+  console.log('\n== usuário comum, rota preservada, sessão encerrada e login (390px)');
   const sufixo = randomBytes(4).toString('hex');
   const comum = { email: `comum-${sufixo}@ama.local`, senha: `senha-${sufixo}-123` };
   const usuario = await criarUsuario({ email: comum.email, senha: comum.senha, admin: false });
@@ -552,7 +552,7 @@ async function testarAcesso(navegador, base) {
     if (depois !== 'Texto ainda não salvo') falhar('o texto não salvo se perdeu depois de entrar de novo');
     else ok('entrou de novo e continuou na mesma página, com o texto');
 
-    // Esqueci minha senha.
+    // Sem "Esqueci minha senha": o login só tem e-mail e senha.
     await pagina.evaluate(() => { window.location.hash = '#/'; });
     await pagina.waitForSelector('dialog.modal--confirmar[open]');
     await pagina.getByRole('button', { name: 'Descartar e sair' }).click();
@@ -560,16 +560,9 @@ async function testarAcesso(navegador, base) {
     await abrirGaveta(pagina);
     await pagina.locator('.menu-lateral__sair').click();
     await pagina.waitForSelector('form.acesso__formulario');
-    await pagina.getByRole('button', { name: 'Esqueci minha senha' }).click();
-    await pagina.waitForSelector('text=Enviar link');
-    await pagina.locator('.acesso input[name="email"]').fill(ADMIN.email);
-    await pagina.getByRole('button', { name: 'Enviar link' }).click();
-    await pagina.waitForSelector('.acesso .aviso--sucesso:not([hidden]), .acesso .aviso--erro:not([hidden])', { timeout: 15_000 });
-    const texto = (await pagina.locator('.acesso .aviso:not([hidden])').first().textContent()).trim();
-    // Sem servidor de e-mail no Supabase local o Auth responde 500: vale o aviso de falha no envio.
-    if (!/Pronto!|não conseguiu enviar o e-mail/.test(texto)) falhar(`esqueci minha senha: "${texto}"`);
-    else ok(`esqueci minha senha: "${texto.slice(0, 70)}…"`);
-    await capturar(pagina, 'esqueci-senha-390');
+    if (await pagina.getByText(/esqueci minha senha/i).count()) falhar('o login ainda mostra "Esqueci minha senha"');
+    else ok('login sem "Esqueci minha senha"');
+    await capturar(pagina, 'login-390');
 
     // Link de recuperação vencido (#error=…): mensagem clara no login e URL limpa.
     await pagina.goto('about:blank');

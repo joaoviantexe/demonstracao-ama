@@ -110,7 +110,7 @@ aprovado (merge), a `main` ainda tem o site antigo. Para a demonstração há do
 
 ### Passo 3. Avisar o Supabase sobre o endereço do site
 
-Necessário para o "Esqueci minha senha" do painel funcionar.
+Necessário para os links de e-mail do Supabase (convite de novo usuário e redefinição de senha feita pelo Supabase) abrirem o painel.
 
 1. No Supabase: **Authentication** → **URL Configuration**.
 2. **Site URL**: o endereço da Vercel (ex.: `https://demonstracao-ama.vercel.app`).
@@ -118,8 +118,8 @@ Necessário para o "Esqueci minha senha" do painel funcionar.
    (ex.: `https://demonstracao-ama.vercel.app/admin/`). Se for usar o link de prévia (caminho A), adicione também
    `https://*-joaoviantexes-projects.vercel.app/admin/` trocando pelo final real do seu link de prévia.
 
-> O e-mail de recuperação de senha usa o servidor de e-mail do próprio Supabase, que só envia para membros da
-> equipe do projeto e no máximo 2 por hora. Para a demonstração isso basta; para produção, veja a Parte 2.
+> O painel não tem "Esqueci minha senha". Para trocar uma senha, use o Supabase: **Authentication** → **Users** →
+> os três pontinhos do usuário → **Send password recovery** (ou crie outra senha ao recriar o usuário).
 
 ### Passo 4. Conferir
 
@@ -188,8 +188,9 @@ Faça quando a AMA aprovar o site e definir preços.
 5. **E-mails de pedido (opcional).** Crie a conta no [Resend](https://resend.com), verifique o domínio, gere uma
    API key e cadastre `RESEND_API_KEY` e `EMAIL_REMETENTE` (ex.: `AMA <loja@seudominio.com.br>`). No painel, em
    **Configurações → Avisos por e-mail**, informe o e-mail da equipe que recebe o aviso de novo pedido.
-6. **E-mail de recuperação de senha.** Configure um SMTP próprio no Supabase (**Authentication** → **Emails** →
-   **SMTP Settings**; o Resend oferece SMTP). Sem isso, o Supabase envia no máximo 2 e-mails por hora.
+6. **E-mails do Supabase (opcional).** Só são usados em convites e na recuperação de senha feita pelo Supabase. O
+   servidor padrão envia no máximo 2 por hora; se precisar de mais, configure um SMTP próprio (**Authentication** →
+   **Emails** → **SMTP Settings**; o Resend oferece SMTP).
 7. **Limites do plano grátis do Supabase:** 500 MB de banco, 1 GB de arquivos (50 MB por arquivo) e o projeto é
    pausado depois de 7 dias sem uso. O site faz uma consulta diária automática (`/api/cron/manter-ativo`) para
    evitar a pausa; mesmo assim, se receber o e-mail de aviso do Supabase, abra o projeto e clique em restaurar.
