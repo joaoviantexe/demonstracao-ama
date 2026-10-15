@@ -5,7 +5,12 @@
 // - adicionar_carrinho: recota o serviço entrega.servico_id com os itens do pedido (medidas atuais dos
 //   produtos; produto apagado usa a embalagem padrão) e cria UM item de carrinho por pacote, com remetente
 //   frete.origem e destinatário do pedido. chave_nfe (44 dígitos) → NF-e; sem ela, declaração de conteúdo.
-//   Se o pedido já tem etiquetas, recusa (409) a menos que venha refazer: true (substitui me_ordens).
+//   Falha no meio da lista: lib/melhorenvio desfaz as já criadas; as que não saírem do carrinho
+//   (extra.carrinho_orfaos) viram um evento 'alerta' no pedido e voltam na resposta de erro.
+//   Se o pedido já tem etiquetas, recusa (409 'etiquetas_existentes') a menos que venha refazer: true. Ao refazer,
+//   etiqueta antiga já paga (e não cancelada) → 409 'etiquetas_pagas' (cancele no Melhor Envio antes); as não
+//   pagas saem do carrinho do Melhor Envio DEPOIS que as novas foram criadas e salvas (as que não saírem viram
+//   'alerta'), para nunca ficarem etiquetas em dobro esperando pagamento.
 // - comprar: confere quais etiquetas ainda não foram pagas e o saldo da carteira antes de comprar.
 // - gerar: pede a geração (assíncrona no Melhor Envio).
 // - imprimir: confere generated_at de cada etiqueta antes (senão 409 'etiqueta_em_geracao') e usa mode "public".
@@ -18,14 +23,14 @@ import { formatarReais } from '../../lib/dinheiro.js';
 import { montarProdutosMelhorEnvio } from '../../lib/frete.js';
 import { ErroHttp, exigirMetodo, lerCorpo, responderJson, tratarErro, urlBase } from '../../lib/http.js';
 import {
-  atualizarPedido, buscarPedido, CABECALHOS_SEM_CACHE, erroDaLoja, lerConfiguracoes, registrarEvento,
+  atualizarPedido, buscarPedido, CABECALHOS_SEM_CACHE, erroDaLoja, lerConfiguracoes, registrarEvento, urlRastreioValida,
 } from '../../lib/loja.js';
 import {
   adicionarAoCarrinho, aguardarGeracao, calcular, comprar, destinatarioDoPedido, gerar, imprimir, montarItensCarrinho,
-  obterEtiqueta, rastrear,
+  obterEtiqueta, rastrear, removerDoCarrinho,
 } from '../../lib/melhorenvio.js';
 import { servico } from '../../lib/supabase.js';
-import { validarUuid } from '../../lib/validacao.js';
+import { somenteDigitos, validarUuid } from '../../lib/validacao.js';
 
 export const ACOES_ENVIO = Object.freeze(['adicionar_carrinho', 'comprar', 'gerar', 'imprimir', 'rastrear']);
 const STATUS_PERMITIDOS = ['pago', 'em_separacao', 'enviado'];
@@ -36,8 +41,7 @@ const SELECT = [
   'pedido_itens(id,produto_id,nome,quantidade,preco_unitario_centavos,total_centavos)',
 ].join(',');
 
-// Mesma regra do check pedidos_url_rastreio_check da migração.
-const URL_RASTREIO_VALIDA = /^https:\/\/[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?([/?#][^\s\u0000-\u001f\u007f"'<>`\\]*)?$/i;
+// Códigos de rastreio vindos do Melhor Envio (vários vão juntos, separados por vírgula).
 const CODIGO_VALIDO = /^[A-Za-z0-9._-]{1,60}$/;
 
 const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
@@ -100,12 +104,65 @@ async function salvar(pedido, campos, contexto) {
   }
 }
 
+const status404 = (erro) => Boolean(erro && erro.extra && erro.extra.status_melhor_envio === 404);
+const rotulosDe = (lista) => lista.map((e) => e.protocolo || e.id).join(', ');
+
+// Etiquetas antigas de um pedido que vai refazer o carrinho. Já paga e não cancelada → 409 (o saldo foi
+// debitado: cancele no Melhor Envio antes). Devolve as que ainda estão no carrinho (para remover depois).
+async function etiquetasParaSubstituir(ids) {
+  const vivas = [];
+  for (const id of ids) {
+    let etiqueta;
+    try {
+      etiqueta = await obterEtiqueta(id);
+    } catch (erro) {
+      if (status404(erro)) continue; // já não existe no Melhor Envio
+      throw erro;
+    }
+    if (!etiqueta.cancelada) vivas.push(etiqueta);
+  }
+  const pagas = vivas.filter((e) => e.paga);
+  if (pagas.length) {
+    throw new ErroHttp(409, 'etiquetas_pagas',
+      `${pagas.length === 1 ? 'A etiqueta' : 'As etiquetas'} ${rotulosDe(pagas)} já ${pagas.length === 1 ? 'foi paga' : 'foram pagas'} no Melhor Envio. `
+        + 'Cancele no painel do Melhor Envio (o valor volta para a carteira) antes de refazer.',
+      { me_ordens: ids, pagas: pagas.map((e) => e.id) });
+  }
+  return vivas;
+}
+
+// Tira do carrinho as etiquetas substituídas. Nunca lança: as que não saírem viram um alerta no pedido.
+async function removerSubstituidas(pedido, etiquetas, autor) {
+  const removidas = [];
+  const orfaos = [];
+  for (const etiqueta of etiquetas) {
+    try {
+      await removerDoCarrinho(etiqueta.id);
+      removidas.push(etiqueta.id);
+    } catch (erro) {
+      if (status404(erro)) removidas.push(etiqueta.id);
+      else orfaos.push({ id: etiqueta.id, protocolo: etiqueta.protocolo });
+    }
+  }
+  if (orfaos.length) {
+    await registrarEvento(pedido.id, 'alerta',
+      `Etiquetas antigas continuam no carrinho do Melhor Envio: ${rotulosDe(orfaos)}. Remova-as no painel do Melhor Envio para não pagar em dobro.`,
+      { carrinho_orfaos: orfaos }, autor);
+  }
+  return { removidas, orfaos };
+}
+
 async function acaoAdicionarCarrinho({ pedido, corpo, autor, siteUrl }) {
   const atuais = idsDe(pedido.me_ordens);
-  if (atuais.length && corpo.refazer !== true) {
+  const refazer = corpo.refazer === true;
+  if (atuais.length && !refazer) {
     throw new ErroHttp(409, 'etiquetas_existentes',
-      `Este pedido já tem ${plural(atuais.length, 'etiqueta', 'etiquetas')} no Melhor Envio. Siga com comprar, gerar, imprimir ou rastrear.`,
+      `Este pedido já tem ${plural(atuais.length, 'etiqueta', 'etiquetas')} no Melhor Envio. Siga com comprar, gerar, imprimir ou rastrear (ou refaça as etiquetas).`,
       { me_ordens: atuais });
+  }
+  const chaveNfe = typeof corpo.chave_nfe === 'string' && corpo.chave_nfe.trim() ? corpo.chave_nfe.trim() : undefined;
+  if (chaveNfe && somenteDigitos(chaveNfe).length !== 44) {
+    throw new ErroHttp(400, 'chave_nfe_invalida', 'A chave da NF-e deve ter 44 dígitos.', { campo: 'chave_nfe' });
   }
   const { frete } = await lerConfiguracoes();
   const servicoId = Number(pedido.entrega && pedido.entrega.servico_id);
@@ -115,7 +172,7 @@ async function acaoAdicionarCarrinho({ pedido, corpo, autor, siteUrl }) {
   if (!frete.origem.cep) {
     throw new ErroHttp(400, 'origem_incompleta', 'Preencha o CEP de origem nas configurações de frete.');
   }
-  const chaveNfe = typeof corpo.chave_nfe === 'string' && corpo.chave_nfe.trim() ? corpo.chave_nfe.trim() : undefined;
+  const substituidas = atuais.length ? await etiquetasParaSubstituir(atuais) : [];
 
   const itens = await itensComMedidas(pedido);
   const produtos = montarProdutosMelhorEnvio(itens, {
@@ -153,7 +210,7 @@ async function acaoAdicionarCarrinho({ pedido, corpo, autor, siteUrl }) {
     const orfaos = erro && erro.extra && Array.isArray(erro.extra.carrinho_orfaos) ? erro.extra.carrinho_orfaos : [];
     if (orfaos.length) {
       await registrarEvento(pedido.id, 'alerta',
-        `Etiquetas ficaram no carrinho do Melhor Envio após uma falha: ${orfaos.map((o) => o.protocolo || o.id).join(', ')}. Remova-as no painel do Melhor Envio antes de tentar de novo.`,
+        `Etiquetas ficaram no carrinho do Melhor Envio após uma falha: ${rotulosDe(orfaos)}. Remova-as no painel do Melhor Envio antes de tentar de novo.`,
         { carrinho_orfaos: orfaos }, autor);
     }
     throw erro;
@@ -165,13 +222,26 @@ async function acaoAdicionarCarrinho({ pedido, corpo, autor, siteUrl }) {
   }));
   const total = etiquetas.reduce((soma, e) => soma + (Number.isSafeInteger(e.preco_centavos) ? e.preco_centavos : 0), 0);
   await salvar(pedido, { me_ordens: meOrdens, etiqueta_url: null },
-    `etiquetas ${etiquetas.map((e) => e.protocolo || e.id).join(', ')} no carrinho`);
+    `etiquetas ${rotulosDe(etiquetas)} no carrinho`);
+  // Só agora (novas já salvas no pedido) as antigas saem do carrinho.
+  const { removidas, orfaos } = substituidas.length
+    ? await removerSubstituidas(pedido, substituidas, autor) : { removidas: [], orfaos: [] };
   await registrarEvento(pedido.id, 'envio',
     `${plural(etiquetas.length, 'etiqueta adicionada', 'etiquetas adicionadas')} ao carrinho do Melhor Envio (${cotado.nome}, ${formatarReais(total)})`
-      + `${chaveNfe ? ' com NF-e' : ' com declaração de conteúdo'}`,
-    { acao: 'adicionar_carrinho', servico_id: servicoId, etiquetas, substituiu: atuais.length ? atuais : undefined, nfe: Boolean(chaveNfe) },
+      + `${chaveNfe ? ' com NF-e' : ' com declaração de conteúdo'}`
+      + (atuais.length ? `, substituindo ${plural(atuais.length, 'etiqueta antiga', 'etiquetas antigas')}` : ''),
+    {
+      acao: 'adicionar_carrinho',
+      servico_id: servicoId,
+      etiquetas,
+      substituiu: atuais.length ? atuais : undefined,
+      removidas_do_carrinho: atuais.length ? removidas : undefined,
+      nfe: Boolean(chaveNfe),
+    },
     autor);
-  return { me_ordens: meOrdens, etiquetas, total_centavos: total };
+  const saida = { me_ordens: meOrdens, etiquetas, total_centavos: total };
+  if (atuais.length) Object.assign(saida, { substituidas: atuais, removidas_do_carrinho: removidas, carrinho_orfaos: orfaos });
+  return saida;
 }
 
 async function acaoComprar({ pedido, autor }) {
@@ -250,7 +320,7 @@ async function acaoRastrear({ pedido, autor }) {
   const dados = await rastrear(ids);
   const lista = ids.map((id) => dados[id]).filter(Boolean);
   const codigos = juntarCodigos(lista.map((r) => r.codigo_rastreio));
-  const url = lista.map((r) => r.url_rastreio).find((u) => typeof u === 'string' && u.length <= 500 && URL_RASTREIO_VALIDA.test(u)) || null;
+  const url = lista.map((r) => r.url_rastreio).find((u) => urlRastreioValida(u)) || null;
 
   const campos = {};
   if (codigos && codigos !== pedido.codigo_rastreio) campos.codigo_rastreio = codigos;

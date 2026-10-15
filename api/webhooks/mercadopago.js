@@ -9,12 +9,16 @@
 //    ou pedido inexistente → 200 ignorado.
 // 4. confirmar_pagamento (+ e-mails se virou pago) → 200.
 // 5. Falha transitória (Mercado Pago ou banco fora) → 500 para o Mercado Pago tentar de novo.
+// O Mercado Pago espera a resposta em até 22 s: a consulta ao pagamento tem prazo curto (TIMEOUT_CONSULTA_MS)
+// e os e-mails, 5 s cada (em paralelo). Sem MP_ACCESS_TOKEN → 503 (o Mercado Pago reenvia depois).
 
 import { obterAmbiente } from '../../lib/ambiente.js';
 import { exigirMetodo, lerCorpo, lerQuery, responderJson, urlBase } from '../../lib/http.js';
 import { sincronizarPagamento } from '../../lib/loja.js';
 import { obterPagamento, validarAssinatura } from '../../lib/mercadopago.js';
 import { validarUuid } from '../../lib/validacao.js';
+
+const TIMEOUT_CONSULTA_MS = 8_000;
 
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
@@ -81,7 +85,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const pagamento = await obterPagamento(id);
+    const pagamento = await obterPagamento(id, { timeoutMs: TIMEOUT_CONSULTA_MS });
     if (!pagamento) return ignorar(res, 'pagamento_inexistente');
     if (!validarUuid(String(pagamento.external_reference ?? ''))) return ignorar(res, 'referencia_externa');
 

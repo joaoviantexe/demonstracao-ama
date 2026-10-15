@@ -284,6 +284,8 @@ before(async () => {
   P.inativo = await criarProduto({ preco_centavos: 1000, ativo: false });
   P.ultimo = await criarProduto({ preco_centavos: 1990, estoque: 1 });
   P.envio = await criarProduto({ preco_centavos: 3500, estoque: 30, peso_gramas: 400, altura_cm: 5, largura_cm: 12, comprimento_cm: 18 });
+  // 40 cm de altura: no PAC do falso, 3 unidades viram 2 pacotes (empilhadas passam de 100 cm).
+  P.grande = await criarProduto({ preco_centavos: 5000, estoque: 30, peso_gramas: 1000, altura_cm: 40, largura_cm: 20, comprimento_cm: 30 });
 
   C.percentual = await criarCupom({ codigo: `P${SUF_M}`, tipo: 'percentual', valor: 10 });
   C.frete = await criarCupom({ codigo: `F${SUF_M}`, tipo: 'frete_gratis', valor: 0 });
@@ -938,7 +940,13 @@ describe('rotas de admin', () => {
       metodo: 'POST', token: tokenAdmin, corpo: { pedido_id: id, status: 'enviado', url_rastreio: 'https://exemplo.com/"><script>' },
     });
     assert.equal(urlRuim.status, 400);
-    assert.equal(urlRuim.json.campo, 'p_rastreio.url_rastreio');
+    assert.equal(urlRuim.json.campo, 'url_rastreio', 'mesma regra do banco, com o nome do campo da entrada');
+    const codigoRuim = await api('/api/admin/pedido-status', {
+      metodo: 'POST', token: tokenAdmin, corpo: { pedido_id: id, status: 'enviado', codigo_rastreio: 'AA1<b>' },
+    });
+    assert.equal(codigoRuim.status, 400);
+    assert.equal(codigoRuim.json.campo, 'codigo_rastreio');
+    assert.equal((await pedidoDoBanco(id)).status, 'pago', 'nada mudou com os dados inválidos');
     const inexistente = await api('/api/admin/pedido-status', { metodo: 'POST', token: tokenAdmin, corpo: { pedido_id: randomUUID(), status: 'enviado' } });
     assert.equal(inexistente.status, 404);
 
@@ -983,6 +991,41 @@ describe('rotas de admin', () => {
     assert.equal(entregue.status, 200);
     assert.equal(entregue.json.email_enviado, null);
     assert.equal(resend.emails.length, emailsAntes + 1);
+  });
+
+  test('POST /api/admin/pedido-status: cancelado com repor_estoque devolve o estoque e avisa o cliente', async () => {
+    const novo = await checkoutOk({ itens: [{ produto_id: P.principal.id, quantidade: 2 }] });
+    const { id } = novo.pedido;
+    const estoqueAntes = await estoque(P.principal.id);
+    await pagarNaPagina(novo.redirecionar, 'aprovar');
+    assert.equal(await estoque(P.principal.id), estoqueAntes - 2);
+
+    const emailsAntes = resend.emails.length;
+    const r = await api('/api/admin/pedido-status', {
+      metodo: 'POST',
+      token: tokenAdmin,
+      corpo: { pedido_id: id, status: 'cancelado', repor_estoque: true, notificar_cliente: true, nota: 'Cliente desistiu' },
+    });
+    assert.equal(r.status, 200, r.texto);
+    assert.equal(r.json.status_anterior, 'pago');
+    assert.equal(r.json.status_novo, 'cancelado');
+    assert.equal(r.json.estoque_reposto, true);
+    assert.equal(r.json.email_enviado, true);
+    assert.equal(await estoque(P.principal.id), estoqueAntes, 'estoque devolvido');
+
+    const banco = await pedidoDoBanco(id);
+    assert.equal(banco.status, 'cancelado');
+    assert.ok(banco.cancelado_em);
+    assert.equal(banco.estoque_baixado, false);
+    const novos = resend.emails.slice(emailsAntes);
+    assert.equal(novos.length, 1);
+    assert.deepEqual(novos[0].corpo.to, [CLIENTE.email]);
+    assert.match(novos[0].corpo.subject, /foi cancelado/);
+    assert.ok(eventos(banco, 'email').some((e) => e.dados && e.dados.modelo === 'status_cancelado' && e.autor === EMAIL_ADMIN));
+
+    const consulta = await consultarPedido(id, novo.pedido.token);
+    assert.equal(consulta.json.pedido.status, 'cancelado');
+    assert.equal(consulta.json.pedido.pode_pagar, false);
   });
 
   test('POST /api/admin/envio: regras de pedido e ação', async () => {
@@ -1058,6 +1101,11 @@ describe('rotas de admin', () => {
     assert.equal(deNovo.json.compra, null, 'já pagas: não compra de novo');
     assert.equal(me.estado.compras.length, 1);
 
+    const refazerPagas = await envio({ acao: 'adicionar_carrinho', refazer: true });
+    assert.equal(refazerPagas.status, 409);
+    assert.equal(refazerPagas.json.erro, 'etiquetas_pagas');
+    assert.deepEqual((await pedidoDoBanco(id)).me_ordens, carrinho.json.me_ordens, 'etiquetas pagas continuam no pedido');
+
     const gerar = await envio({ acao: 'gerar' });
     assert.equal(gerar.status, 200, gerar.texto);
     for (const ordem of carrinho.json.me_ordens) assert.equal(gerar.json.resultado[ordem].ok, true);
@@ -1086,6 +1134,90 @@ describe('rotas de admin', () => {
     const doEnvio = eventos(banco, 'envio');
     assert.ok(doEnvio.length >= 4, 'carrinho, compra, geração e impressão');
     assert.ok(doEnvio.every((e) => e.autor === EMAIL_ADMIN));
+  });
+
+  test('POST /api/admin/envio: NF-e com vários pacotes, refazer e etiquetas que não saem do carrinho', async (t) => {
+    t.mock.method(console, 'error', () => {});
+    const novo = await checkoutOk({ itens: [{ produto_id: P.grande.id, quantidade: 3 }], frete_id: 'me-1' });
+    await pagarNaPagina(novo.redirecionar, 'aprovar');
+    const { id } = novo.pedido;
+    const envio = (corpo) => api('/api/admin/envio', { metodo: 'POST', token: tokenAdmin, corpo: { pedido_id: id, ...corpo } });
+    const chave = '15261012345678000199550010000012341000012345';
+
+    const antesInvalida = me.estado.requisicoes.length;
+    const invalida = await envio({ acao: 'adicionar_carrinho', chave_nfe: '123' });
+    assert.equal(invalida.status, 400);
+    assert.equal(invalida.json.erro, 'chave_nfe_invalida');
+    assert.equal(me.estado.requisicoes.length, antesInvalida, 'chave inválida nem chega ao Melhor Envio');
+
+    const antes = me.estado.requisicoes.length;
+    const nfe = await envio({ acao: 'adicionar_carrinho', chave_nfe: chave });
+    assert.equal(nfe.status, 200, nfe.texto);
+    assert.equal(nfe.json.me_ordens.length, 2, 'um item de carrinho por pacote');
+    const posts = me.estado.requisicoes.slice(antes).filter((q) => q.metodo === 'POST' && q.caminho === '/cart');
+    assert.equal(posts.length, 2);
+    for (const post of posts) {
+      assert.equal(post.corpo.volumes.length, 1);
+      assert.equal(post.corpo.options.non_commercial, false);
+      assert.deepEqual(post.corpo.options.invoice, { key: chave });
+      assert.equal(post.corpo.to.document, CPF_DIGITOS);
+    }
+    const numerica = (a, b) => a - b;
+    assert.deepEqual(posts.map((q) => q.corpo.products[0].quantity).sort(numerica), [1, 2], '3 unidades em 2 pacotes');
+    assert.deepEqual(posts.map((q) => q.corpo.options.insurance_value).sort(numerica), [50, 100], 'valor declarado por pacote');
+    let banco = await pedidoDoBanco(id);
+    assert.deepEqual(banco.me_ordens, nfe.json.me_ordens);
+    assert.ok(eventos(banco, 'envio').at(-1).descricao.includes('NF-e'));
+
+    // Refazer: novas etiquetas no pedido e as antigas (não pagas) saem do carrinho.
+    const refeito = await envio({ acao: 'adicionar_carrinho', refazer: true });
+    assert.equal(refeito.status, 200, refeito.texto);
+    assert.equal(refeito.json.me_ordens.length, 2);
+    assert.deepEqual([...refeito.json.removidas_do_carrinho].sort(), [...nfe.json.me_ordens].sort());
+    assert.deepEqual(refeito.json.carrinho_orfaos, []);
+    for (const antiga of nfe.json.me_ordens) assert.ok(!me.estado.carrinho.includes(antiga), 'antiga saiu do carrinho');
+    for (const nova of refeito.json.me_ordens) assert.ok(me.estado.carrinho.includes(nova));
+    banco = await pedidoDoBanco(id);
+    assert.deepEqual(banco.me_ordens, refeito.json.me_ordens);
+    const evRefazer = eventos(banco, 'envio').at(-1);
+    assert.deepEqual(evRefazer.dados.substituiu, nfe.json.me_ordens);
+    assert.equal(evRefazer.dados.nfe, false, 'sem chave: declaração de conteúdo');
+
+    // Refazer com o Melhor Envio recusando a remoção: as novas ficam no pedido e as antigas viram alerta.
+    me.estado.forcar(/^\/cart\//, { metodo: 'DELETE', status: 500, vezes: 2 });
+    const semRemover = await envio({ acao: 'adicionar_carrinho', refazer: true });
+    assert.equal(semRemover.status, 200, semRemover.texto);
+    assert.equal(semRemover.json.carrinho_orfaos.length, 2);
+    banco = await pedidoDoBanco(id);
+    assert.deepEqual(banco.me_ordens, semRemover.json.me_ordens);
+    const alerta = eventos(banco, 'alerta').at(-1);
+    assert.match(alerta.descricao, /continuam no carrinho/);
+    assert.deepEqual(alerta.dados.carrinho_orfaos.map((o) => o.id).sort(), [...refeito.json.me_ordens].sort());
+    assert.equal(alerta.autor, EMAIL_ADMIN);
+
+    // Falha no 2º pacote com a 1ª etiqueta presa no carrinho: o pedido não muda e o órfão vira alerta.
+    const doPedido = semRemover.json.me_ordens;
+    me.estado.ajustesServicos[1] = {
+      packages: [
+        { price: '20.00', format: 'box', dimensions: { height: 40, width: 20, length: 30 }, weight: '1.00', insurance_value: '50.00', products: [{ id: P.grande.id, quantity: 1 }] },
+        { price: '30.00', format: 'box', dimensions: { height: 150, width: 20, length: 30 }, weight: '2.00', insurance_value: '100.00', products: [{ id: P.grande.id, quantity: 2 }] },
+      ],
+    };
+    me.estado.forcar(/^\/cart\//, { metodo: 'DELETE', status: 500, vezes: 1 });
+    let falhou;
+    try {
+      falhou = await envio({ acao: 'adicionar_carrinho', refazer: true });
+    } finally {
+      delete me.estado.ajustesServicos[1];
+      me.estado.forcadas.length = 0;
+    }
+    assert.ok(falhou.status >= 400 && falhou.status < 600, falhou.texto);
+    assert.equal(falhou.json.carrinho_orfaos.length, 1);
+    banco = await pedidoDoBanco(id);
+    assert.deepEqual(banco.me_ordens, doPedido, 'o pedido continua com as etiquetas anteriores');
+    const alertaOrfao = eventos(banco, 'alerta').at(-1);
+    assert.match(alertaOrfao.descricao, /após uma falha/);
+    assert.equal(alertaOrfao.dados.carrinho_orfaos[0].id, falhou.json.carrinho_orfaos[0].id);
   });
 
   test('POST /api/admin/pagamento: conferência pelo search escolhe o aprovado', async () => {

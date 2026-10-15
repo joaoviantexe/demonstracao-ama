@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import {
-  CONFIG_PADRAO, cotar, erroDaLoja, lerConfiguracoes, limparCacheConfiguracoes, normalizarConfiguracoes, sincronizarPagamento,
+  codigoRastreioValido, CONFIG_PADRAO, cotar, erroDaLoja, lerConfiguracoes, limparCacheConfiguracoes, normalizarConfiguracoes,
+  sincronizarPagamento, urlRastreioValida,
 } from '../../lib/loja.js';
 import { ErroHttp } from '../../lib/http.js';
 import { ErroSupabase } from '../../lib/supabase.js';
@@ -24,6 +25,7 @@ const URL_SUPA = 'http://supabase.teste';
 const ANON = 'sb_publishable_teste';
 const SERVICO = 'sb_secret_teste_nao_pode_vazar';
 const MP = 'http://mp.teste';
+const ME = 'http://me.teste';
 const RESEND = 'http://resend.teste';
 const SEGREDO = 'segredo-teste';
 const JWT = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.assinatura';
@@ -203,6 +205,33 @@ describe('lib/loja.js — cotar e sincronizarPagamento', () => {
     const r = await cotar({ itens: [{ produto_id: ID_PRODUTO, quantidade: 1 }] }, { comFrete: true });
     assert.deepEqual(r.frete.opcoes.map((o) => o.id), ['retirada']);
     assert.ok(r.frete.erro);
+  });
+
+  test('cotar: frete grátis por valor mínimo usa o subtotal já com desconto; cupom frete_gratis sempre vale', async () => {
+    aplicarAmbiente(SUPABASE);
+    const item = itemCotado({ preco_unitario_centavos: 10_000, quantidade: 2, total_centavos: 20_000 });
+    const comDesconto = { ...COTACAO_OK, itens: [item], subtotal_centavos: 20_000, desconto_centavos: 2_000 };
+    fetchSimulado = supabaseFalso({ 'rpc/cotar_carrinho': comDesconto });
+    // Limite de LINHAS_CONFIG: R$ 200,00. Subtotal R$ 200,00 − R$ 20,00 de desconto = R$ 180,00 → sem frete grátis.
+    const abaixo = await cotar({ itens: [{ produto_id: ID_PRODUTO, quantidade: 2 }], cep: '66010-000' });
+    assert.equal(abaixo.frete_gratis_acima_centavos, 20_000);
+    assert.deepEqual(abaixo.frete.opcoes.map((o) => o.id), ['fixo-1', 'retirada']);
+    assert.ok(abaixo.frete.opcoes.every((o) => o.gratis === false));
+
+    fetchSimulado.restaurar();
+    fetchSimulado = supabaseFalso({ 'rpc/cotar_carrinho': { ...comDesconto, desconto_centavos: 0 } });
+    const noLimite = await cotar({ itens: [{ produto_id: ID_PRODUTO, quantidade: 2 }], cep: '66010-000' });
+    assert.equal(noLimite.frete.opcoes[0].gratis, true);
+    assert.equal(noLimite.frete.opcoes[0].preco_centavos, 0);
+    assert.equal(noLimite.frete.opcoes[0].preco_original_centavos, 1500);
+
+    fetchSimulado.restaurar();
+    fetchSimulado = supabaseFalso({
+      'rpc/cotar_carrinho': { ...COTACAO_OK, frete_gratis_cupom: true, cupom: { codigo: 'FRETE', valido: true, tipo: 'frete_gratis', mensagem: 'ok' } },
+    });
+    const cupom = await cotar({ itens: [{ produto_id: ID_PRODUTO, quantidade: 1 }], cep: '66010-000', cupom: 'frete' });
+    assert.equal(cupom.frete.opcoes.find((o) => o.id === 'fixo-1').gratis, true);
+    assert.equal(cupom.cupom.tipo, 'frete_gratis');
   });
 
   test('cotar: banco devolve itens vazios → 400 carrinho_vazio', async () => {
@@ -558,6 +587,44 @@ describe('rotas de admin (unidade)', () => {
     });
   });
 
+  test('urlRastreioValida e codigoRastreioValido seguem as regras do banco', () => {
+    for (const ok of ['https://rastreamento.correios.com.br/app/index.php', 'https://melhorrastreio.com.br/rastreio/AA1BR?x=1#y', 'https://a.b:8443']) {
+      assert.equal(urlRastreioValida(ok), true, ok);
+    }
+    for (const ruim of ['http://x.com', 'https://', 'https://x.com/a b', 'https://x.com/"><script>', "https://x.com/'", 'https://x.com/`',
+      'https://x.com/\\a', 'javascript:alert(1)', `https://x.com/${'a'.repeat(500)}`, null, 12]) {
+      assert.equal(urlRastreioValida(ruim), false, String(ruim));
+    }
+    assert.equal(codigoRastreioValido('AA123456789BR, BB987654321BR'), true);
+    for (const ruim of ['AA<b>', 'a"b', "a'b", 'a`b', 'a\u0001b', 'x'.repeat(201), 5]) assert.equal(codigoRastreioValido(ruim), false);
+  });
+
+  test('pedido-status: erros de rastreio com o nome do campo da entrada (inclusive vindos do banco)', async () => {
+    assert.throws(() => argumentosStatus({ pedido_id: ID_PEDIDO, status: 'enviado', url_rastreio: 'https://x.com/"a' }),
+      (e) => e.status === 400 && e.extra.campo === 'url_rastreio');
+    assert.throws(() => argumentosStatus({ pedido_id: ID_PEDIDO, status: 'enviado', codigo_rastreio: 'AA<1>' }),
+      (e) => e.status === 400 && e.extra.campo === 'codigo_rastreio');
+    assert.deepEqual(argumentosStatus({ pedido_id: ID_PEDIDO, status: 'enviado', url_rastreio: '' }).p_rastreio, { url_rastreio: null }, '"" apaga');
+
+    aplicarAmbiente(SUPABASE);
+    for (const [detalhe, campo] of [['p_rastreio.url_rastreio', 'url_rastreio'], ['p_rastreio.codigo_rastreio', 'codigo_rastreio'], ['p_nota', 'nota']]) {
+      fetchSimulado = supabaseFalso({
+        'rpc/alterar_status_pedido': () => respostaJson(400, { code: 'P0001', message: 'dados_invalidos', details: detalhe }),
+      });
+      const r = await chamarHandler(pedidoStatus, {
+        method: 'POST', headers: comAdmin, body: { pedido_id: ID_PEDIDO, status: 'enviado', url_rastreio: 'https://ok.com/x' },
+      });
+      assert.equal(r.statusCode, 400);
+      assert.equal(r.json().erro, 'dados_invalidos');
+      assert.equal(r.json().campo, campo);
+      fetchSimulado.restaurar();
+      fetchSimulado = null;
+    }
+    fetchSimulado = supabaseFalso({ 'rpc/alterar_status_pedido': () => respostaJson(400, { code: 'P0001', message: 'pedido_nao_encontrado' }) });
+    const inexistente = await chamarHandler(pedidoStatus, { method: 'POST', headers: comAdmin, body: { pedido_id: ID_PEDIDO, status: 'pago' } });
+    assert.equal(inexistente.statusCode, 404);
+  });
+
   test('pedido-status: autor = e-mail do admin; sem pedir, nenhum e-mail', async () => {
     aplicarAmbiente(SUPABASE);
     fetchSimulado = supabaseFalso({ 'rpc/alterar_status_pedido': { status_anterior: 'pago', status_novo: 'em_separacao', mudou: true } });
@@ -576,6 +643,33 @@ describe('rotas de admin (unidade)', () => {
     const semMe = await chamarHandler(envio, { method: 'POST', headers: comAdmin, body: { pedido_id: ID_PEDIDO, acao: 'rastrear' } });
     assert.equal(semMe.statusCode, 503);
     assert.equal(semMe.json().erro, 'frete_nao_configurado');
+  });
+
+  test('envio: chave da NF-e inválida → 400 antes de chamar o Melhor Envio; pedido de retirada → 409', async () => {
+    aplicarAmbiente({ ...SUPABASE, MELHOR_ENVIO_TOKEN: 'token-me', MELHOR_ENVIO_API_BASE: ME });
+    const pedido = {
+      id: ID_PEDIDO, numero: 1001, status: 'pago', entrega: { tipo: 'melhor_envio', servico_id: 1, nome: 'PAC' },
+      endereco: { cep: '66010000' }, me_ordens: [], pedido_itens: [],
+    };
+    let linha = pedido;
+    fetchSimulado = supabaseFalso({ pedidos: () => respostaJson(200, [linha]), [ME]: () => respostaJson(500, {}) });
+    const r = await chamarHandler(envio, {
+      method: 'POST', headers: comAdmin, body: { pedido_id: ID_PEDIDO, acao: 'adicionar_carrinho', chave_nfe: '1234' },
+    });
+    assert.equal(r.statusCode, 400);
+    assert.equal(r.json().erro, 'chave_nfe_invalida');
+    assert.equal(r.json().campo, 'chave_nfe');
+    assert.equal(fetchSimulado.chamadas.filter((c) => c.url.startsWith(ME)).length, 0);
+
+    linha = { ...pedido, entrega: { tipo: 'retirada' } };
+    const retirada = await chamarHandler(envio, { method: 'POST', headers: comAdmin, body: { pedido_id: ID_PEDIDO, acao: 'rastrear' } });
+    assert.equal(retirada.statusCode, 409);
+    assert.equal(retirada.json().erro, 'envio_indisponivel');
+
+    linha = { ...pedido, status: 'aguardando_pagamento' };
+    const naoPago = await chamarHandler(envio, { method: 'POST', headers: comAdmin, body: { pedido_id: ID_PEDIDO, acao: 'rastrear' } });
+    assert.equal(naoPago.statusCode, 409);
+    assert.equal(naoPago.json().erro, 'status_nao_permite_envio');
   });
 
   test('pagamento: escolhe o aprovado mais recente, senão o mais recente', async () => {

@@ -21,6 +21,9 @@ const SELECT = [
   'pedido_itens(nome,imagem,quantidade,preco_unitario_centavos,total_centavos)',
 ].join(',');
 
+// A página do cliente espera esta consulta: prazo curto (sem resposta, mostra o pedido como está).
+const TIMEOUT_CONSULTA_MS = 8_000;
+
 const naoEncontrado = () => new ErroHttp(404, 'pedido_nao_encontrado',
   'Pedido não encontrado. Confira o link recebido no e-mail ou fale com a AMA.');
 
@@ -78,7 +81,7 @@ export function pedidoPublico(p) {
 async function sincronizarRetorno(pedidoId, paymentId, siteUrl) {
   if (!obterAmbiente().mercadoPagoConfigurado || !/^\d{1,20}$/.test(paymentId)) return false;
   try {
-    const pagamento = await obterPagamento(paymentId);
+    const pagamento = await obterPagamento(paymentId, { timeoutMs: TIMEOUT_CONSULTA_MS });
     if (!pagamento || String(pagamento.external_reference ?? '').trim().toLowerCase() !== pedidoId) return false;
     await sincronizarPagamento(pagamento, { siteUrl });
     return true;
