@@ -637,4 +637,6 @@ Aviso: as mudanças aparecem no site em até ~15 segundos.
   assinatura do webhook, regras de frete, montagem da preferência, handlers com `fetch` simulado.
 - `npm run test:integracao` — exige o Supabase local (`supabase start`) e `supabase db reset`: RLS, RPCs,
   idempotência do pagamento e do estoque, APIs completas contra servidores falsos do MP e do Melhor Envio.
-- `tests/e2e/` — Playwright: admin edita conteúdo e produto; cliente compra; webhook confirma; admin vê o pedido.
+- `npm run test:e2e` — Playwright (`tests/e2e/`), exige o Supabase local com o seed: admin edita o site; cliente
+  compra; pagamento aprovado no MP falso (webhook assinado); estoque baixa; admin envia pelo Melhor Envio falso
+  (carrinho → pagar → gerar → imprimir → rastreio → enviado); cliente vê o rastreio.

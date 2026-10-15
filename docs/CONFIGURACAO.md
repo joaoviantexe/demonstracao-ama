@@ -205,6 +205,7 @@ scripts/supabase-local.sh db reset       # aplica a migração e os dados de exe
 npm run dev                              # http://127.0.0.1:3000 (admin@ama.local / admin123456)
 npm test                                 # testes unitários
 npm run test:integracao                  # testes contra o Supabase local
+npm run test:e2e                         # compra de ponta a ponta no navegador (Playwright)
 ```
 
 O contrato técnico (tabelas, rotas, formatos) está em [`docs/ARQUITETURA.md`](ARQUITETURA.md).

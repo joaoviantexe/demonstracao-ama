@@ -41,6 +41,7 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
 - **Testes:**
   - `npm test`: 777 testes unitários.
   - `npm run test:integracao`: 140 testes contra o Supabase local.
+  - `npm run test:e2e`: compra de ponta a ponta no navegador (`tests/e2e/fluxo-completo.test.js`).
 
 ## Decisões do cliente que já valem (não desfazer)
 
@@ -103,7 +104,7 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
    `scripts/capturas-painel-<pagina>.mjs` e seus testes `tests/unit/painel-<pagina>.test.js`.
 2. **(Feito)** **Revisão independente** das páginas de conteúdo, mídia, produtos e categorias, rodando
    `scripts/capturas-painel-conteudo.mjs` e `scripts/capturas-painel-produtos.mjs` e olhando as capturas no celular.
-3. **Testes ponta a ponta com Playwright** em `tests/e2e/`:
+3. **(Feito)** **Testes ponta a ponta com Playwright** em `tests/e2e/`:
    - admin edita o site;
    - cliente compra;
    - pagamento aprovado no Mercado Pago falso;
