@@ -244,7 +244,6 @@ async function fluxoCompra(navegador, base) {
     await pagina.fill('#email', EMAIL);
     await pagina.fill('#telefone', '91981056049');
     await pagina.fill('#cpf', '52998224725');
-    await pagina.fill('#observacoes', 'É para presente: se possível, embalar com carinho.');
     // Entrega pelos Correios para mostrar o endereço preenchido pelo ViaCEP
     if (await pagina.locator('.opcao-frete input[value="retirada"]').count()) registrarProblema('o checkout ainda oferece a retirada na sede');
     await pagina.locator('.opcao-frete', { has: pagina.locator('input[value="me-1"]') }).click();

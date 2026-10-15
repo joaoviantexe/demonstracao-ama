@@ -679,10 +679,6 @@ async function renderizarDetalhe(ctx) {
   const areaCliente = el('div', { class: 'pilha pilha--estreita' });
   const areaEntrega = el('div', { class: 'pilha pilha--estreita' });
   const areaMais = el('div', { class: 'pilha pilha--estreita' });
-  const cartaoObservacoes = el('section', { class: 'cartao cartao--destaque pedido-bloco--obs', 'aria-labelledby': 'pd-obs', hidden: true },
-    el('div', { class: 'cartao__cabecalho' }, el('h2', { class: 'cartao__titulo', id: 'pd-obs' }, 'Observação da cliente')),
-    el('div', { class: 'cartao__corpo' }, el('p', { class: 'pedido-observacao' })));
-
   // Nota interna (fica fora de desenhar() para não perder o que foi digitado).
   const nota = ui.campo({
     rotulo: 'Nova nota da equipe', nome: 'nota', tipo: 'textarea', linhas: 3,
@@ -704,7 +700,6 @@ async function renderizarDetalhe(ctx) {
       el('div', { class: 'pilha' },
         cartao('pd-itens', 'Itens', areaItens),
         cartaoEnvio,
-        cartaoObservacoes,
         cartao('pd-tempo', 'Linha do tempo', formNota, listaEventos)),
       el('div', { class: 'pilha' },
         cartao('pd-situacao', 'Situação', areaSituacao),
@@ -828,10 +823,6 @@ async function renderizarDetalhe(ctx) {
       endereco.length
         ? el('address', { class: 'pedido-endereco' }, endereco.map((linha) => el('span', {}, linha)))
         : el('p', { class: 'texto-suave' }, 'Sem endereço.'),
-      endereco.length ? ui.botao({
-        texto: 'Copiar endereço', icone: 'copiar', tamanho: 'pequeno',
-        aoClicar: () => ui.copiarTexto([pedido.cliente_nome, ...endereco].filter(Boolean).join('\n'), { mensagem: 'Endereço copiado.' }),
-      }) : null,
       codigos.length || pedido.url_rastreio
         ? el('div', { class: 'pedido-rastreio' },
           el('p', { class: 'pedido-rastreio__rotulo' }, codigos.length > 1 ? 'Códigos de rastreio' : 'Rastreio'),
@@ -841,9 +832,6 @@ async function renderizarDetalhe(ctx) {
             : null)
         : null,
     );
-    const obs = String(pedido.observacoes || '').trim();
-    cartaoObservacoes.hidden = !obs;
-    cartaoObservacoes.querySelector('.pedido-observacao').textContent = obs;
   }
 
   function desenharMais() {
@@ -858,7 +846,7 @@ async function renderizarDetalhe(ctx) {
       el('hr', { class: 'divisor' }),
       apagavel
         ? el('p', { class: 'texto-pequeno texto-suave' }, 'Apagar tira o pedido do painel para sempre (útil para pedidos de teste).')
-        : el('p', { class: 'texto-pequeno texto-suave' }, 'Pedidos pagos não podem ser apagados: o histórico fica guardado. Para desistir, mude a situação para "Cancelado".'),
+        : null,
       apagavel ? ui.botao({ texto: 'Apagar pedido', tipo: 'perigo-suave', icone: 'lixeira', bloco: true, aoClicar: apagarPedido }) : null,
     );
   }

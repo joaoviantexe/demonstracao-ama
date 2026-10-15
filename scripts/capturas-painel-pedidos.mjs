@@ -270,9 +270,9 @@ async function rodarLargura(navegador, base, largura, me) {
     conferir(titulo === `Pedido #${pedidoMe.numero}` && /separe os produtos/i.test(proxima),
       'detalhe: título e próxima ação do pedido pago', `detalhe: "${titulo}" / "${proxima.slice(0, 80)}"`);
     const textoPagina = await pagina.locator('.pagina').textContent();
-    conferir(/Pix/.test(textoPagina) && /529\.982\.247-25/.test(textoPagina) && /embalar para presente/.test(textoPagina)
+    conferir(/Pix/.test(textoPagina) && /529\.982\.247-25/.test(textoPagina)
       && /CEP 66010-000/.test(textoPagina) && !/Apagar pedido/.test(textoPagina),
-    'detalhe: pagamento (Pix), CPF, observação, endereço e sem "Apagar" no pedido pago', 'detalhe: dados do pedido incompletos');
+    'detalhe: pagamento (Pix), CPF, endereço e sem "Apagar" no pedido pago', 'detalhe: dados do pedido incompletos');
     await capturar(pagina, `detalhe-pago-${largura}`);
     await semRolagemHorizontal(pagina, `detalhe ${largura}px`);
 

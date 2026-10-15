@@ -35,7 +35,7 @@
   .pagina[data-pagina="pedidos"] .pedido-bloco--itens{order:1}
   .pagina[data-pagina="pedidos"] .pedido-bloco--situacao{order:2}
   .pagina[data-pagina="pedidos"] .pedido-bloco--envio{order:3}
-  .pagina[data-pagina="pedidos"] .pedido-bloco--obs{order:4}
+  
   .pagina[data-pagina="pedidos"] .pedido-bloco--cliente{order:5}
   .pagina[data-pagina="pedidos"] .pedido-bloco--entrega{order:6}
   .pagina[data-pagina="pedidos"] .pedido-bloco--pagamento{order:7}
@@ -127,4 +127,3 @@
 .pagina[data-pagina="pedidos"] .pedido-rastreio__rotulo{font-size:.85rem;color:var(--tinta-suave)}
 .pagina[data-pagina="pedidos"] .pedido-rastreio a{color:var(--verde-600);font-weight:700}
 .pagina[data-pagina="pedidos"] .pedido-rastreio a .icone{width:14px;height:14px;vertical-align:-2px}
-.pagina[data-pagina="pedidos"] .pedido-observacao{white-space:pre-line;overflow-wrap:anywhere}
