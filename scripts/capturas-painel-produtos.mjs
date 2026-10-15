@@ -309,6 +309,12 @@ async function rodarLargura(navegador, base, largura) {
   writeFileSync(fotos[0], gerarPng(640, [11, 42, 28], [62, 122, 84], [201, 152, 43]));
   writeFileSync(fotos[1], gerarPng(640, [244, 234, 211], [237, 217, 163], [31, 79, 51]));
 
+  // O catálogo inicial vem com preços de teste: um produto à venda sem preço só para este roteiro.
+  const { error: erroSemPreco } = await servico().from('produtos').insert({
+    nome: `Sem Preço Teste ${sufixo}`, slug: `sem-preco-teste-${sufixo}`, preco_centavos: 0, estoque: 5, ativo: true, imagens: [],
+  });
+  if (erroSemPreco) throw new Error(`produto sem preço de teste: ${erroSemPreco.message}`);
+
   const { contexto, pagina } = await novaPagina(navegador, largura, `${largura}px`);
   const celular = largura < 720;
   try {
@@ -320,9 +326,10 @@ async function rodarLargura(navegador, base, largura) {
     await pagina.getByRole('button', { name: 'Entrar', exact: true }).click();
     await esperarListaCarregada(pagina);
     const linhas = await linhasDaLista(pagina);
-    conferir(linhas.length >= 16, `lista de produtos com ${linhas.length} linhas`, `lista deveria ter os 16 produtos do seed, tem ${linhas.length}`);
-    const biojoia = linhas.find((l) => l.selos.includes('Sem preço'));
-    conferir(biojoia && biojoia.preco === 'R$ 00,00', 'produto sem preço mostra "R$ 00,00" e o selo "Sem preço"', `produto sem preço: ${JSON.stringify(biojoia)}`);
+    conferir(linhas.length >= 17, `lista de produtos com ${linhas.length} linhas`, `lista deveria ter os 16 produtos do seed e o de teste, tem ${linhas.length}`);
+    const semPrecoNaLista = linhas.find((l) => l.selos.includes('Sem preço'));
+    conferir(semPrecoNaLista && semPrecoNaLista.preco === 'R$ 00,00' && semPrecoNaLista.nome === `Sem Preço Teste ${sufixo}`,
+      'produto sem preço mostra "R$ 00,00" e o selo "Sem preço"', `produto sem preço: ${JSON.stringify(semPrecoNaLista)}`);
     const promocao = linhas.find((l) => l.selos.includes('Promoção'));
     conferir(promocao && /R\$ 69,90.*R\$ 59,90/.test(promocao.preco), `promoção riscada na lista (${promocao && promocao.preco})`, `promoção na lista: ${JSON.stringify(promocao)}`);
     const avisoSemPreco = await pagina.locator('.produtos-avisos .aviso').count();
@@ -339,7 +346,7 @@ async function rodarLargura(navegador, base, largura) {
     await pagina.locator('.produtos-filtros select[aria-label="Filtrar por situação"]').selectOption('sem-preco');
     const semPreco = await linhasDaLista(pagina);
     const hash = await pagina.evaluate(() => window.location.hash);
-    conferir(semPreco.length >= 6 && semPreco.every((l) => l.selos.includes('Sem preço')) && hash.includes('situacao=sem-preco'),
+    conferir(semPreco.length === 1 && semPreco.every((l) => l.selos.includes('Sem preço')) && hash.includes('situacao=sem-preco'),
       `filtro "Sem preço" → ${semPreco.length} produtos (hash ${hash})`, `filtro sem preço: ${semPreco.length} linhas, hash ${hash}`);
     if (celular) await capturar(pagina, `lista-filtro-sem-preco-${largura}`, { inteira: false });
     await pagina.locator('.produtos-filtros select[aria-label="Filtrar por situação"]').selectOption('');
@@ -484,7 +491,7 @@ async function rodarLargura(navegador, base, largura) {
     conferir(naoSalvo && naoSalvo.nome === nomeProduto, '"Descartar e sair" não gravou o nome editado', `nome no banco: ${naoSalvo && naoSalvo.nome}`);
 
     // --- Desativar pela lista -----------------------------------------------------------
-    await pagina.locator('.produtos-filtros input[type="search"]').fill(sufixo);
+    await pagina.locator('.produtos-filtros input[type="search"]').fill(nomeProduto);
     await pagina.waitForFunction(() => document.querySelectorAll('.produtos-tabela tbody tr').length === 1, null, { timeout: 5000 });
     const linha = pagina.locator('.produtos-tabela tbody tr').first();
     await linha.locator('.produto-interruptor').click();

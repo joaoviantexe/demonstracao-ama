@@ -25,7 +25,7 @@ export function hrefSeguro(valor) {
 }
 
 /**
- * Cria um elemento. props: class, texto, html (SÓ para marcação constante do código), dataset,
+ * Cria um elemento. props: class, texto, dataset,
  * on<evento>, href/src (filtrados por URL segura), booleanos e demais atributos.
  * Filhos: nós ou textos (textos viram nós de texto).
  */
@@ -35,7 +35,6 @@ export function el(tag, props = {}, ...filhos) {
     if (valor === null || valor === undefined || valor === false) continue;
     if (chave === 'class') no.className = valor;
     else if (chave === 'texto') no.textContent = String(valor);
-    else if (chave === 'html') no.innerHTML = valor;
     else if (chave === 'dataset') Object.assign(no.dataset, valor);
     else if (chave.startsWith('on') && typeof valor === 'function') no.addEventListener(chave.slice(2), valor);
     else if (chave === 'href') {

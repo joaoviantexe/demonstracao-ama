@@ -36,10 +36,11 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
   - O script `scripts/capturas-loja.mjs` percorre a compra inteira.
 - **Painel:**
   - Núcleo (`public/admin/`), com as correções do §13 do `PAINEL.md`.
-  - Páginas prontas, ainda **sem revisão independente**: visão geral, conteúdo do site, mídia, produtos e categorias.
+  - Todas as páginas prontas: visão geral, conteúdo do site, mídia, produtos, categorias, pedidos e configurações.
+    Conteúdo, mídia, produtos e categorias passaram pela revisão independente (scripts de capturas no celular e no computador).
 - **Testes:**
-  - `npm test`: 740 testes unitários.
-  - `npm run test:integracao`: 148 testes contra o Supabase local.
+  - `npm test`: 777 testes unitários.
+  - `npm run test:integracao`: 140 testes contra o Supabase local.
 
 ## Decisões do cliente que já valem (não desfazer)
 
@@ -92,7 +93,7 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
 
 ## O que falta para lançar (depois dos pedidos acima)
 
-1. **Páginas do painel ainda não feitas:**
+1. **(Feito)** **Páginas do painel ainda não feitas:**
    - `public/admin/js/paginas/pedidos.js`: lista com filtros e busca; detalhe com itens, cliente, entrega e pagamento;
      linha do tempo; notas (insert em `pedido_eventos` só com `tipo = 'nota'`); mudar status pela
      `/api/admin/pedido-status`; "Conferir pagamento"; assistente de envio pelo Melhor Envio
@@ -100,7 +101,7 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
    - `public/admin/js/paginas/configuracoes.js`: abas Loja, Frete (sem retirada), Pagamento, Notificações e Integrações.
    Siga o `docs/PAINEL.md`. Cada página tem seu CSS em `public/admin/css/<pagina>.css`, seu script de capturas
    `scripts/capturas-painel-<pagina>.mjs` e seus testes `tests/unit/painel-<pagina>.test.js`.
-2. **Revisão independente** das páginas de conteúdo, mídia, produtos e categorias, rodando
+2. **(Feito)** **Revisão independente** das páginas de conteúdo, mídia, produtos e categorias, rodando
    `scripts/capturas-painel-conteudo.mjs` e `scripts/capturas-painel-produtos.mjs` e olhando as capturas no celular.
 3. **Testes ponta a ponta com Playwright** em `tests/e2e/`:
    - admin edita o site;
