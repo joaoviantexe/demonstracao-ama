@@ -25,6 +25,8 @@
  *
  * estado:
  * - preferencias: Map<id, preferência>; pagamentos: Map<id (string), pagamento>
+ *     (para mandar o webhook a um receptor http local pela notification_url, que a criação recusa como o
+ *     MP real, altere preferencias.get(id).notification_url depois de criar)
  * - webhooks: [{ url, cabecalhos, corpo, pagamento_id, action, status, resposta, erro }]
  * - requisicoes: [{ metodo, caminho, cabecalhos }] (todas as chamadas recebidas)
  * - webhookUrl: destino quando a preferência não tem notification_url (pode mudar a qualquer momento)

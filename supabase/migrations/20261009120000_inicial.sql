@@ -4,8 +4,9 @@
 --
 -- Pode ser colada inteira no SQL Editor de um projeto Supabase novo e executada
 -- de uma vez (não depende do CLI). Também é segura para rodar de novo: usa
--- "if not exists", "create or replace", "drop policy if exists" e
--- "on conflict do nothing" nos dados iniciais.
+-- "if not exists", "create or replace", "drop policy if exists", checks
+-- adicionados só se faltarem (pg_constraint) e "on conflict do nothing" nos
+-- dados iniciais.
 --
 -- Contrato: docs/ARQUITETURA.md, seção 4.
 -- =============================================================================
@@ -176,6 +177,30 @@ create table if not exists public.pedidos (
   criado_em                timestamptz not null default now(),
   atualizado_em            timestamptz not null default now()
 );
+
+-- Rastreio: as mesmas regras de alterar_status_pedido também para quem grava
+-- direto na tabela (o admin pode dar update em pedidos pela API). O valor vai
+-- para a página do pedido e para os e-mails. Vazio = null.
+-- url_rastreio: só https://, com host, sem espaços, aspas, < > nem crase.
+-- codigo_rastreio: sem < > aspas, crase nem caracteres de controle (a vírgula
+-- separa os vários códigos do Melhor Envio).
+do $$
+begin
+  if not exists (select 1 from pg_constraint
+                  where conrelid = 'public.pedidos'::regclass and conname = 'pedidos_url_rastreio_check') then
+    alter table public.pedidos add constraint pedidos_url_rastreio_check check (
+      url_rastreio is null
+      or (length(url_rastreio) <= 500
+          and url_rastreio ~* '^https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?([/?#][^[:space:][:cntrl:]"''<>`\\]*)?$'));
+  end if;
+  if not exists (select 1 from pg_constraint
+                  where conrelid = 'public.pedidos'::regclass and conname = 'pedidos_codigo_rastreio_check') then
+    alter table public.pedidos add constraint pedidos_codigo_rastreio_check check (
+      codigo_rastreio is null
+      or (length(codigo_rastreio) <= 200 and codigo_rastreio !~ '[[:cntrl:]<>"''`]'));
+  end if;
+end;
+$$;
 
 create table if not exists public.pedido_itens (
   id                      bigint generated always as identity primary key,
@@ -1030,14 +1055,18 @@ begin
     end if;
   elsif v_status in ('refunded', 'charged_back') then
     -- Estorno de um pagamento em dobro: se outro pagamento do pedido continua
-    -- aprovado, o pedido segue como está (e fica ligado a esse pagamento).
+    -- aprovado com o valor integral, o pedido segue como está (e fica ligado a
+    -- esse pagamento). Um aprovado com valor a menor não segura o pedido.
     select u.payment_id, u.status, u.status_detail, u.payment_type_id into v_aprovado
       from (select distinct on (e.dados ->> 'payment_id')
                    e.id,
                    e.dados ->> 'payment_id'      as payment_id,
                    e.dados ->> 'status'          as status,
                    e.dados ->> 'status_detail'   as status_detail,
-                   e.dados ->> 'payment_type_id' as payment_type_id
+                   e.dados ->> 'payment_type_id' as payment_type_id,
+                   case when jsonb_typeof(e.dados -> 'transaction_amount') = 'number'
+                        then round((e.dados ->> 'transaction_amount')::numeric * 100)
+                   end as valor_centavos
               from public.pedido_eventos e
              where e.pedido_id = p_pedido_id
                and e.tipo = 'pagamento'
@@ -1045,6 +1074,7 @@ begin
                and (e.dados ->> 'payment_id') is distinct from v_id
              order by e.dados ->> 'payment_id', e.id desc) u
      where u.status in ('approved', 'authorized')
+       and u.valor_centavos >= v_pedido.total_centavos - 1
      order by u.id desc
      limit 1;
     v_duplicado := found;
@@ -1233,7 +1263,7 @@ begin
       elsif jsonb_typeof(p_rastreio -> 'codigo_rastreio') <> 'null' then
         raise exception 'dados_invalidos' using detail = 'p_rastreio.codigo_rastreio';
       end if;
-      -- O front escapa de qualquer forma; aqui é defesa em profundidade.
+      -- O front escapa de qualquer forma; aqui é defesa em profundidade (mesma regra do check pedidos_codigo_rastreio_check).
       if length(v_codigo) > 200 or v_codigo ~ '[[:cntrl:]<>"''`]' then
         raise exception 'dados_invalidos' using detail = 'p_rastreio.codigo_rastreio';
       end if;
@@ -1247,6 +1277,7 @@ begin
         raise exception 'dados_invalidos' using detail = 'p_rastreio.url_rastreio';
       end if;
       -- Só https://, com host, sem espaços, aspas, < > nem crase (vai para a página do pedido e para os e-mails).
+      -- Mesma regra do check pedidos_url_rastreio_check (mantenha as duas iguais).
       if v_url is not null
          and (length(v_url) > 500
               or v_url !~* '^https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?([/?#][^[:space:][:cntrl:]"''<>`\\]*)?$') then
@@ -1511,8 +1542,11 @@ create policy pedido_itens_admin_delete on public.pedido_itens
   for delete to authenticated
   using ((select public.eh_admin()));
 
--- pedido_eventos: admin lê, altera e apaga; pelo painel só insere notas internas
--- (eventos de pagamento, status e alertas vêm das funções do servidor).
+-- pedido_eventos: admin lê e apaga; pelo painel só insere e altera notas internas
+-- (eventos de pagamento, status e alertas vêm das funções do servidor). O update
+-- também fica preso a 'nota' (using e with check): senão bastaria criar uma nota
+-- e trocar o tipo para 'pagamento' para confirmar_pagamento achar que um pagamento
+-- real já foi processado.
 drop policy if exists pedido_eventos_admin_tudo on public.pedido_eventos;
 
 drop policy if exists pedido_eventos_admin_select on public.pedido_eventos;
@@ -1528,8 +1562,8 @@ create policy pedido_eventos_admin_insert on public.pedido_eventos
 drop policy if exists pedido_eventos_admin_update on public.pedido_eventos;
 create policy pedido_eventos_admin_update on public.pedido_eventos
   for update to authenticated
-  using ((select public.eh_admin()))
-  with check ((select public.eh_admin()));
+  using ((select public.eh_admin()) and tipo = 'nota')
+  with check ((select public.eh_admin()) and tipo = 'nota');
 
 drop policy if exists pedido_eventos_admin_delete on public.pedido_eventos;
 create policy pedido_eventos_admin_delete on public.pedido_eventos

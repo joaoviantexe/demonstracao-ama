@@ -4,8 +4,9 @@ import assert from 'node:assert/strict';
 import { iniciar } from '../apoio/melhorenvio-falso.js';
 import { AMBIENTE_VAZIO, aplicarAmbiente } from '../apoio/servidor.js';
 import {
-  FRETE_PADRAO, MINIMOS_CORREIOS, aplicarFreteGratis, cotarFrete, freteGratisAtivo, montarProdutosMelhorEnvio,
-  normalizarConfigFrete, opcaoMelhorEnvio, opcaoRetirada, opcoesFixas, ordenarOpcoes, textoPrazo,
+  CACHE_COTACAO_MS, FRETE_PADRAO, MINIMOS_CORREIOS, TIMEOUT_COTACAO_MS, aplicarFreteGratis, cotarFrete, freteGratisAtivo,
+  limparCacheCotacoes, montarProdutosMelhorEnvio, normalizarConfigFrete, opcaoMelhorEnvio, opcaoRetirada, opcoesFixas,
+  ordenarOpcoes, textoPrazo,
 } from '../../lib/frete.js';
 
 let falso;
@@ -42,6 +43,7 @@ before(async () => { falso = await iniciar(); });
 after(async () => { await falso.fechar(); });
 beforeEach(() => {
   falso.estado.reiniciar();
+  limparCacheCotacoes();
   restaurar = aplicarAmbiente({
     ...AMBIENTE_VAZIO,
     MELHOR_ENVIO_TOKEN: 'token-de-teste',
@@ -156,6 +158,9 @@ describe('funções puras', () => {
     assert.equal(saida.find((o) => o.id === 'fixo-zero').gratis, false);
     assert.equal(opcoes[3].preco_centavos, 2400, 'não altera a entrada');
     assert.deepEqual(aplicarFreteGratis([opcoes[4]]), [opcoes[4]]);
+    // A retirada nunca é a escolhida, mesmo que um dia tenha preço.
+    const retiradaPaga = { ...opcoes[4], preco_centavos: 500, preco_original_centavos: 500 };
+    assert.deepEqual(aplicarFreteGratis([retiradaPaga, opcoes[0]]).map((o) => [o.id, o.gratis]), [['retirada', false], ['me-2', true]]);
   });
 
   test('ordenarOpcoes: retirada por último; demais por preço, prazo e nome', () => {
@@ -385,5 +390,132 @@ describe('cotarFrete', () => {
     assert.deepEqual(ids(r), ['retirada']);
     assert.equal(r.erro, null);
     assert.equal(falso.estado.requisicoes.length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('cotarFrete: cache, duplicados e prazo', () => {
+  const pedido = (config, extra = {}) => ({ itens: [item()], cep: '01310-100', subtotalCentavos: 9000, config, ...extra });
+
+  test('serviço repetido na resposta entra uma vez só (o primeiro)', async () => {
+    const config = configBase();
+    config.frete.fixo.ativo = false;
+    falso.estado.forcar('/shipment/calculate', {
+      status: 200,
+      corpo: [
+        { id: 1, name: 'PAC', price: '23.50', delivery_time: 8, company: { name: 'Correios' } },
+        { id: 1, name: 'PAC', price: '5.00', delivery_time: 8, company: { name: 'Correios' } },
+      ],
+    });
+    const r = await cotarFrete(pedido(config));
+    assert.deepEqual(ids(r), ['me-1', 'retirada']);
+    assert.equal(r.opcoes[0].preco_centavos, 2450);
+  });
+
+  test('sem timeoutMs, o prazo da chamada é TIMEOUT_COTACAO_MS (8 s)', async (t) => {
+    const original = globalThis.setTimeout;
+    const prazos = [];
+    t.mock.method(globalThis, 'setTimeout', (fn, ms, ...resto) => {
+      prazos.push(ms);
+      return original(fn, ms, ...resto);
+    });
+    const r = await cotarFrete(pedido(configBase()));
+    t.mock.restoreAll();
+    assert.equal(r.erro, null);
+    assert.equal(TIMEOUT_COTACAO_MS, 8000);
+    assert.ok(prazos.some((ms) => ms > TIMEOUT_COTACAO_MS - 1000 && ms <= TIMEOUT_COTACAO_MS), `prazos usados: ${prazos.join(', ')}`);
+  });
+
+  test('prazo total: 429 seguido de resposta lenta não passa do timeoutMs', async (t) => {
+    t.mock.method(console, 'warn', () => {});
+    const config = configBase();
+    config.frete.fixo.ativo = false;
+    falso.estado.forcar('/shipment/calculate', { status: 429, corpo: { message: 'Too Many Attempts.' }, cabecalhos: { 'Retry-After': '1' } });
+    falso.estado.forcar('/shipment/calculate', { status: 200, corpo: [], atrasoMs: 900 });
+    const inicio = Date.now();
+    const r = await cotarFrete(pedido(config, { timeoutMs: 1000 }));
+    assert.ok(Date.now() - inicio < 1150, `levou ${Date.now() - inicio} ms`);
+    assert.deepEqual(ids(r), ['retirada']);
+    assert.match(r.erro, /Tente de novo/);
+  });
+
+  test('cache: cotação igual não chama a API de novo; taxa e prazo da config valem na hora', async () => {
+    const config = configBase();
+    const primeira = await cotarFrete(pedido(config));
+    assert.equal(primeira.opcoes.find((o) => o.id === 'me-1').preco_centavos, 2450);
+
+    config.frete.melhor_envio.taxa_extra_centavos = 500;
+    config.frete.melhor_envio.prazo_extra_dias = 0;
+    const segunda = await cotarFrete(pedido(config, { cep: '01310100' }));
+    assert.equal(chamadasCotacao().length, 1);
+    const pac = segunda.opcoes.find((o) => o.id === 'me-1');
+    assert.equal(pac.preco_centavos, 2850);
+    assert.equal(pac.prazo_dias, 8);
+
+    // CEP, itens ou serviços diferentes: nova cotação.
+    await cotarFrete(pedido(config, { cep: '20040-020' }));
+    assert.equal(chamadasCotacao().length, 2);
+    await cotarFrete(pedido(config, { itens: [item({ quantidade: 3 })] }));
+    assert.equal(chamadasCotacao().length, 3);
+    config.frete.melhor_envio.servicos = [1];
+    await cotarFrete(pedido(config));
+    assert.equal(chamadasCotacao().length, 4);
+
+    limparCacheCotacoes();
+    config.frete.melhor_envio.servicos = [1, 2];
+    await cotarFrete(pedido(config));
+    assert.equal(chamadasCotacao().length, 5);
+  });
+
+  test('cache: erro não fica guardado', async (t) => {
+    t.mock.method(console, 'warn', () => {});
+    falso.estado.forcar('/shipment/calculate', { status: 500, corpo: { message: 'Server Error' } });
+    const falhou = await cotarFrete(pedido(configBase()));
+    assert.match(falhou.erro, /Não foi possível calcular/);
+    const depois = await cotarFrete(pedido(configBase()));
+    assert.equal(depois.erro, null);
+    assert.ok(ids(depois).includes('me-1'));
+    assert.equal(chamadasCotacao().length, 2);
+  });
+
+  test('cache: pedidos iguais simultâneos fazem uma chamada; expira depois de CACHE_COTACAO_MS', async (t) => {
+    const [a, b] = await Promise.all([cotarFrete(pedido(configBase())), cotarFrete(pedido(configBase()))]);
+    assert.deepEqual(a, b);
+    assert.equal(chamadasCotacao().length, 1);
+
+    const agoraReal = Date.now;
+    t.mock.method(Date, 'now', () => agoraReal.call(Date) + CACHE_COTACAO_MS - 5_000);
+    await cotarFrete(pedido(configBase()));
+    assert.equal(chamadasCotacao().length, 1, 'ainda no prazo do cache');
+
+    Date.now.mock.mockImplementation(() => agoraReal.call(Date) + CACHE_COTACAO_MS + 1_000);
+    await cotarFrete(pedido(configBase()));
+    assert.equal(chamadasCotacao().length, 2, 'cache vencido');
+  });
+
+  test('cache: outra base de API (outra conta ou sandbox) não reaproveita a cotação', async () => {
+    await cotarFrete(pedido(configBase()));
+    const outro = await iniciar();
+    try {
+      aplicarAmbiente({ MELHOR_ENVIO_API_BASE: outro.url });
+      const r = await cotarFrete(pedido(configBase()));
+      assert.equal(r.erro, null);
+      assert.equal(outro.estado.requisicoes.filter((x) => x.caminho === '/shipment/calculate').length, 1);
+    } finally {
+      await outro.fechar();
+    }
+  });
+
+  test('token malformado: não chama a API, erro amigável e o token não aparece no log', async (t) => {
+    const avisos = [];
+    t.mock.method(console, 'warn', (...args) => { avisos.push(args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ')); });
+    aplicarAmbiente({ MELHOR_ENVIO_TOKEN: 'segredo-SUPER\nsecreto' });
+    const r = await cotarFrete(pedido(configBase()));
+    assert.deepEqual(ids(r), ['fixo-nacional', 'retirada']);
+    assert.match(r.erro, /Não foi possível calcular/);
+    assert.equal(falso.estado.requisicoes.length, 0);
+    assert.equal(avisos.length, 1);
+    assert.match(avisos[0], /formato inválido/);
+    assert.doesNotMatch(avisos[0], /segredo|secreto/);
   });
 });

@@ -122,18 +122,38 @@ describe('modelos de e-mail', () => {
     assert.ok(texto.includes(`${SITE}/loja/pedido?id=${PEDIDO_ID}&token=a%26b%3Dc`));
   });
 
-  test('retirada: sem endereço de entrega e frete como "Retirada"', () => {
-    const pedido = pedidoBase({
-      endereco: {},
-      entrega: { tipo: 'retirada', id: 'retirada', nome: 'Retirar na sede da AMA', endereco: 'Icuí, Ananindeua - PA', preco_centavos: 0 },
-      frete_centavos: 0,
-      total_centavos: 11691,
-    });
-    const { html } = emailPedidoPago(pedido, SITE);
+  // Exatamente o que criar_pedido grava em pedidos.entrega numa retirada (sem endereço da sede).
+  const ENTREGA_RETIRADA = Object.freeze({
+    tipo: 'retirada', id: 'retirada', nome: 'Retirar na sede da AMA', empresa: null, prazo_dias: null, preco_centavos: 0, servico_id: null,
+  });
+  // configuracoes.frete.retirada (docs/ARQUITETURA.md §3).
+  const CONFIG_RETIRADA = Object.freeze({
+    ativa: true, nome: 'Retirar na sede da AMA', endereco: 'Conjunto Uirapuru, Quadra 28, Casa 02, Icuí, Ananindeua - PA',
+    prazo_texto: 'Combine a retirada pelo WhatsApp',
+  });
+  const pedidoRetirada = (extra = {}) => pedidoBase({
+    endereco: {}, entrega: { ...ENTREGA_RETIRADA }, frete_centavos: 0, total_centavos: 11691, ...extra,
+  });
+
+  test('retirada: endereço da sede e combinado vêm de opcoes.retirada; frete como "Retirada"', () => {
+    for (const [nome, modelo] of MODELOS) {
+      const { html, texto } = modelo(pedidoRetirada(), { siteUrl: SITE, retirada: CONFIG_RETIRADA });
+      assert.match(html, /<strong>Retirar na sede da AMA<\/strong>/, nome);
+      assert.ok(html.includes(escaparHtml(CONFIG_RETIRADA.endereco)), `${nome}: endereço da sede`);
+      assert.match(texto, /Combine a retirada pelo WhatsApp\./, nome);
+      assert.match(html, />Retirada</, nome);
+      assert.doesNotMatch(html, /CEP /, nome);
+    }
+  });
+
+  test('retirada sem opcoes.retirada: não inventa endereço e orienta a combinar pelo WhatsApp', () => {
+    const { html, texto } = emailPedidoPago(pedidoRetirada(), SITE);
     assert.match(html, /Retirar na sede da AMA/);
-    assert.match(html, />Retirada</);
-    assert.match(html, /WhatsApp/);
-    assert.doesNotMatch(html, /CEP /);
+    assert.doesNotMatch(texto, /Uirapuru/);
+    assert.match(texto, /Combine o melhor dia e horário da retirada com a AMA pelo WhatsApp\./);
+    // Nome vazio na entrega cai para o nome configurado.
+    const semNome = emailPedidoPago(pedidoRetirada({ entrega: { ...ENTREGA_RETIRADA, nome: '' } }), { siteUrl: SITE, retirada: { nome: 'Sede AMA' } });
+    assert.match(semNome.html, /<strong>Sede AMA<\/strong>/);
   });
 
   test('frete zero fora da retirada aparece como "Grátis"; sem desconto não há linha de desconto', () => {
@@ -179,6 +199,32 @@ describe('modelos de e-mail', () => {
     assert.doesNotMatch(html, /Dúvidas\?/, 'rodapé da equipe não tem o convite de contato do cliente');
   });
 
+  test('emailNovoPedidoAdmin: e-mail do cliente não injeta cc, bcc, subject ou body no mailto', () => {
+    // validarEmail aceita estes endereços (RFC 5322), mas no mailto eles mudariam o rascunho.
+    for (const email of [
+      'a?cc=x%40evil.com&body=oi@x.com', 'a?bcc=x@evil.com', 'a&subject=oi@x.com', 'a%0Abcc@x.com', 'a#frag@x.com',
+      'a=b@x.com', 'a/b@x.com', 'a{b}@x.com',
+    ]) {
+      const { html } = emailNovoPedidoAdmin(pedidoBase({ cliente_email: email }), SITE);
+      assert.doesNotMatch(html, /href="mailto:/, email);
+      assert.ok(html.includes(escaparHtml(email)), `${email}: continua visível como texto`);
+    }
+    for (const email of ['maria.silva+loja@exemplo.com.br', "o'neil@exemplo.com", 'ANA_B-2@sub.exemplo.org']) {
+      const { html } = emailNovoPedidoAdmin(pedidoBase({ cliente_email: email }), SITE);
+      assert.ok(html.includes(`href="mailto:${escaparHtml(email)}"`), email);
+    }
+    const invalido = emailNovoPedidoAdmin(pedidoBase({ cliente_email: 'sem-arroba' }), SITE).html;
+    assert.doesNotMatch(invalido, /href="mailto:/);
+  });
+
+  test('cancelado: não promete estorno automático (a devolução é feita pela AMA)', () => {
+    const { texto } = emailStatusPedido(pedidoBase({ status: 'cancelado' }), SITE);
+    assert.match(texto, /Se você já pagou, a AMA vai fazer a devolução pelo Mercado Pago/);
+    assert.match(texto, /depende do meio de pagamento/);
+    assert.doesNotMatch(texto, /é devolvido pelo Mercado Pago/);
+    assert.doesNotMatch(texto, /automaticamente/i);
+  });
+
   test('logo só com site https público; senão a marca vai em texto', () => {
     const publico = emailPedidoPago(pedidoBase(), SITE).html;
     assert.ok(publico.includes(`src="${SITE}/img/logo-ama.png"`));
@@ -207,41 +253,63 @@ describe('modelos de e-mail', () => {
     assert.match(html, /href="https:\/\/wa\.me\/5591981056049"/);
   });
 
+  // Variantes que passam por todos os ramos que interpolam dados do banco (entrega por transportadora e
+  // retirada, método de pagamento conhecido e desconhecido, e-mail inválido e e-mail que injetaria no mailto).
+  const VARIANTES_XSS = [
+    ['entrega por transportadora', {
+      cliente_email: '"><script>alert(3)</script>@x.com',
+      entrega: { tipo: 'melhor_envio', nome: '<iframe src=//mal.example>', empresa: '<marquee>', prazo_dias: 3 },
+      endereco: { cep: '<b>', logradouro: '<svg/onload=alert(5)>', numero: '1', bairro: '"onmouseover="x', cidade: 'Belém', uf: 'pa' },
+    }, {}],
+    ['retirada e método desconhecido', {
+      cliente_email: 'a?cc=x%40evil.com&body=<b>oi</b>@x.com',
+      metodo_pagamento: '<script>alert(8)</script>',
+      entrega: { tipo: 'retirada', id: 'retirada', nome: '<img src=x onerror=alert(9)>', endereco: '<svg/onload=alert(10)>', prazo_texto: '<marquee>' },
+      endereco: {},
+    }, {}],
+    ['retirada com opcoes.retirada', {
+      cliente_email: 'a&bcc=x@evil.com',
+      metodo_pagamento: '<iframe>',
+      entrega: { tipo: 'retirada', id: 'retirada', nome: '', empresa: null, prazo_dias: null, preco_centavos: 0, servico_id: null },
+      endereco: {},
+    }, { retirada: { nome: '<img src=x onerror=alert(11)>', endereco: '<svg/onload=alert(12)>', prazo_texto: '"><script>alert(13)</script>' } }],
+  ];
+
   for (const [nome, modelo] of MODELOS) {
-    test(`${nome}: escapa todo texto vindo do banco (XSS) e só aceita URLs http(s)`, () => {
-      const pedido = pedidoBase({
-        numero: '<b>1</b>',
-        cliente_nome: '<script>alert(1)</script> Silva',
-        cliente_email: '"><script>alert(3)</script>@x.com',
-        cliente_telefone: '<i>91</i>',
-        cupom_codigo: '"><b>CUPOM',
-        observacoes: '<a href="javascript:alert(4)">clique</a>\nsegunda linha',
-        entrega: { tipo: 'melhor_envio', nome: '<iframe src=//mal.example>', empresa: '<marquee>', prazo_dias: 3 },
-        endereco: { cep: '<b>', logradouro: '<svg/onload=alert(5)>', numero: '1', bairro: '"onmouseover="x', cidade: 'Belém', uf: 'pa' },
-        itens: [{ nome: '<img src=x onerror=alert(2)>', quantidade: 1, preco_unitario_centavos: 14041, total_centavos: 14041 }],
-        codigo_rastreio: '"><script>alert(6)</script>',
-        url_rastreio: 'javascript:alert(7)',
+    for (const [variante, extra, opcoesExtra] of VARIANTES_XSS) {
+      test(`${nome} (${variante}): escapa todo texto vindo do banco (XSS) e só aceita URLs http(s)`, () => {
+        const pedido = pedidoBase({
+          numero: '<b>1</b>',
+          cliente_nome: '<script>alert(1)</script> Silva',
+          cliente_telefone: '<i>91</i>',
+          cupom_codigo: '"><b>CUPOM',
+          observacoes: '<a href="javascript:alert(4)">clique</a>\nsegunda linha',
+          itens: [{ nome: '<img src=x onerror=alert(2)>', quantidade: 1, preco_unitario_centavos: 14041, total_centavos: 14041 }],
+          codigo_rastreio: '"><script>alert(6)</script>',
+          url_rastreio: 'javascript:alert(7)',
+          ...extra,
+        });
+        const { assunto, html, texto } = modelo(pedido, { siteUrl: SITE, ...opcoesExtra });
+        assert.doesNotMatch(html, /<script/i);
+        assert.doesNotMatch(html, /<img src=x/i);
+        assert.doesNotMatch(html, /<iframe/i);
+        assert.doesNotMatch(html, /<svg/i);
+        assert.doesNotMatch(html, /<marquee/i);
+        assert.doesNotMatch(html, /<b>/i);
+        assert.doesNotMatch(html, /<i>/i);
+        // "javascript:" só pode aparecer como texto escapado, nunca num atributo.
+        assert.doesNotMatch(html, /(?:href|src)\s*=\s*["']?\s*javascript:/i);
+        assert.doesNotMatch(html, /"onmouseover=/i);
+        assert.doesNotMatch(html, /href="mailto:/, 'e-mail inválido ou perigoso não vira link');
+        assert.ok(html.includes('&lt;img src=x onerror=alert(2)&gt;'));
+        assert.doesNotMatch(assunto, /[\r\n]/);
+        assert.equal(typeof texto, 'string');
+        // Todo href e src do e-mail é http(s) (o WhatsApp é https://wa.me).
+        for (const [, url] of html.matchAll(/(?:href|src)="([^"]*)"/g)) {
+          assert.match(url, /^https?:\/\//, url);
+        }
       });
-      const { assunto, html, texto } = modelo(pedido, SITE);
-      assert.doesNotMatch(html, /<script/i);
-      assert.doesNotMatch(html, /<img src=x/i);
-      assert.doesNotMatch(html, /<iframe/i);
-      assert.doesNotMatch(html, /<svg/i);
-      assert.doesNotMatch(html, /<marquee/i);
-      assert.doesNotMatch(html, /<b>/i);
-      assert.doesNotMatch(html, /<i>/i);
-      // "javascript:" só pode aparecer como texto escapado, nunca num atributo.
-      assert.doesNotMatch(html, /(?:href|src)\s*=\s*["']?\s*javascript:/i);
-      assert.doesNotMatch(html, /"onmouseover=/i);
-      assert.doesNotMatch(html, /href="mailto:"/);
-      assert.ok(html.includes('&lt;img src=x onerror=alert(2)&gt;'));
-      assert.doesNotMatch(assunto, /[\r\n]/);
-      assert.equal(typeof texto, 'string');
-      // Todo href e src do e-mail é http(s), mailto ou âncora do WhatsApp.
-      for (const [, url] of html.matchAll(/(?:href|src)="([^"]*)"/g)) {
-        assert.match(url, /^(https?:\/\/|mailto:)/, url);
-      }
-    });
+    }
   }
 
   test('url de rastreio https com caracteres especiais vai escapada no atributo', () => {

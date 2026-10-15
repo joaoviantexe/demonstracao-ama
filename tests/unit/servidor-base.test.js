@@ -2,7 +2,7 @@
 // lib/validacao.js (docs/ARQUITETURA.md §3, §6, §6.0 e §6.3). Sem rede.
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { obterAmbiente } from '../../lib/ambiente.js';
+import { ehChaveSecreta, motivoChaveSecreta, normalizarUrlSite, obterAmbiente } from '../../lib/ambiente.js';
 import {
   ErroHttp, exigirMetodo, lerCorpo, lerQuery, responderErro, responderJson, tratarErro, urlBase,
 } from '../../lib/http.js';
@@ -116,6 +116,107 @@ describe('lib/ambiente.js', () => {
     aplicarAmbiente({ SITE_URL: 'https://www.ama.org.br///' });
     assert.equal(obterAmbiente().siteUrl, 'https://www.ama.org.br', 'SITE_URL tem prioridade');
     assert.equal(obterAmbiente().SITE_URL, 'https://www.ama.org.br');
+  });
+
+  test('SITE_URL sem esquema, com caminho ou inválida', (t) => {
+    const aviso = t.mock.method(console, 'warn', () => {});
+    const casos = {
+      'www.ama.org.br': 'https://www.ama.org.br',
+      'ama.org.br/': 'https://ama.org.br',
+      ' HTTPS://WWW.AMA.ORG.BR/ ': 'https://www.ama.org.br',
+      'https://ama.org.br/loja/?x=1#a': 'https://ama.org.br',
+      '//ama.org.br': 'https://ama.org.br',
+      'ama.org.br:8443': 'https://ama.org.br:8443',
+      'http://localhost:3000/': 'http://localhost:3000',
+      'localhost:3000': 'http://localhost:3000',
+      '127.0.0.1:3000': 'http://127.0.0.1:3000',
+      'https://münchen.de': 'https://xn--mnchen-3ya.de',
+      'javascript:alert(1)//': '',
+      'javascript://ama.org.br/%0aalert(1)': '',
+      'mailto:loja@ama.org.br': '',
+      'ftp://ama.org.br': '',
+      'https://usuario:senha@ama.org.br': '',
+      'https://ama': '',
+      'https://a..b.com': '',
+      'https://.ama.org.br': '',
+      'https://ama org.br': '',
+      '': '',
+    };
+    for (const [entrada, esperado] of Object.entries(casos)) {
+      assert.equal(normalizarUrlSite(entrada), esperado, entrada);
+    }
+    assert.equal(normalizarUrlSite(undefined), '');
+
+    aplicarAmbiente({ SITE_URL: 'www.ama.org.br' });
+    assert.equal(obterAmbiente().siteUrl, 'https://www.ama.org.br');
+    assert.equal(aviso.mock.callCount(), 0, 'sem esquema é corrigido sem aviso');
+
+    // Inválida: ignorada (com um aviso só), passa para VERCEL_PROJECT_PRODUCTION_URL e depois para ''.
+    aplicarAmbiente({ SITE_URL: 'javascript:alert(document.domain)', VERCEL_PROJECT_PRODUCTION_URL: 'ama.vercel.app' });
+    assert.equal(obterAmbiente().siteUrl, 'https://ama.vercel.app');
+    assert.equal(obterAmbiente().SITE_URL, 'https://ama.vercel.app');
+    assert.equal(aviso.mock.callCount(), 1);
+    assert.match(aviso.mock.calls[0].arguments[0], /SITE_URL inválida/);
+    aplicarAmbiente({ VERCEL_PROJECT_PRODUCTION_URL: 'ama vercel app' });
+    assert.equal(obterAmbiente().siteUrl, '');
+  });
+
+  test('chave secreta no lugar da pública é ignorada e logada (sem o valor)', (t) => {
+    const log = t.mock.method(console, 'error', () => {});
+    const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const jwt = (payload) => `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64(payload)}.assinatura`;
+    const secretas = [
+      'sb_secret_chave_de_teste_1',
+      jwt({ iss: 'supabase', role: 'service_role', ref: 'teste1' }),
+      jwt({ role: 'supabase_admin', ref: 'teste1' }),
+    ];
+    for (const chave of secretas) {
+      const antes = log.mock.callCount();
+      aplicarAmbiente({ SUPABASE_URL: 'https://x.supabase.co', SUPABASE_ANON_KEY: chave });
+      for (let i = 0; i < 3; i += 1) {
+        const a = obterAmbiente();
+        assert.equal(a.supabaseAnonKey, '', chave);
+        assert.equal(a.SUPABASE_ANON_KEY, '');
+        assert.equal(a.supabasePublicoConfigurado, false);
+        assert.equal(a.supabaseAnonKeyRecusada, true);
+      }
+      assert.equal(log.mock.callCount(), antes + 1, 'um aviso por valor, não um por chamada');
+      const mensagem = String(log.mock.calls.at(-1).arguments[0]);
+      assert.match(mensagem, /SUPABASE_ANON_KEY/);
+      assert.equal(mensagem.includes(chave), false, 'o log não pode conter a chave');
+    }
+
+    // Igual à chave de serviço (qualquer formato).
+    aplicarAmbiente({ SUPABASE_ANON_KEY: 'mesma-chave-teste', SUPABASE_SERVICE_ROLE_KEY: 'mesma-chave-teste' });
+    assert.equal(obterAmbiente().supabaseAnonKey, '');
+    assert.equal(obterAmbiente().supabaseServiceKey, 'mesma-chave-teste', 'a de serviço continua valendo no servidor');
+
+    // A secreta num alias é pulada; uma pública de verdade em outro alias é usada.
+    aplicarAmbiente({ SUPABASE_ANON_KEY: 'sb_secret_chave_de_teste_2', SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_ok', SUPABASE_SERVICE_ROLE_KEY: null });
+    assert.equal(obterAmbiente().supabaseAnonKey, 'sb_publishable_ok');
+    assert.equal(obterAmbiente().supabaseAnonKeyRecusada, true);
+
+    // Chaves públicas legítimas passam.
+    const anonLegada = jwt({ iss: 'supabase', role: 'anon', ref: 'teste1' });
+    aplicarAmbiente({ SUPABASE_ANON_KEY: anonLegada, SUPABASE_PUBLISHABLE_KEY: null });
+    assert.equal(obterAmbiente().supabaseAnonKey, anonLegada);
+    assert.equal(obterAmbiente().supabaseAnonKeyRecusada, false);
+  });
+
+  test('ehChaveSecreta / motivoChaveSecreta', () => {
+    const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    assert.equal(ehChaveSecreta('sb_publishable_abc'), false);
+    assert.equal(ehChaveSecreta(''), false);
+    assert.equal(ehChaveSecreta(undefined), false);
+    assert.equal(ehChaveSecreta('a.b.c'), false, 'payload que não é JSON');
+    assert.equal(ehChaveSecreta(`x.${b64({ iss: 'supabase' })}.y`), false, 'JWT sem role');
+    assert.equal(ehChaveSecreta(`x.${b64({ role: 'anon' })}.y`), false);
+    assert.equal(ehChaveSecreta(`x.${b64({ role: 'service_role' })}.y`), true);
+    assert.equal(ehChaveSecreta(`x.${b64({ role: 'authenticated' })}.y`), true, 'token de usuário também não é chave pública');
+    assert.equal(ehChaveSecreta('SB_SECRET_abc'), true);
+    assert.equal(ehChaveSecreta('k1', 'k1'), true);
+    assert.equal(ehChaveSecreta('k1', 'k2'), false);
+    assert.match(motivoChaveSecreta(`x.${b64({ role: 'service_role' })}.y`), /service_role/);
   });
 
   test('lê process.env a cada chamada', () => {
@@ -277,6 +378,26 @@ describe('lib/http.js', () => {
       assert.equal(log.mock.callCount(), 1);
     });
 
+    test('tratarErro com a resposta já iniciada: encerra (não deixa pendurada) e loga', (t) => {
+      const log = t.mock.method(console, 'error', () => {});
+      for (const erro of [new ErroHttp(400, 'dados_invalidos'), new Error('falhou no meio')]) {
+        const res = respostaFalsa();
+        res.statusCode = 200;
+        res.write('parcial');
+        assert.equal(res.headersSent, true);
+        tratarErro(res, erro);
+        assert.equal(res.writableEnded, true, erro.message);
+        assert.equal(res.statusCode, 200, 'status não muda depois dos cabeçalhos');
+        assert.equal(res.corpo, 'parcial');
+      }
+      assert.equal(log.mock.callCount(), 2);
+      // Já encerrada: só loga, não chama end de novo.
+      const res = respostaFalsa();
+      res.end('pronto');
+      tratarErro(res, new ErroHttp(409, 'conflito'));
+      assert.equal(res.corpo, 'pronto');
+    });
+
     test('ErroHttp sem mensagem usa uma padrão', () => {
       const e = new ErroHttp(400, 'dados_invalidos');
       assert.equal(e.status, 400);
@@ -290,6 +411,15 @@ describe('lib/http.js', () => {
     test('SITE_URL tem prioridade', () => {
       aplicarAmbiente({ SITE_URL: 'https://www.ama.org.br/' });
       assert.equal(urlBase(requisicaoFalsa({ headers: { host: 'outro.com' } })), 'https://www.ama.org.br');
+    });
+
+    test('SITE_URL sem esquema ganha https://; inválida cai para o host da requisição', (t) => {
+      t.mock.method(console, 'warn', () => {});
+      aplicarAmbiente({ SITE_URL: 'www.ama.org.br' });
+      assert.equal(urlBase(requisicaoFalsa({ headers: { host: 'ama.vercel.app' } })), 'https://www.ama.org.br');
+      aplicarAmbiente({ SITE_URL: 'javascript:alert(1)//' });
+      assert.equal(urlBase(requisicaoFalsa({ headers: { host: 'ama.vercel.app', 'x-forwarded-proto': 'https' } })),
+        'https://ama.vercel.app');
     });
 
     test('VERCEL_PROJECT_PRODUCTION_URL', () => {
@@ -454,6 +584,12 @@ describe('lib/validacao.js', () => {
     assert.equal(normalizarTexto({ a: 1 }), '');
     assert.equal(normalizarTexto(123), '123');
     assert.equal(normalizarTexto('linha 1\r\n\r\n\r\n\r\nlinha   2 ', 100, { multilinha: true }), 'linha 1\n\nlinha 2');
+    // Controles bidi (Trojan Source): embedding/override, isoladores e marcas de direção.
+    for (const codigo of [0x202a, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069, 0x061c, 0x200e, 0x200f, 0x180e]) {
+      const c = String.fromCharCode(codigo);
+      assert.equal(normalizarTexto(`Ana${c} Silva${c}`), 'Ana Silva', codigo.toString(16));
+      assert.equal(normalizarTexto(`Rua${c} A${c}\nCasa`, 50, { multilinha: true }), 'Rua A\nCasa', codigo.toString(16));
+    }
   });
 
   describe('validarDadosCheckout', () => {
@@ -485,6 +621,23 @@ describe('lib/validacao.js', () => {
         itens: [{ produto_id: ID, quantidade: 2 }],
         frete_id: 'me-1',
       });
+    });
+
+    test('e-mail: espaço no meio é erro (não é "consertado" para outro endereço)', () => {
+      for (const email of ['maria silva@gmail.com', 'a na@ex.com', 'ana@ex .com', `ana${String.fromCharCode(0xa0)}b@ex.com`]) {
+        const corpo = valido();
+        corpo.cliente.email = email;
+        const r = validarDadosCheckout(corpo);
+        assert.equal(r.ok, false, email);
+        assert.equal(r.erros['cliente.email'], 'Confira o e-mail informado.', email);
+        assert.notEqual(r.dados.cliente.email.replace(/\s/g, ''), r.dados.cliente.email, 'mantém o que foi digitado');
+      }
+      // Invisíveis de largura zero (comuns ao colar) saem: não mudam o endereço que a pessoa vê.
+      const corpo = valido();
+      corpo.cliente.email = ` Ana${String.fromCharCode(0x200b)}@Ex.com${String.fromCharCode(0xfeff)} `;
+      const r = validarDadosCheckout(corpo);
+      assert.equal(r.ok, true, JSON.stringify(r.erros));
+      assert.equal(r.dados.cliente.email, 'ana@ex.com');
     });
 
     test('retirada dispensa o endereço (endereco = {})', () => {

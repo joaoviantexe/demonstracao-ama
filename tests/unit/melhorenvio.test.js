@@ -1,11 +1,13 @@
 // lib/melhorenvio.js contra o servidor falso (tests/apoio/melhorenvio-falso.js). Sem rede externa.
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import { iniciar } from '../apoio/melhorenvio-falso.js';
 import { AMBIENTE_VAZIO, aplicarAmbiente } from '../apoio/servidor.js';
 import {
-  SERVICOS_CORREIOS, adicionarAoCarrinho, aguardarGeracao, calcular, cancelar, comprar, destinatarioDoPedido, gerar, imprimir, listaServicos,
-  montarCorpoCotacao, montarItensCarrinho, normalizarServicos, obterEtiqueta, rastrear, saldo, urlApi, userAgent,
+  SERVICOS_CORREIOS, adicionarAoCarrinho, aguardarGeracao, calcular, cancelar, comprar, destinatarioDoPedido, esperaDo429, gerar, imprimir,
+  listaServicos, montarCorpoCotacao, montarItensCarrinho, normalizarServicos, obterEtiqueta, rastrear, removerDoCarrinho, saldo, urlApi,
+  userAgent,
 } from '../../lib/melhorenvio.js';
 
 let falso;
@@ -40,8 +42,6 @@ before(async () => { falso = await iniciar(); });
 after(async () => { await falso.fechar(); });
 beforeEach(() => {
   falso.estado.reiniciar();
-  falso.estado.token = null;
-  falso.estado.atrasoGeracaoMs = 400;
   restaurar = aplicarAmbiente({
     ...AMBIENTE_VAZIO,
     MELHOR_ENVIO_TOKEN: 'token-de-teste',
@@ -81,12 +81,69 @@ describe('configuração e cabeçalhos', () => {
 
   test('User-Agent: e-mail técnico, e-mail do remetente ou "contato"; sem caracteres perigosos', () => {
     assert.equal(userAgent(), 'AMA Loja (tec@ama.org)');
+    // Formato "Nome <email>" (como o EMAIL_REMETENTE da §3) também em MELHOR_ENVIO_EMAIL.
+    aplicarAmbiente({ MELHOR_ENVIO_EMAIL: 'Equipe AMA <tec@ama.org>' });
+    assert.equal(userAgent(), 'AMA Loja (tec@ama.org)');
     aplicarAmbiente({ MELHOR_ENVIO_EMAIL: undefined, EMAIL_REMETENTE: 'AMA <loja@ama.org.br>' });
     assert.equal(userAgent(), 'AMA Loja (loja@ama.org.br)');
-    aplicarAmbiente({ EMAIL_REMETENTE: undefined });
+    // Sem e-mail válido em MELHOR_ENVIO_EMAIL: cai no do remetente.
+    aplicarAmbiente({ MELHOR_ENVIO_EMAIL: 'suporte técnico' });
+    assert.equal(userAgent(), 'AMA Loja (loja@ama.org.br)');
+    aplicarAmbiente({ MELHOR_ENVIO_EMAIL: undefined, EMAIL_REMETENTE: undefined });
     assert.equal(userAgent(), 'AMA Loja (contato)');
     aplicarAmbiente({ MELHOR_ENVIO_EMAIL: 'tec@ama.org\r\nX-Injetado: 1' });
-    assert.equal(userAgent(), 'AMA Loja (tec@ama.orgX-Injetado1)');
+    assert.equal(userAgent(), 'AMA Loja (tec@ama.org)');
+    aplicarAmbiente({ MELHOR_ENVIO_EMAIL: '<script>@x' });
+    assert.equal(userAgent(), 'AMA Loja (contato)');
+  });
+
+  test('token com espaço, quebra de linha ou acento: 503 sem chamar a API e sem expor o token', async () => {
+    for (const token of ['segredo-SUPER\nsecreto', 'abc def', 'tokén-123']) {
+      aplicarAmbiente({ MELHOR_ENVIO_TOKEN: token });
+      await assert.rejects(saldo(), (e) => {
+        assert.equal(e.status, 503);
+        assert.equal(e.erro, 'frete_nao_configurado');
+        assert.match(e.mensagem, /formato inválido/);
+        assert.ok(!e.mensagem.includes(token));
+        assert.doesNotMatch(e.mensagem, /segredo|secreto/);
+        return true;
+      });
+    }
+    assert.equal(falso.estado.requisicoes.length, 0);
+  });
+
+  test('erro do fetch nunca vai para a mensagem (pode conter o cabeçalho Authorization)', async (t) => {
+    t.mock.method(globalThis, 'fetch', async () => {
+      throw new TypeError('Headers.append: "Bearer token-de-teste" is an invalid header value.');
+    });
+    await assert.rejects(saldo(), (e) => {
+      assert.equal(e.status, 502);
+      assert.equal(e.erro, 'falha_melhor_envio');
+      assert.match(e.mensagem, /não foi possível conectar ao Melhor Envio/);
+      assert.doesNotMatch(`${e.mensagem} ${JSON.stringify(e.extra)}`, /token-de-teste|Bearer|Headers/);
+      return true;
+    });
+  });
+
+  test('sem conexão: 502 com o código de rede', async () => {
+    const servidor = http.createServer();
+    await new Promise((r) => { servidor.listen(0, '127.0.0.1', r); });
+    const { port } = servidor.address();
+    await new Promise((r) => { servidor.close(r); });
+    aplicarAmbiente({ MELHOR_ENVIO_API_BASE: `http://127.0.0.1:${port}` });
+    await rejeita(saldo(), { status: 502, erro: 'falha_melhor_envio', mensagem: /consultar o saldo: não foi possível conectar ao Melhor Envio \(ECONNREFUSED\)/ });
+  });
+
+  test('o falso: reiniciar() volta token, atraso de geração, saldo e ajustes aos padrões', () => {
+    Object.assign(falso.estado, { token: 'outro', atrasoGeracaoMs: 1, saldoCentavos: 3, prazoExtraConta: 9, ajustesServicos: { 1: { price: '1.00' } } });
+    falso.estado.forcar('/balance', { status: 500 });
+    falso.estado.reiniciar();
+    assert.equal(falso.estado.token, null);
+    assert.equal(falso.estado.atrasoGeracaoMs, 400);
+    assert.equal(falso.estado.saldoCentavos, 50_000);
+    assert.equal(falso.estado.prazoExtraConta, 0);
+    assert.deepEqual(falso.estado.ajustesServicos, {});
+    assert.deepEqual(falso.estado.forcadas, []);
   });
 
   test('envia Authorization Bearer, User-Agent, Accept e Content-Type JSON', async () => {
@@ -619,5 +676,247 @@ describe('carrinho → comprar → gerar → imprimir → rastrear', () => {
       assert.equal(e.extra.status_melhor_envio, 404);
       return true;
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('seguro na cotação por products', () => {
+  const produto = (extra = {}) => ({ id: 'x', width: 12, height: 4, length: 16, weight: 0.3, quantity: 1, ...extra });
+
+  test('valorSeguro (centavos) vira insurance_value por unidade e a API cota com seguro', async () => {
+    const [pac] = await calcular({ de: '67125866', para: '01310100', produtos: [produto()], servicos: [1], valorSeguro: 50_000 });
+    assert.equal(ultima().corpo.products[0].insurance_value, 500);
+    assert.equal(pac.pacotes[0].seguro_centavos, 50_000);
+  });
+
+  test('divide pelas unidades dos produtos sem seguro próprio, arredondando para cima', () => {
+    const corpo = montarCorpoCotacao({
+      de: '67125866', para: '01310100', valorSeguro: 10_001,
+      produtos: [produto({ id: 'a', quantity: 2 }), produto({ id: 'b', insurance_value: 10 })],
+    });
+    assert.deepEqual(corpo.products.map((p) => [p.id, p.insurance_value]), [['a', 50.01], ['b', 10]]);
+    // 1000 centavos em 3 unidades: 3,34 cada (segura R$ 10,02, nunca menos que o declarado).
+    const tres = montarCorpoCotacao({ de: '67125866', para: '01310100', valorSeguro: 1000, produtos: [produto({ quantity: 3 })] });
+    assert.equal(tres.products[0].insurance_value, 3.34);
+    const zero = montarCorpoCotacao({ de: '67125866', para: '01310100', valorSeguro: 0, produtos: [produto()] });
+    assert.equal(zero.products[0].insurance_value, 0);
+  });
+
+  test('valorSeguro que não é inteiro em centavos → 400 sem chamar a API', async () => {
+    for (const valorSeguro of [45.5, '10000', -1]) {
+      await rejeita(calcular({ de: '67125866', para: '01310100', produtos: [produto()], valorSeguro }), { status: 400, erro: 'seguro_invalido' });
+      await rejeita(calcular({ de: '67125866', para: '01310100', volumes: [produto()], valorSeguro }), { status: 400, erro: 'seguro_invalido' });
+    }
+    assert.equal(falso.estado.requisicoes.length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('429 e prazo total', () => {
+  const h = (valor) => new Headers(valor === undefined ? {} : { 'Retry-After': valor });
+
+  test('esperaDo429: Retry-After em segundos ou data HTTP, limitado a 3 s; sem cabeçalho, 500 ms', () => {
+    assert.equal(esperaDo429(h('60')), 3000);
+    assert.equal(esperaDo429(h('3')), 3000);
+    assert.equal(esperaDo429(h('2')), 2000);
+    assert.equal(esperaDo429(h('0')), 0);
+    assert.equal(esperaDo429(h('0.25')), 250);
+    assert.equal(esperaDo429(h()), 500);
+    assert.equal(esperaDo429(h('')), 500);
+    assert.equal(esperaDo429(h('abc')), 500);
+    assert.equal(esperaDo429(h('-5')), 500);
+    const agora = Date.parse('2026-10-14T12:00:00Z');
+    assert.equal(esperaDo429(h('Wed, 14 Oct 2026 12:00:02 GMT'), agora), 2000);
+    assert.equal(esperaDo429(h('Wed, 14 Oct 2026 11:00:00 GMT'), agora), 0);
+    assert.equal(esperaDo429(h('Wed, 14 Oct 2026 13:00:00 GMT'), agora), 3000);
+    assert.equal(esperaDo429(null), 500);
+  });
+
+  test('respeita o Retry-After antes de tentar de novo', async () => {
+    falso.estado.forcar('/shipment/calculate', { status: 429, corpo: { message: 'Too Many Attempts.' }, cabecalhos: { 'Retry-After': '0.2' } });
+    const inicio = Date.now();
+    const [pac] = await calcular({ de: '67125866', para: '01310100', produtos: [PRODUTO_LEVE], servicos: [1] });
+    assert.ok(Date.now() - inicio >= 190, `esperou só ${Date.now() - inicio} ms`);
+    assert.equal(pac.preco_centavos, 2350);
+    assert.equal(chamadasPara('/shipment/calculate').length, 2);
+  });
+
+  test('espera maior que o prazo que sobra: não tenta de novo e falha logo', async () => {
+    falso.estado.forcar('/shipment/calculate', { status: 429, corpo: { message: 'Too Many Attempts.' }, cabecalhos: { 'Retry-After': '1' } });
+    const inicio = Date.now();
+    await rejeita(calcular({ de: '67125866', para: '01310100', produtos: [PRODUTO_LEVE], timeoutMs: 1000 }), {
+      status: 502, mensagem: /Muitas requisições/,
+    });
+    assert.ok(Date.now() - inicio < 500, `levou ${Date.now() - inicio} ms`);
+    assert.equal(chamadasPara('/shipment/calculate').length, 1);
+  });
+
+  test('o timeoutMs cobre também a nova tentativa', async () => {
+    falso.estado.forcar('/shipment/calculate', { status: 429, corpo: { message: 'Too Many Attempts.' }, cabecalhos: { 'Retry-After': '0.3' } });
+    falso.estado.forcar('/shipment/calculate', { status: 200, corpo: [], atrasoMs: 2000 });
+    const inicio = Date.now();
+    await rejeita(calcular({ de: '67125866', para: '01310100', produtos: [PRODUTO_LEVE], timeoutMs: 1000 }), {
+      status: 502, mensagem: /não respondeu a tempo/,
+    });
+    const levou = Date.now() - inicio;
+    assert.ok(levou >= 900 && levou < 1300, `levou ${levou} ms`);
+    assert.equal(chamadasPara('/shipment/calculate').length, 2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('respostas por etiqueta', () => {
+  async function etiquetaNoCarrinho() {
+    const [pac] = await calcular({ de: ORIGEM.cep, para: DESTINATARIO.cep, produtos: [PRODUTO_LEVE], servicos: [1] });
+    const [item] = await adicionarAoCarrinho(montarItensCarrinho({
+      servicoId: 1, pacotes: pac.pacotes, remetente: ORIGEM, destinatario: DESTINATARIO,
+      itens: [{ produto_id: 'p-leve', nome: 'Sabonete', quantidade: 2, preco_unitario_centavos: 4500 }],
+    }));
+    return item;
+  }
+
+  test('gerar: etiqueta não paga, inexistente ou sem resposta → ok false com a mensagem', async () => {
+    const item = await etiquetaNoCarrinho();
+    const r = await gerar([item.id, 'nao-existe']);
+    assert.deepEqual(r[item.id], { ok: false, mensagem: 'A etiqueta ainda não foi paga.' });
+    assert.deepEqual(r['nao-existe'], { ok: false, mensagem: 'Etiqueta não encontrada.' });
+
+    falso.estado.forcar('/shipment/generate', { status: 200, corpo: { outra: { status: true, message: 'ok' } } });
+    assert.deepEqual((await gerar(['abc'])).abc, { ok: false, mensagem: 'Sem resposta para esta etiqueta.' });
+    falso.estado.forcar('/shipment/generate', { status: 200, corpo: { abc: { status: false, message: 'Erro na transportadora.' } } });
+    assert.deepEqual((await gerar(['abc'])).abc, { ok: false, mensagem: 'Erro na transportadora.' });
+  });
+
+  test('saldo exatamente igual ao necessário: compra normalmente', async () => {
+    const item = await etiquetaNoCarrinho();
+    falso.estado.saldoCentavos = item.preco_centavos;
+    const compra = await comprar([item.id], { valorCentavos: item.preco_centavos });
+    assert.equal(compra.total_centavos, item.preco_centavos);
+    assert.equal(falso.estado.saldoCentavos, 0);
+  });
+
+  test('rastrear: só aceita tracking_url https sem caracteres perigosos; senão monta o link do Melhor Rastreio', async () => {
+    falso.estado.forcar('/shipment/tracking', {
+      status: 200,
+      corpo: {
+        a: { status: 'posted', tracking: 'AA123456789BR', melhorenvio_tracking: 'ME1', tracking_url: 'javascript:alert(1)' },
+        b: { status: 'posted', tracking: 'BB123456789BR', tracking_url: 'http://rastreio.exemplo.com/BB' },
+        c: { status: 'posted', tracking: 'CC123456789BR', tracking_url: 'https://rastreio.exemplo.com/CC?x=1' },
+        d: { status: 'released', tracking: null, melhorenvio_tracking: 'ME2', tracking_url: 'https://x.com/"><script>' },
+        f: { status: 'pending', tracking: '', melhorenvio_tracking: '' },
+      },
+    });
+    const r = await rastrear(['a', 'b', 'c', 'd', 'e', 'f']);
+    assert.equal(r.a.url_rastreio, 'https://www.melhorrastreio.com.br/rastreio/AA123456789BR');
+    assert.equal(r.b.url_rastreio, 'https://www.melhorrastreio.com.br/rastreio/BB123456789BR');
+    assert.equal(r.c.url_rastreio, 'https://rastreio.exemplo.com/CC?x=1');
+    assert.equal(r.d.url_rastreio, 'https://www.melhorrastreio.com.br/rastreio/ME2');
+    assert.equal(r.d.codigo_rastreio, null);
+    assert.equal(r.d.codigo_melhor_envio, 'ME2');
+    assert.deepEqual(r.e, {
+      status: null, codigo_rastreio: null, codigo_melhor_envio: null, url_rastreio: null, posted_at: null, delivered_at: null, bruto: null,
+    });
+    assert.equal(r.f.url_rastreio, null);
+  });
+
+  test('obterEtiqueta: status "canceled" conta como cancelada mesmo sem canceled_at', async () => {
+    falso.estado.forcar('/orders/abc', {
+      status: 200, corpo: { id: 'abc', status: 'canceled', canceled_at: null, generated_at: '', paid_at: '2026-10-01 10:00:00' },
+    });
+    const cancelada = await obterEtiqueta('abc');
+    assert.equal(cancelada.cancelada, true);
+    assert.equal(cancelada.gerada, false);
+    assert.equal(cancelada.generated_at, null);
+    assert.equal(cancelada.paga, true);
+    falso.estado.forcar('/orders/def', { status: 200, corpo: { id: 'def', status: 'released' } });
+    assert.equal((await obterEtiqueta('def')).cancelada, false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('carrinho com vários pacotes: falha no meio', () => {
+  function corposDoisPacotes() {
+    const pacote = { altura_cm: 8, largura_cm: 12, comprimento_cm: 16, peso_kg: 0.6, produtos: [{ id: 'p1', quantidade: 1 }] };
+    const corpos = montarItensCarrinho({
+      servicoId: 1, pacotes: [pacote, { ...pacote }], remetente: ORIGEM, destinatario: DESTINATARIO,
+      itens: [{ produto_id: 'p1', nome: 'Sabonete', quantidade: 2, preco_unitario_centavos: 2000 }], tag: 'pedido-7',
+    });
+    corpos[1].volumes[0].weight = 99; // o Melhor Envio recusa o 2º pacote (passa de 30 kg)
+    return corpos;
+  }
+  const deletes = () => falso.estado.requisicoes.filter((r) => r.metodo === 'DELETE');
+
+  test('remove do carrinho as etiquetas já criadas e devolve os ids no erro', async () => {
+    await assert.rejects(adicionarAoCarrinho(corposDoisPacotes()), (e) => {
+      assert.equal(e.status, 502);
+      assert.equal(e.erro, 'falha_melhor_envio');
+      assert.match(e.mensagem, /^Pacote 2 de 2: Falha ao adicionar a etiqueta ao carrinho/);
+      assert.match(e.mensagem, /1 etiqueta já criada foi removida do carrinho; pode tentar de novo\.$/);
+      assert.equal(e.extra.status_melhor_envio, 422);
+      assert.equal(e.extra.carrinho_criados.length, 1);
+      const [{ id, protocolo }] = e.extra.carrinho_criados;
+      assert.match(id, /^[0-9a-f-]{36}$/);
+      assert.match(protocolo, /^ORD-/);
+      assert.deepEqual(e.extra.carrinho_removidos, [id]);
+      assert.deepEqual(e.extra.carrinho_orfaos, []);
+      assert.deepEqual(deletes().map((r) => r.caminho), [`/cart/${id}`]);
+      return true;
+    });
+    assert.deepEqual(falso.estado.carrinho, []);
+    assert.equal(chamadasPara('/cart').length, 2);
+  });
+
+  test('se a remoção falhar, a etiqueta órfã vem no erro com o protocolo e um aviso', async () => {
+    falso.estado.forcar(/^\/cart\/[\w-]+$/, { metodo: 'DELETE', status: 500 });
+    await assert.rejects(adicionarAoCarrinho(corposDoisPacotes()), (e) => {
+      assert.equal(e.status, 502);
+      const [orfao] = e.extra.carrinho_orfaos;
+      assert.deepEqual(e.extra.carrinho_orfaos, [{ id: falso.estado.carrinho[0], protocolo: orfao.protocolo }]);
+      assert.deepEqual(e.extra.carrinho_removidos, []);
+      assert.ok(e.mensagem.includes(`Atenção: 1 etiqueta ficou no carrinho do Melhor Envio (${orfao.protocolo})`));
+      assert.match(e.mensagem, /não pagar em dobro/);
+      return true;
+    });
+    assert.equal(falso.estado.carrinho.length, 1);
+  });
+
+  test('404 na remoção conta como removida; desfazerEmFalha false não remove nada', async () => {
+    falso.estado.forcar(/^\/cart\//, { metodo: 'DELETE', status: 404, corpo: { message: 'Not Found' } });
+    await assert.rejects(adicionarAoCarrinho(corposDoisPacotes()), (e) => {
+      assert.equal(e.extra.carrinho_removidos.length, 1);
+      assert.deepEqual(e.extra.carrinho_orfaos, []);
+      return true;
+    });
+
+    falso.estado.reiniciar();
+    await assert.rejects(adicionarAoCarrinho(corposDoisPacotes(), { desfazerEmFalha: false }), (e) => {
+      assert.equal(e.extra.carrinho_orfaos.length, 1);
+      assert.deepEqual(e.extra.carrinho_removidos, []);
+      return true;
+    });
+    assert.equal(deletes().length, 0);
+    assert.equal(falso.estado.carrinho.length, 1);
+  });
+
+  test('erro de validação em qualquer item: nenhuma etiqueta é criada', async () => {
+    const corpos = corposDoisPacotes();
+    corpos[1].volumes = [corpos[0].volumes[0], corpos[0].volumes[0]];
+    await rejeita(adicionarAoCarrinho(corpos), { status: 400, erro: 'volumes_demais' });
+    await rejeita(adicionarAoCarrinho([corpos[0], { ...corpos[0], service: 'x' }]), { status: 400, erro: 'servico_invalido' });
+    await rejeita(adicionarAoCarrinho([]), { status: 400, erro: 'dados_invalidos' });
+    assert.equal(falso.estado.requisicoes.length, 0);
+  });
+
+  test('removerDoCarrinho: DELETE /cart/{id}; inexistente → 502 (404)', async () => {
+    const [corpo] = corposDoisPacotes();
+    const item = await adicionarAoCarrinho(corpo);
+    assert.deepEqual(await removerDoCarrinho(item.id), { id: item.id, removida: true });
+    assert.deepEqual(falso.estado.carrinho, []);
+    await assert.rejects(removerDoCarrinho(item.id), (e) => {
+      assert.equal(e.status, 502);
+      assert.equal(e.extra.status_melhor_envio, 404);
+      return true;
+    });
+    await rejeita(removerDoCarrinho('../balance'), { status: 400, erro: 'etiqueta_invalida' });
   });
 });

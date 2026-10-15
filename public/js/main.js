@@ -189,10 +189,10 @@
     };
 
     document.querySelectorAll("[data-lightbox]").forEach(function (btn) {
-      // Nome acessível segue o texto alternativo atual da imagem (editável no painel).
+      // Nome acessível segue o texto alternativo atual da imagem (editável no painel, pode vir vazio).
       var imgBtn = btn.querySelector("img");
       var altBtn = imgBtn ? (imgBtn.getAttribute("alt") || "").trim() : "";
-      if (altBtn) btn.setAttribute("aria-label", "Ampliar imagem: " + altBtn);
+      btn.setAttribute("aria-label", altBtn ? "Ampliar imagem: " + altBtn : "Ampliar imagem");
       btn.addEventListener("click", function (e) {
         e.preventDefault();
         abrirLightbox(btn);

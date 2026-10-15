@@ -8,7 +8,7 @@ import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { parseHTML } from 'linkedom';
 import { aplicarConteudo, extrairEsquema, lerValor } from '../../public/js/cms/aplicar.js';
-import render from '../../api/render.js';
+import render, { ogImagemAbsoluta } from '../../api/render.js';
 import {
   AMBIENTE_VAZIO, aplicarAmbiente, chamarHandler, respostaJson, simularFetch,
 } from '../apoio/servidor.js';
@@ -16,6 +16,7 @@ import {
 const RAIZ = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const TEMPLATE = readFileSync(path.join(RAIZ, 'templates', 'home.html'), 'utf8');
 const MAIN_JS = readFileSync(path.join(RAIZ, 'public', 'js', 'main.js'), 'utf8');
+const ESTILO = readFileSync(path.join(RAIZ, 'public', 'css', 'estilo.css'), 'utf8');
 
 const GRUPOS = [
   'seo', 'cabecalho', 'quem-somos', 'postagens', 'projetos', 'historia', 'loja',
@@ -399,6 +400,34 @@ describe('templates/home.html — estrutura', () => {
     assert.equal($(doc, 'script[src="/js/main.js"]').hasAttribute('type'), false, 'main.js continua script clássico');
     assert.ok($(doc, 'link[rel="stylesheet"][href="/css/estilo.css"]'));
   });
+
+  // main#topo é flex; o "order" do estilo.css decide a ordem visual. Ela tem de seguir a do documento,
+  // que é a ordem do Tab (WCAG 2.4.3) e a dos grupos no painel.
+  test('a ordem visual das seções (order do estilo.css) segue a ordem do documento', () => {
+    const ordens = new Map();
+    for (const [, id, valor] of ESTILO.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/#([\w-]+)\s*\{\s*order\s*:\s*(-?\d+)\s*;?\s*\}/g)) {
+      ordens.set(id, Number(valor)); // a última regra vale (cascata)
+    }
+    const secoes = $$(doc, 'main#topo > section[id]').map((s) => s.id);
+    assert.deepEqual(secoes, ['sobre', 'redes', 'cursos', 'historia', 'loja', 'depoimentos', 'parcerias']);
+    for (const id of secoes) assert.ok(ordens.has(id), `#${id} tem order no estilo.css`);
+    for (let i = 1; i < secoes.length; i++) {
+      const [antes, depois] = [secoes[i - 1], secoes[i]];
+      assert.ok(ordens.get(antes) <= ordens.get(depois),
+        `#${antes} (order ${ordens.get(antes)}) vem antes de #${depois} (order ${ordens.get(depois)}) no documento`);
+    }
+  });
+
+  test('nomes acessíveis não descrevem o conteúdo padrão (que a AMA pode trocar)', () => {
+    // Botões de ampliar: o nome vem do texto alternativo da imagem (o main.js acrescenta "Ampliar imagem").
+    const botoes = $$(doc, '[data-lightbox]');
+    assert.equal(botoes.length, 7);
+    for (const btn of botoes) {
+      assert.equal(btn.hasAttribute('aria-label'), false, btn.outerHTML.slice(0, 90));
+      assert.ok($(btn, 'img[data-cms-campo="cartaz"], img[data-cms-campo="imagem"]'));
+    }
+    assert.equal($(doc, 'video[data-cms="quem-somos.video"]').getAttribute('aria-label'), 'Vídeo institucional da AMA');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -465,6 +494,21 @@ describe('public/js/main.js', () => {
     clicar($(document, '.historia-galeria .historia-imagem-zoom'));
     assert.equal(img.getAttribute('src'), '/img/monica-moura-retrato.jpg');
     assert.equal(link.style.display, 'none');
+  });
+
+  test('nome acessível do botão de ampliar segue o texto alternativo atual, mesmo vazio', () => {
+    const { document } = executarMain({
+      'projetos.itens': [
+        { cartaz: { src: '/img/capa-curso-idiomas.jpg', alt: '' } },
+        { cartaz: { src: '/img/capa-acredita-basa.jpg', alt: '  ' } },
+        { cartaz: { src: '/img/capa-curso-ela-empreende.jpg', alt: 'Ela Empreende 2027' } },
+      ],
+      'historia.galeria': [{ imagem: { src: '/img/monica-moura.jpeg', alt: '' } }],
+    });
+    const nomes = (seletor) => $$(document, seletor).map((b) => b.getAttribute('aria-label'));
+    assert.deepEqual(nomes('#carrossel-projetos [data-lightbox]'),
+      ['Ampliar imagem', 'Ampliar imagem', 'Ampliar imagem: Ela Empreende 2027']);
+    assert.deepEqual(nomes('.historia-galeria [data-lightbox]'), ['Ampliar imagem']);
   });
 
   test('destaque do menu só para âncoras: /loja/ nunca fica ativo', () => {
@@ -534,5 +578,30 @@ describe('api/render.js com templates/home.html', () => {
     assert.equal($(doc, '.sobre-descricao').innerHTML, '<p>Oi</p>');
     assert.doesNotMatch(res.corpo, /onerror|onclick/);
     assert.equal(fetchSimulado.chamadas.length, 1);
+  });
+
+  // WhatsApp e Facebook só mostram a imagem do link com endereço completo; o template usa /img/...
+  test('og:image sai com endereço completo quando há SITE_URL', async () => {
+    const ogImagem = (html) => $(montar(html), 'meta[property="og:image"]').getAttribute('content');
+    aplicarAmbiente({ SITE_URL: 'https://ama.exemplo.org' });
+    const semBanco = await chamarHandler(render, { url: '/' });
+    assert.equal(ogImagem(semBanco.corpo), 'https://ama.exemplo.org/img/logo-ama.png');
+
+    aplicarAmbiente({ SUPABASE_URL: 'http://supabase.teste', SUPABASE_ANON_KEY: 'sb_publishable_teste' });
+    fetchSimulado = simularFetch(() => respostaJson(200, [
+      { chave: 'seo.og-imagem', valor: '/img/produtos/body-splash-raiz.jpg' },
+    ]));
+    const comBanco = await chamarHandler(render, { url: '/' });
+    assert.equal(ogImagem(comBanco.corpo), 'https://ama.exemplo.org/img/produtos/body-splash-raiz.jpg');
+
+    // Endereço completo e "//host" ficam como estão; o modelo cru do painel não muda.
+    assert.equal(ogImagemAbsoluta('<meta property="og:image" content="https://x.org/a.jpg">', 'https://ama.exemplo.org'),
+      '<meta property="og:image" content="https://x.org/a.jpg">');
+    assert.equal(ogImagemAbsoluta('<meta content="//x.org/a.jpg" property="og:image">', 'https://ama.exemplo.org'),
+      '<meta content="//x.org/a.jpg" property="og:image">');
+    assert.equal(ogImagemAbsoluta('<meta name="description" content="/nao">', 'https://ama.exemplo.org'),
+      '<meta name="description" content="/nao">');
+    const modelo = await chamarHandler(render, { url: '/?modelo=1' });
+    assert.equal(ogImagem(modelo.corpo), '/img/logo-ama.png');
   });
 });

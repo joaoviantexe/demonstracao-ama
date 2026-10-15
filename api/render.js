@@ -49,6 +49,18 @@ export function renderizarHome(template, conteudo) {
   return comDoctype(document.toString(), template);
 }
 
+/**
+ * WhatsApp e Facebook só mostram a imagem do link com endereço completo:
+ * transforma o og:image que começa com "/" em <SITE_URL>/... (siteUrl já é uma origem normalizada).
+ */
+export function ogImagemAbsoluta(html, siteUrl) {
+  if (!siteUrl) return html;
+  return html.replace(/<meta\b[^>]*>/gi, (tag) => {
+    if (!/\bproperty\s*=\s*["']og:image["']/i.test(tag)) return tag;
+    return tag.replace(/(\bcontent\s*=\s*["'])\/(?![\/\\])/i, (_, inicio) => `${inicio}${siteUrl}/`);
+  });
+}
+
 function enviarHtml(req, res, html, cabecalhos) {
   res.statusCode = 200;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -84,6 +96,7 @@ export default async function handler(req, res) {
       }
     }
 
+    html = ogImagemAbsoluta(html, obterAmbiente().siteUrl);
     enviarHtml(req, res, html, { 'Cache-Control': CACHE_PUBLICO, 'X-AMA-CMS': origem });
   } catch (erro) {
     tratarErro(res, erro);

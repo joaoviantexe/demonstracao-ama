@@ -5,14 +5,16 @@
 //   /admin/ → public/admin/index.html, /x.html → 308 para /x).
 // - /api/<caminho> → importa api/<caminho>.js e chama o export default handler(req, res),
 //   com req.query, req.cookies e req.body (getter que lança em JSON inválido, como na Vercel).
-//   Os módulos de api/ são recarregados a cada requisição (import com ?v=...).
+//   Os módulos de api/ são recarregados quando o arquivo muda (import com ?v=<hash do conteúdo>;
+//   cada versão é importada uma vez, porque o cache de módulos ESM nunca libera memória).
 // - Rewrite "/" → api/render (só porque não existe public/index.html, como na Vercel).
 // - Aplica os "headers" do vercel.json.
 // - Executado diretamente: carrega .env (sem sobrescrever o ambiente), PORT (padrão 3000) e HOST.
 
 import http from 'node:http';
 import { createReadStream, readFileSync } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import querystring from 'node:querystring';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -379,7 +381,21 @@ async function acharFuncao(rota, dirApi) {
   return null;
 }
 
-let versaoModulo = 0;
+// arquivo → { versao, promessa } da última versão importada.
+const modulosCarregados = new Map();
+
+async function carregarModulo(arquivo, recarregar) {
+  const href = pathToFileURL(arquivo).href;
+  if (!recarregar) return import(href);
+  // Hash do conteúdo, não o mtime: não depende da resolução do relógio do sistema de arquivos.
+  const versao = createHash('sha1').update(await readFile(arquivo)).digest('hex').slice(0, 16);
+  const atual = modulosCarregados.get(arquivo);
+  if (atual && atual.versao === versao) return atual.promessa;
+  // Uma falha (ex.: erro de sintaxe) fica guardada até o conteúdo mudar, como no cache ESM.
+  const promessa = import(`${href}?v=${versao}`);
+  modulosCarregados.set(arquivo, { versao, promessa });
+  return promessa;
+}
 
 async function atenderFuncao(req, res, url, rota, opcoes) {
   const arquivo = await acharFuncao(rota, opcoes.dirApi);
@@ -404,9 +420,7 @@ async function atenderFuncao(req, res, url, rota, opcoes) {
 
   let modulo;
   try {
-    const href = pathToFileURL(arquivo).href;
-    versaoModulo += 1;
-    modulo = await import(opcoes.recarregar ? `${href}?v=${Date.now()}-${versaoModulo}` : href);
+    modulo = await carregarModulo(arquivo, opcoes.recarregar);
   } catch (erro) {
     console.error(`[dev-server] falha ao carregar ${path.relative(RAIZ, arquivo)}:`, erro);
     enviarJson(res, 500, { ok: false, erro: 'erro_interno', mensagem: 'Falha ao carregar a função.' });
@@ -549,7 +563,8 @@ if (executadoDiretamente) {
   const ambiente = obterAmbiente();
   console.log(`Servidor da AMA em ${url}`);
   if (carregadas.length) console.log(`.env: ${carregadas.length} variável(is) carregada(s)`);
-  console.log(`Supabase: ${ambiente.supabaseConfigurado ? 'configurado' : ambiente.supabasePublicoConfigurado ? 'só chave pública' : 'não configurado (home com conteúdo padrão)'}`);
+  console.log(`Supabase: ${ambiente.supabaseConfigurado ? 'configurado' : ambiente.supabasePublicoConfigurado ? 'só chave pública' : 'não configurado (home com conteúdo padrão)'}`
+    + (ambiente.supabaseAnonKeyRecusada ? ' · ATENÇÃO: a chave pública era secreta e foi ignorada' : ''));
   console.log(`Mercado Pago: ${ambiente.mercadoPagoConfigurado ? 'configurado' : 'não configurado'}`
     + ` · Melhor Envio: ${ambiente.melhorEnvioConfigurado ? ambiente.melhorEnvioAmbiente : 'não configurado'}`
     + ` · E-mail: ${ambiente.emailConfigurado ? 'configurado' : 'não configurado'}`);

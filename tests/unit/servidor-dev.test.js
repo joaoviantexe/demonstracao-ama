@@ -290,10 +290,28 @@ export default function handler(req, res) {
     assert.equal(json(r).ok, false);
   });
 
-  test('módulos de api/ são recarregados a cada requisição', async () => {
+  test('módulos de api/ são recarregados quando o arquivo muda', async () => {
     assert.equal((await pedir(servidor.url, '/api/versao')).corpo, 'v1');
     writeFileSync(path.join(dirApi, 'versao.js'), 'export default (req, res) => res.end("v2");\n');
     assert.equal((await pedir(servidor.url, '/api/versao')).corpo, 'v2');
+  });
+
+  test('cada versão de um módulo de api/ é importada uma vez só (sem vazar memória)', async () => {
+    const marca = `__amaCargas_${process.pid}_${Date.now()}`;
+    const codigo = (versao) => `globalThis.${marca} = (globalThis.${marca} || 0) + 1;
+export default (req, res) => res.end("${versao}:" + globalThis.${marca});
+`;
+    writeFileSync(path.join(dirApi, 'contador.js'), codigo('a'));
+    try {
+      for (let i = 0; i < 5; i += 1) assert.equal((await pedir(servidor.url, '/api/contador')).corpo, 'a:1');
+      writeFileSync(path.join(dirApi, 'contador.js'), codigo('b'));
+      for (let i = 0; i < 3; i += 1) assert.equal((await pedir(servidor.url, '/api/contador')).corpo, 'b:2');
+      // Voltar ao conteúdo anterior reaproveita o módulo já importado.
+      writeFileSync(path.join(dirApi, 'contador.js'), codigo('a'));
+      assert.equal((await pedir(servidor.url, '/api/contador')).corpo, 'a:2');
+    } finally {
+      delete globalThis[marca];
+    }
   });
 });
 

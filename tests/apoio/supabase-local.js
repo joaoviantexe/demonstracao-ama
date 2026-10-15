@@ -103,11 +103,29 @@ function hostDe(endereco, rotulo) {
 }
 
 /**
+ * API e banco são do mesmo Supabase?
+ * - local: os dois em loopback (127.0.0.1, localhost e ::1 valem como o mesmo lugar);
+ * - remoto: host idêntico (self-hosted), banco em "db.<host da API>" (conexão direta), ou
+ *   pooler do Supabase: API "<projeto>.supabase.co", banco em "*.pooler.supabase.com" e
+ *   usuário "<papel>.<projeto>".
+ */
+function mesmoSupabase(api, banco) {
+  const apiLocal = LOOPBACK.has(api.host);
+  const bancoLocal = LOOPBACK.has(banco.host);
+  if (apiLocal || bancoLocal) return apiLocal && bancoLocal;
+  if (banco.host === api.host || banco.host === `db.${api.host}`) return true;
+  const projeto = api.host.match(/^([a-z0-9]+)\.supabase\.co$/)?.[1];
+  if (!projeto || !banco.host.endsWith('.pooler.supabase.com')) return false;
+  const ponto = banco.usuario.lastIndexOf('.');
+  return ponto > 0 && banco.usuario.slice(ponto + 1) === projeto;
+}
+
+/**
  * Trava contra rodar os testes num Supabase de produção: os testes criam usuários,
  * produtos ativos, pedidos e arquivos, e a limpeza roda pelo psql no dbUrl.
  * - API e banco precisam estar em 127.0.0.1, localhost ou ::1, salvo AMA_TESTES_PERMITIR_REMOTO=1.
- * - API e banco precisam apontar para o mesmo lugar (senão os dados ficam num e a limpeza roda no outro).
- *   Remoto: mesmo host, ou o banco do mesmo projeto (db.<projeto>.supabase.co ou usuário postgres.<projeto>).
+ * - API e banco precisam apontar para o mesmo lugar (senão os dados ficam num e a limpeza roda no outro);
+ *   veja mesmoSupabase().
  * Lança erro com a explicação; devolve os hosts quando está tudo certo.
  */
 export function conferirDestino({ url, dbUrl }, env = process.env) {
@@ -128,13 +146,7 @@ export function conferirDestino({ url, dbUrl }, env = process.env) {
     }
   }
 
-  const projeto = api.host.split('.')[0];
-  const mesmoDestino = apiLocal || bancoLocal
-    ? apiLocal && bancoLocal
-    : banco.host === api.host
-      || banco.host.endsWith(`.${api.host}`)
-      || (projeto !== '' && banco.usuario.endsWith(`.${projeto}`));
-  if (!mesmoDestino) {
+  if (!mesmoSupabase(api, banco)) {
     throw new Error(
       `A API (${api.host}) e o banco (${banco.host}) apontam para lugares diferentes: os testes criariam `
         + 'dados num e limpariam no outro. Ajuste SUPABASE_URL e SUPABASE_DB_URL.',
@@ -271,23 +283,33 @@ export async function clienteLogado(email, senha) {
 }
 
 /**
- * Executa SQL direto no Postgres local com o psql (como postgres, ignora RLS).
- * Devolve a saída sem alinhamento (-A -t), já sem espaços nas pontas.
- * Dica: para dados estruturados use `select json_agg(...)` e JSON.parse.
+ * Argumentos do psql para o dbUrl (sem alinhamento, para no primeiro erro).
+ * IPv6 sai sem colchetes no -h ("[::1]" → "::1"), que é o que o psql entende.
+ * Devolve { args, senha }.
  */
-export async function sql(query) {
-  const url = new URL(ambienteLocal().dbUrl);
+export function argumentosPsql(dbUrl, query) {
+  const url = new URL(dbUrl);
   const args = [
     '-X', '-q', '-A', '-t',
     '-v', 'ON_ERROR_STOP=1',
-    '-h', url.hostname,
+    '-h', url.hostname.replace(/^\[|\]$/g, ''),
     '-p', url.port || '5432',
     '-U', decodeURIComponent(url.username || 'postgres'),
     '-d', decodeURIComponent(url.pathname.replace(/^\//, '') || 'postgres'),
     '-c', query,
   ];
+  return { args, senha: decodeURIComponent(url.password || 'postgres') };
+}
+
+/**
+ * Executa SQL direto no Postgres local com o psql (como postgres, ignora RLS).
+ * Devolve a saída sem alinhamento (-A -t), já sem espaços nas pontas.
+ * Dica: para dados estruturados use `select json_agg(...)` e JSON.parse.
+ */
+export async function sql(query) {
+  const { args, senha } = argumentosPsql(ambienteLocal().dbUrl, query);
   const { stdout } = await executar('psql', args, {
-    env: { ...process.env, PGPASSWORD: decodeURIComponent(url.password || 'postgres') },
+    env: { ...process.env, PGPASSWORD: senha },
     maxBuffer: 20 * 1024 * 1024,
   });
   return stdout.trim();

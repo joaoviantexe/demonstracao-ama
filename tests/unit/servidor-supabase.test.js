@@ -168,6 +168,15 @@ describe('lib/supabase.js', () => {
     assert.equal(fetchSimulado.chamadas.length, 0);
   });
 
+  test('chave secreta no lugar da pública: selecionarPublico e usuarioDoToken não a usam', async (t) => {
+    t.mock.method(console, 'error', () => {});
+    fetchSimulado = simularFetch(() => respostaJson(200, []));
+    aplicarAmbiente({ SUPABASE_ANON_KEY: 'sb_secret_publico_teste' });
+    await assert.rejects(selecionarPublico('conteudo_site', ''), { status: 503, erro: 'supabase_nao_configurado' });
+    await assert.rejects(usuarioDoToken(JWT), { status: 503 });
+    assert.equal(fetchSimulado.chamadas.length, 0);
+  });
+
   describe('usuarioDoToken', () => {
     test('token válido → { id, email } (apikey anônima + Bearer do usuário)', async () => {
       fetchSimulado = simularFetch(() => respostaJson(200, { id: ID_ADMIN, email: 'admin@ama.local', role: 'authenticated' }));

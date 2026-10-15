@@ -109,6 +109,10 @@ Não existe `public/index.html`: por isso o rewrite de `/` para `/api/render` fu
 `lib/ambiente.js` exporta `obterAmbiente()` → objeto normalizado com essas chaves e
 flags `supabaseConfigurado`, `mercadoPagoConfigurado`, `melhorEnvioConfigurado`,
 `emailConfigurado`. Lê `process.env` a cada chamada (testes mudam o ambiente).
+`siteUrl` é sempre uma origem http(s) normalizada ou `''` (`normalizarUrlSite`): sem esquema recebe `https://`
+(`http://` para localhost), caminho e barra final são descartados e valor inválido é ignorado com aviso.
+Uma chave secreta colada por engano em `SUPABASE_ANON_KEY` (ou aliases) é ignorada (`supabaseAnonKeyRecusada: true`),
+para nunca ser publicada pelo `/api/config`.
 
 Chamadas REST ao Supabase:
 - anônimas (navegador e servidor): cabeçalho `apikey: <anon>`; no servidor também `Authorization: Bearer <anon>`.
@@ -187,7 +191,9 @@ Produto só é vendável se `ativo` e preço efetivo > 0.
 `subtotal_centavos int not null`, `desconto_centavos int not null default 0`, `frete_centavos int not null default 0`,
 `total_centavos int not null check (> 0)`, `cupom_codigo text`,
 `codigo_rastreio text`, `url_rastreio text`, `me_ordens jsonb not null default '[]'` (ids das etiquetas no Melhor Envio), `etiqueta_url text`,
-`observacoes text` (do cliente), `notas_internas text` (do admin),
+`observacoes text` (do cliente), `notas_internas text` (do admin). Checks: `url_rastreio` null ou `https://` com host
+(até 500 caracteres, sem espaços, aspas, `<`, `>`, crase ou barra invertida); `codigo_rastreio` null ou até 200 caracteres
+sem `<`, `>`, aspas, crase ou controles (vírgula separa vários códigos).
 `estoque_baixado boolean not null default false`,
 `pago_em`, `enviado_em`, `entregue_em`, `cancelado_em` (timestamptz null), `criado_em`, `atualizado_em`.
 
@@ -275,7 +281,8 @@ Todas `security definer`, `set search_path = ''` (nomes totalmente qualificados)
 | `categorias` | select onde `ativo` | idem | tudo |
 | `produtos` | select onde `ativo` | idem | tudo |
 | `cupons` | — | — | tudo |
-| `pedidos`, `pedido_itens`, `pedido_eventos` | — | — | select, update, delete (e insert em `pedido_eventos` só com `tipo = 'nota'`) |
+| `pedidos`, `pedido_itens` | — | — | select, update, delete |
+| `pedido_eventos` | — | — | select e delete; insert e update só com `tipo = 'nota'` |
 
 O `service_role` ignora RLS (usado só pelas funções da Vercel).
 
@@ -450,10 +457,16 @@ export async function buscarPagamentosPorReferencia(referencia)
 export function validarAssinatura({ xSignature, xRequestId, dataId, segredo }) // → boolean
 // lib/melhorenvio.js
 export async function calcular({ de, para, volumes|produtos, servicos, valorSeguro })
-export async function adicionarAoCarrinho(dados) ; comprar(ids) ; gerar(ids) ; imprimir(ids) ; rastrear(ids) ; saldo()
+export async function adicionarAoCarrinho(dados, { desfazerEmFalha }) ; comprar(ids) ; gerar(ids) ; imprimir(ids) ; rastrear(ids) ; saldo()
+export async function removerDoCarrinho(id) ; obterEtiqueta(id)
+// valorSeguro em CENTAVOS (produtos e volumes). Numa falha no meio de adicionarAoCarrinho(lista), as etiquetas já
+// criadas são removidas e o erro traz extra.carrinho_criados / carrinho_removidos / carrinho_orfaos.
+// cotarFrete guarda cotações do Melhor Envio em cache por 10 min (limparCacheCotacoes para testes).
 // lib/email.js
 export async function enviarEmail({ para, assunto, html })  // no-op (false) sem RESEND_API_KEY; nunca lança
-export function emailPedidoPago(pedido) ; emailPedidoEnviado(pedido) ; emailNovoPedidoAdmin(pedido) // → { assunto, html }
+export function emailPedidoPago(pedido, opcoes) ; emailPedidoEnviado(pedido, opcoes) ; emailNovoPedidoAdmin(pedido, opcoes)
+export function emailStatusPedido(pedido, opcoes) // → { assunto, html } | null
+// opcoes = { siteUrl, whatsapp: configuracoes.loja.whatsapp, retirada: configuracoes.frete.retirada }
 ```
 
 Servidores falsos para testes (`tests/apoio/`): `mercadopago-falso.js` e `melhorenvio-falso.js` exportam

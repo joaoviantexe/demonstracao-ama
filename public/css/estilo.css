@@ -1369,8 +1369,9 @@ footer.rodape{
 .historia-galeria .historia-imagem-fixa:last-child{margin-bottom:0}
 
 /* ---------- Loja virtual — banner Ama Bioessência ---------- */
-/* Mesmo lugar (order) que a antiga vitrine de biojoias: entre Projetos e História. */
-#loja{order:4}
+/* Depois de História, como no documento: a ordem visual é a do Tab e a dos grupos no painel
+   (empata com #historia e o desempate segue o documento). */
+#loja{order:5}
 .loja-banner{background:var(--creme-100);border-bottom:1px solid var(--linha)}
 .loja-painel{
   position:relative;isolation:isolate;overflow:hidden;

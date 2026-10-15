@@ -313,12 +313,23 @@ async function abrir(navegador, url, largura, erros) {
   return { contexto, pagina };
 }
 
-// O banner da loja tem outra altura que a vitrine de biojoias: as seções seguintes começam em outra
-// posição (outra fração de pixel e outra grade de "tiles" de rasterização do Chromium) e o texto e as
-// bordas saem com antisserrilhado ligeiramente diferente. Para comparar só o que mudou de verdade,
-// durante a captura o banner ocupa exatamente a altura da vitrine antiga (espaço extra dentro dele,
-// acima da borda inferior). Se o banner for mais alto, iguala ao menos a fração de pixel.
+// O banner da loja fica depois de História (ordem do documento); na main a vitrine de biojoias vinha
+// antes dela (order 4). E o banner tem outra altura que a vitrine: as seções seguintes começariam em
+// outra posição (outra fração de pixel e outra grade de "tiles" de rasterização do Chromium) e o texto
+// e as fotos sairiam com antisserrilhado ligeiramente diferente. Para comparar só o que mudou de
+// verdade, durante a captura a vitrine da main vai para o lugar do banner (depois de História) e o
+// banner ocupa exatamente a altura da vitrine (espaço extra dentro dele, acima da borda inferior).
+// Se o banner for mais alto, iguala ao menos a fração de pixel.
 async function alinharPosicao(paginaMain, paginaNovo) {
+  const ordem = (pagina, sel) => pagina.evaluate((s) => {
+    const el = document.querySelector(s);
+    return el ? Number(getComputedStyle(el).order) : null;
+  }, sel);
+  const ordemLoja = await ordem(paginaNovo, '#loja');
+  if (ordemLoja !== null && ordemLoja !== await ordem(paginaMain, '#biojoias')) {
+    // Empate com #historia: o desempate segue o documento, onde #biojoias vem depois de #historia.
+    await paginaMain.addStyleTag({ content: `#biojoias{order:${ordemLoja}!important}` });
+  }
   const altura = (pagina, sel) => pagina.evaluate((s) => {
     const el = document.querySelector(s);
     return el ? el.getBoundingClientRect().height : null;

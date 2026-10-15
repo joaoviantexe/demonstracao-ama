@@ -15,10 +15,12 @@
 //   prazoExtraConta: 0               somado em custom_delivery_time (simula customização da conta)
 //   ajustesServicos: { [id]: {…} }   campos mesclados no serviço devolvido (ex.: { 2: { custom_price: 'abc' } })
 //   ultimaImpressao: { mode, orders } | null
-//   forcar(caminho, { status = 500, corpo, bruto, cabecalhos, vezes = 1, atrasoMs = 0 })
-//       as próximas `vezes` requisições para `caminho` ('/shipment/calculate', '/balance'… ou '*')
-//       recebem essa resposta (corpo JSON ou texto `bruto`). Use para simular 500, 429, lentidão etc.
-//   reiniciar()                      limpa requisições, carrinho, etiquetas, compras e respostas forçadas
+//   forcar(caminho, { status = 500, corpo, bruto, cabecalhos, vezes = 1, atrasoMs = 0, metodo = null })
+//       as próximas `vezes` requisições para `caminho` ('/shipment/calculate', '/balance'…, '*' ou uma RegExp
+//       como /^\/cart\//), só do `metodo` se informado ('DELETE'…), recebem essa resposta (corpo JSON ou texto
+//       `bruto`). Use para simular 500, 429, lentidão etc. Só vale para requisições autenticadas.
+//   reiniciar()                      limpa requisições, carrinho, etiquetas, compras e respostas forçadas e volta
+//                                    saldoCentavos, token, atrasoGeracaoMs, prazoExtraConta e ajustesServicos aos padrões
 //
 // Rotas: POST /shipment/calculate (products OU volumes; serviços 1 PAC, 2 SEDEX e 17 Mini Envios com price
 // em STRING), POST /cart (uma etiqueta; Correios recusam vários volumes), GET|DELETE /cart/{id}, GET /cart,
@@ -405,22 +407,22 @@ function rotaCancelar(corpo, res, estado) {
   return enviar(res, 200, { [e.id]: { canceled: true } });
 }
 
+// Valores configuráveis que reiniciar() restaura.
+const PADROES = Object.freeze({ saldoCentavos: 50_000, token: null, atrasoGeracaoMs: 400, prazoExtraConta: 0 });
+
 function criarEstado() {
   const estado = {
     requisicoes: [],
     carrinho: [],
     etiquetas: {},
     compras: [],
-    saldoCentavos: 50_000,
-    token: null,
-    atrasoGeracaoMs: 400,
-    prazoExtraConta: 0,
+    ...PADROES,
     ajustesServicos: {},
     ultimaImpressao: null,
     forcadas: [],
-    forcar(caminho, { status = 500, corpo, bruto, cabecalhos = {}, vezes = 1, atrasoMs = 0 } = {}) {
+    forcar(caminho, { status = 500, corpo, bruto, cabecalhos = {}, vezes = 1, atrasoMs = 0, metodo = null } = {}) {
       estado.forcadas.push({
-        caminho, status, corpo: corpo === undefined && bruto === undefined ? { message: 'Server Error' } : corpo, bruto, cabecalhos, vezes, atrasoMs,
+        caminho, metodo, status, corpo: corpo === undefined && bruto === undefined ? { message: 'Server Error' } : corpo, bruto, cabecalhos, vezes, atrasoMs,
       });
     },
     reiniciar() {
@@ -431,11 +433,15 @@ function criarEstado() {
       estado.forcadas = [];
       estado.ultimaImpressao = null;
       estado.ajustesServicos = {};
-      estado.saldoCentavos = 50_000;
-      estado.prazoExtraConta = 0;
+      Object.assign(estado, PADROES);
     },
   };
   return estado;
+}
+
+function respostaForcada(estado, metodo, caminho) {
+  return estado.forcadas.findIndex((f) => (!f.metodo || f.metodo === metodo)
+    && (f.caminho === '*' || f.caminho === caminho || (f.caminho instanceof RegExp && f.caminho.test(caminho))));
 }
 
 /** Sobe o servidor falso em 127.0.0.1. */
@@ -486,7 +492,7 @@ export async function iniciar({ porta = 0 } = {}) {
       return;
     }
 
-    const indice = estado.forcadas.findIndex((f) => f.caminho === '*' || f.caminho === caminho);
+    const indice = respostaForcada(estado, req.method, caminho);
     if (indice >= 0) {
       const f = estado.forcadas[indice];
       f.vezes -= 1;

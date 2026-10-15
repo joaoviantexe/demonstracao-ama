@@ -73,6 +73,15 @@ describe('api/render.js', () => {
     assert.equal(fetchSimulado.chamadas.length, 0);
   });
 
+  test('chave secreta no lugar da pública: não consulta o banco com ela (X-AMA-CMS padrao)', async (t) => {
+    silenciar(t);
+    fetchSimulado = simularFetch(() => respostaJson(200, []));
+    aplicarAmbiente({ SUPABASE_URL: URL_SUPA, SUPABASE_ANON_KEY: 'sb_secret_render_teste' });
+    const res = await chamarHandler(render, { url: '/' });
+    assert.equal(res.cabecalhos['x-ama-cms'], 'padrao');
+    assert.equal(fetchSimulado.chamadas.length, 0);
+  });
+
   test('com conteúdo no banco: aplica, preserva o doctype e marca X-AMA-CMS banco', async () => {
     configurar();
     fetchSimulado = simularFetch(() => respostaJson(200, [
@@ -197,6 +206,33 @@ describe('api/config.js', () => {
     const res = await chamarHandler(config, { url: '/api/config' });
     assert.deepEqual(executar(res.corpo), { supabaseUrl: '', supabaseAnonKey: '', configurado: false });
     assert.doesNotMatch(res.corpo, /nao_pode_vazar/);
+  });
+
+  test('chave secreta colada no lugar da pública: não publica e loga', async (t) => {
+    const log = t.mock.method(console, 'error', () => {});
+    const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const jwt = (role) => `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64({ iss: 'supabase', role, ref: 'cfg' })}.assinatura`;
+    const casos = [
+      { SUPABASE_ANON_KEY: 'sb_secret_config_teste' },
+      { NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'sb_secret_config_teste_2' },
+      { SUPABASE_ANON_KEY: jwt('service_role') },
+      { SUPABASE_PUBLISHABLE_KEY: 'chave-igual-config', SUPABASE_SECRET_KEY: 'chave-igual-config' },
+    ];
+    for (const caso of casos) {
+      const restaurar = aplicarAmbiente({ SUPABASE_URL: URL_SUPA, ...caso });
+      const res = await chamarHandler(config, { url: '/api/config' });
+      restaurar();
+      assert.equal(res.statusCode, 200);
+      assert.deepEqual(executar(res.corpo), { supabaseUrl: '', supabaseAnonKey: '', configurado: false }, JSON.stringify(caso));
+      for (const valor of Object.values(caso)) assert.equal(res.corpo.includes(valor), false, 'a chave não pode vazar');
+    }
+    assert.ok(log.mock.callCount() >= casos.length, 'cada engano é logado');
+
+    // JWT legado com role anon é público de verdade.
+    const anon = jwt('anon');
+    aplicarAmbiente({ SUPABASE_URL: URL_SUPA, SUPABASE_ANON_KEY: anon });
+    const res = await chamarHandler(config, { url: '/api/config' });
+    assert.deepEqual(executar(res.corpo), { supabaseUrl: URL_SUPA, supabaseAnonKey: anon, configurado: true });
   });
 
   test('serialização segura contra </script>, <!-- e U+2028/U+2029', async () => {

@@ -11,7 +11,8 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
-  ambienteLocal, cliente, clienteLogado, clienteServico, conferirDestino, criarUsuario, removerUsuario, sql, sqlJson,
+  ambienteLocal, argumentosPsql, cliente, clienteLogado, clienteServico, conferirDestino, criarUsuario, removerUsuario,
+  sql, sqlJson,
 } from '../apoio/supabase-local.js';
 
 const PUBLIC = fileURLToPath(new URL('../../public/', import.meta.url));
@@ -295,11 +296,48 @@ describe('apoio: os testes só rodam contra o Supabase local', () => {
       LOCAL_DB,
       'postgresql://postgres:x@db.outroprojeto.supabase.co:5432/postgres',
       'postgresql://postgres.outroprojeto:x@aws-0-sa-east-1.pooler.supabase.com:6543/postgres',
+      // Usuário do projeto, mas o banco está em outro servidor (não é o pooler do Supabase).
+      'postgresql://postgres.abcdefgh:x@outro-servidor.exemplo.net:5432/postgres',
+      'postgresql://postgres.abcdefgh:x@pooler.supabase.com.exemplo.net:6543/postgres',
+      // Pooler sem o projeto no usuário, ou com o projeto só como prefixo/sufixo parcial.
+      'postgresql://postgres:x@aws-0-sa-east-1.pooler.supabase.com:6543/postgres',
+      'postgresql://postgres.xabcdefgh:x@aws-0-sa-east-1.pooler.supabase.com:6543/postgres',
+      'postgresql://.abcdefgh:x@aws-0-sa-east-1.pooler.supabase.com:6543/postgres',
+      // Subdomínio qualquer do host da API não é o banco dele (só "db." exato).
+      'postgresql://postgres:x@x.db.abcdefgh.supabase.co:5432/postgres',
+      'postgresql://postgres:x@outro.abcdefgh.supabase.co:5432/postgres',
     ]) {
       assert.throws(() => conferirDestino({ url: api, dbUrl }, REMOTO), /lugares diferentes/, dbUrl);
     }
-    assert.throws(() => conferirDestino({ url: 'http://127.0.0.1:54321', dbUrl: 'postgresql://postgres:x@db.abcdefgh.supabase.co/postgres' }, REMOTO),
-      /lugares diferentes/);
+    for (const [url, dbUrl] of [
+      ['http://127.0.0.1:54321', 'postgresql://postgres:x@db.abcdefgh.supabase.co/postgres'],
+      // A API não é um projeto <ref>.supabase.co: a regra do usuário do pooler não vale.
+      ['https://a.b.supabase.co', 'postgresql://u.a:x@db.zzz.com/postgres'],
+      ['https://a.b.supabase.co', 'postgresql://postgres.a:x@aws-0-sa-east-1.pooler.supabase.com:6543/postgres'],
+      ['https://supabase.co', 'postgresql://postgres:x@qualquer.supabase.co/postgres'],
+      ['https://supabase.minhaempresa.com.br', 'postgresql://postgres:x@banco.minhaempresa.com.br/postgres'],
+    ]) {
+      assert.throws(() => conferirDestino({ url, dbUrl }, REMOTO), /lugares diferentes/, `${url} + ${dbUrl}`);
+    }
+  });
+
+  test('psql recebe o host IPv6 sem colchetes (o psql não entende "[::1]")', () => {
+    const opcao = ({ args }, nome) => args[args.indexOf(nome) + 1];
+    const ipv6 = argumentosPsql('postgresql://postgres:s%40nha@[::1]:54322/postgres', 'select 1');
+    assert.equal(opcao(ipv6, '-h'), '::1');
+    assert.equal(opcao(ipv6, '-p'), '54322');
+    assert.equal(opcao(ipv6, '-U'), 'postgres');
+    assert.equal(opcao(ipv6, '-d'), 'postgres');
+    assert.equal(opcao(ipv6, '-c'), 'select 1');
+    assert.equal(ipv6.senha, 's@nha');
+    assert.equal(opcao(argumentosPsql(LOCAL_DB, 'select 1'), '-h'), '127.0.0.1');
+    const padrao = argumentosPsql('postgresql://u@localhost/db', 'x');
+    assert.equal(opcao(padrao, '-h'), 'localhost');
+    assert.equal(opcao(padrao, '-p'), '5432');
+    assert.equal(padrao.senha, 'postgres');
+    // A trava e o psql enxergam o mesmo host.
+    assert.equal(conferirDestino({ url: 'http://[::1]:54321', dbUrl: 'postgresql://p:p@[::1]:54322/postgres' }, SEM).banco,
+      opcao(ipv6, '-h'));
   });
 
   test('URL sem host ou malformada é recusada', () => {
@@ -643,6 +681,54 @@ describe('RLS: matriz da tabela 4.3', () => {
     });
   });
 
+  test('admin só altera notas em pedido_eventos: não troca o tipo nem mexe em eventos do servidor', async () => {
+    const { produto, pedido } = await cenario({ estoque: 10, quantidade: 2 });
+    const pag = pagamento(pedido);
+    const lerEvento = (id) => sqlJson(`select row_to_json(e) from public.pedido_eventos e where e.id = ${Number(id)}`);
+
+    // Ataque: criar uma nota "do Mercado Pago" e trocar o tipo para 'pagamento' (with check recusa).
+    const nota = await semErro(admin.from('pedido_eventos').insert({
+      pedido_id: pedido.id, tipo: 'nota', descricao: `nota-${SUF}-${seq()}`, autor: 'mercadopago',
+    }).select().single(), 'nota');
+    for (const patch of [
+      { tipo: 'pagamento', dados: { payment_id: String(pag.id), status: 'approved' } },
+      { tipo: 'alerta' },
+    ]) {
+      const { error } = await admin.from('pedido_eventos').update(patch).eq('id', nota.id);
+      assert.equal(error?.code, '42501', `${JSON.stringify(patch)}: ${error?.message}`);
+    }
+    const notaDepois = await lerEvento(nota.id);
+    assert.equal(notaDepois.tipo, 'nota');
+    assert.equal(notaDepois.dados, null);
+
+    // O pagamento real continua sendo processado (não parece repetido).
+    const r = await confirmar(pedido.id, pag);
+    assert.equal(r.virou_pago, true);
+    assert.equal(await lerEstoque(produto.id), 8);
+
+    // Eventos gravados pelo servidor ficam fora do alcance do update do admin (a RLS filtra: 0 linhas).
+    for (const tipo of ['criado', 'pagamento']) {
+      const [evento] = await lerEventos(pedido.id, tipo);
+      const { data, error } = await admin.from('pedido_eventos')
+        .update({ tipo: 'nota', descricao: 'apagado', dados: { payment_id: '1', status: 'pending' } })
+        .eq('id', evento.id)
+        .select();
+      assert.ifError(error);
+      assert.deepEqual(data, [], tipo);
+      assert.deepEqual(await lerEvento(evento.id), evento, tipo);
+    }
+
+    // Editar o texto da nota continua liberado.
+    const editada = await semErro(admin.from('pedido_eventos').update({ descricao: 'Nota corrigida' })
+      .eq('id', nota.id).select().single(), 'editar nota');
+    assert.equal(editada.descricao, 'Nota corrigida');
+
+    const politica = await sqlJson(`select json_build_object('qual', qual, 'with_check', with_check) from pg_policies
+                                     where schemaname = 'public' and policyname = 'pedido_eventos_admin_update'`);
+    assert.match(politica.qual, /tipo = 'nota'/);
+    assert.match(politica.with_check, /tipo = 'nota'/);
+  });
+
   test('a numeração dos pedidos começa em 1001 (pg_sequence)', async () => {
     const inicio = await sql(`select seqstart from pg_sequence where seqrelid = 'public.pedidos_numero_seq'::regclass`);
     assert.equal(inicio, '1001');
@@ -653,38 +739,178 @@ describe('RLS: matriz da tabela 4.3', () => {
 // Catálogo inicial criado pela migração (§4.5)
 // --------------------------------------------------------------------------------------
 
-describe('catálogo inicial', () => {
-  const CATEGORIAS = ['body-splash', 'cremes-hidratantes', 'sabonete-liquido-intimo', 'sabonete-solido', 'biojoias'];
-  const PRODUTOS = [
-    'body-splash-raiz', 'body-splash-bruma', 'body-splash-orvalho', 'body-splash-ambar',
-    'creme-hidratante-ameixa-negra', 'creme-hidratante-cupuacu', 'creme-hidratante-cumaru', 'creme-hidratante-capim-limao',
-    'sabonete-liquido-intimo-barbatimao-andiroba', 'sabonete-solido-manteiga-cupuacu',
-    'biojoia-01', 'biojoia-02', 'biojoia-03', 'biojoia-04', 'biojoia-05', 'biojoia-06',
+describe('catálogo inicial (seção 10 da migração, rodada isolada numa transação desfeita no fim)', () => {
+  const CATEGORIAS = [
+    ['body-splash', 'Body Splash'],
+    ['cremes-hidratantes', 'Cremes Hidratantes'],
+    ['sabonete-liquido-intimo', 'Sabonete Líquido Íntimo'],
+    ['sabonete-solido', 'Sabonete Sólido'],
+    ['biojoias', 'Biojoias'],
   ];
+  // [slug, nome, categoria] na ordem da vitrine.
+  const AMA = [
+    ['body-splash-raiz', 'Body Splash Raiz', 'body-splash'],
+    ['body-splash-bruma', 'Body Splash Bruma', 'body-splash'],
+    ['body-splash-orvalho', 'Body Splash Orvalho', 'body-splash'],
+    ['body-splash-ambar', 'Body Splash Âmbar', 'body-splash'],
+    ['creme-hidratante-ameixa-negra', 'Creme Hidratante Ameixa Negra', 'cremes-hidratantes'],
+    ['creme-hidratante-cupuacu', 'Creme Hidratante Cupuaçu', 'cremes-hidratantes'],
+    ['creme-hidratante-cumaru', 'Creme Hidratante Cumaru', 'cremes-hidratantes'],
+    ['creme-hidratante-capim-limao', 'Creme Hidratante Capim-Limão', 'cremes-hidratantes'],
+    ['sabonete-liquido-intimo-barbatimao-andiroba', 'Sabonete Líquido Íntimo Barbatimão & Andiroba', 'sabonete-liquido-intimo'],
+    ['sabonete-solido-manteiga-cupuacu', 'Sabonete Sólido Manteiga de Cupuaçu', 'sabonete-solido'],
+  ];
+  const BIOJOIAS = ['biojoia-01', 'biojoia-02', 'biojoia-03', 'biojoia-04', 'biojoia-05', 'biojoia-06'];
+  const SLUGS = [...AMA.map(([slug]) => slug), ...BIOJOIAS];
+  const SLUGS_SQL = SLUGS.map(lit).join(',');
+  const CATEGORIAS_SQL = CATEGORIAS.map(([slug]) => lit(slug)).join(',');
+  const SEED = fileURLToPath(new URL('../../supabase/seed.sql', import.meta.url));
 
-  test('as 5 categorias e os 16 produtos existem; nenhum produto antigo sobrou', async () => {
-    const categorias = await sqlJson(`select coalesce(json_agg(slug order by slug), '[]'::json) from public.categorias
-                                       where slug in (${CATEGORIAS.map(lit).join(',')})`);
-    assert.deepEqual(categorias, [...CATEGORIAS].sort());
-    const produtos = await sqlJson(`select coalesce(json_agg(slug order by slug), '[]'::json) from public.produtos
-                                     where slug in (${PRODUTOS.map(lit).join(',')})`);
-    assert.deepEqual(produtos, [...PRODUTOS].sort());
-    const antigos = await sql(`select count(*) from public.produtos
-                                where slug in ('body-splash-200ml', 'colar-01', 'colar-02', 'colar-03', 'colar-04', 'colar-05', 'colar-06')
-                                   or categoria_id in (select id from public.categorias where slug = 'cosmeticos')`);
-    assert.equal(antigos, '0');
+  function trecho(texto, regex, nome) {
+    const achados = texto.match(new RegExp(regex.source, 'g')) || [];
+    assert.equal(achados.length, 1, `${nome}: esperado 1 trecho, achados ${achados.length}`);
+    return achados[0];
+  }
+
+  // Estado dos 16 produtos e 5 categorias + a cotação de 1 unidade de cada um.
+  const FOTO = `json_build_object(
+    'categorias', (select json_agg(json_build_object('slug', c.slug, 'nome', c.nome, 'ativo', c.ativo, 'ordem', c.ordem)
+                                   order by c.ordem, c.slug)
+                     from public.categorias c where c.slug in (${CATEGORIAS_SQL})),
+    'produtos', (select json_agg(json_build_object(
+                   'id', p.id, 'slug', p.slug, 'nome', p.nome, 'descricao', p.descricao, 'categoria', c.slug,
+                   'preco', p.preco_centavos, 'promocional', p.preco_promocional_centavos, 'estoque', p.estoque,
+                   'ativo', p.ativo, 'destaque', p.destaque, 'controlar', p.controlar_estoque,
+                   'imagens', p.imagens, 'ordem', p.ordem, 'peso', p.peso_gramas) order by p.ordem, p.slug)
+                   from public.produtos p left join public.categorias c on c.id = p.categoria_id
+                  where p.slug in (${SLUGS_SQL})),
+    'cotacao', public.cotar_carrinho(jsonb_build_object('itens',
+                 (select jsonb_agg(jsonb_build_object('produto_id', p.id, 'quantidade', 1) order by p.ordem)
+                    from public.produtos p where p.slug in (${SLUGS_SQL}))))
+  )`;
+
+  let fotos;
+  before(async () => {
+    const migracao = readFileSync(MIGRACAO, 'utf8');
+    const categorias = trecho(migracao, /insert into public\.categorias \(nome, slug, descricao, ordem\) values[\s\S]*?on conflict \(slug\) do nothing;/, 'categorias');
+    const produtos = trecho(migracao, /insert into public\.produtos \(nome, slug, descricao, preco_centavos[\s\S]*?on conflict \(slug\) do nothing;/, 'produtos');
+    const seed = trecho(readFileSync(SEED, 'utf8'), /update public\.produtos p[\s\S]*?where p\.slug = v\.slug;/, 'seed');
+    // Tudo numa transação desfeita no fim: não depende do seed já aplicado nem do que o painel ou os E2E editaram.
+    fotos = await sqlJson(`
+      begin;
+      create temp table _foto (etapa text primary key, dados json) on commit drop;
+      delete from public.produtos where slug in (${SLUGS_SQL});
+      delete from public.categorias where slug in (${CATEGORIAS_SQL});
+      ${categorias}
+      ${produtos}
+      insert into _foto select 'migracao', ${FOTO};
+      ${seed}
+      insert into _foto select 'seed', ${FOTO};
+      -- A AMA edita no painel; rodar a migração de novo não desfaz nem duplica nada.
+      update public.produtos set nome = 'Colar Semente Verde', preco_centavos = 8900, ativo = false where slug = 'biojoia-01';
+      update public.categorias set nome = 'Biojoias da AMA', ativo = false where slug = 'biojoias';
+      ${categorias}
+      ${produtos}
+      insert into _foto select 'reexecucao', ${FOTO};
+      select json_object_agg(etapa, dados) from _foto;
+      rollback;
+    `);
   });
 
-  test('as fotos do catálogo (/img/…) existem em public/, no banco e no texto da migração', async () => {
-    const doBanco = await sqlJson(`select coalesce(json_agg(distinct i ->> 'src'), '[]'::json)
-                                     from public.produtos p, jsonb_array_elements(p.imagens) i
-                                    where p.slug in (${PRODUTOS.map(lit).join(',')}) and i ->> 'src' like '/img/%'`);
+  test('a migração cria as 5 categorias e os 16 produtos ATIVOS, com preço 0, nas categorias certas', () => {
+    const { categorias, produtos, cotacao } = fotos.migracao;
+    assert.deepEqual(categorias, CATEGORIAS.map(([slug, nome], i) => ({ slug, nome, ativo: true, ordem: i + 1 })));
+    assert.deepEqual(produtos.map((p) => p.slug), SLUGS);
+    assert.deepEqual(produtos.map((p) => p.ordem), SLUGS.map((_, i) => i + 1));
+    for (const p of produtos) {
+      assert.equal(p.ativo, true, `${p.slug} ativo`);
+      assert.equal(p.preco, 0, `${p.slug} preço`);
+      assert.equal(p.promocional, null, `${p.slug} promocional`);
+      assert.equal(p.estoque, 0, `${p.slug} estoque`);
+      assert.equal(p.controlar, true, `${p.slug} controlar_estoque`);
+      assert.equal(p.destaque, false, `${p.slug} destaque`);
+      assert.ok(p.peso > 0, `${p.slug} peso`);
+    }
+    for (const [slug, nome, categoria] of AMA) {
+      const p = produtos.find((x) => x.slug === slug);
+      assert.equal(p.nome, nome, slug);
+      assert.equal(p.categoria, categoria, slug);
+      assert.ok(p.descricao.length > 100 && !/em produção/i.test(p.descricao), `${slug}: descrição real`);
+      assert.equal(p.imagens[0].src, `/img/produtos/${slug}.jpg`, slug);
+    }
+    for (const slug of BIOJOIAS) {
+      const p = produtos.find((x) => x.slug === slug);
+      assert.equal(p.nome, 'Nome em Produção', slug);
+      assert.equal(p.descricao, 'Descrição em Produção', slug);
+      assert.equal(p.categoria, 'biojoias', slug);
+    }
+    // Ativo com preço 0 = "Em breve": aparece com os dados da vitrine, mas não soma nem pode ser comprado.
+    assert.equal(cotacao.itens.length, 16);
+    for (const item of cotacao.itens) {
+      const p = produtos.find((x) => x.id === item.produto_id);
+      assert.equal(item.disponivel, false, p.slug);
+      assert.equal(item.motivo, 'sem_preco', p.slug);
+      assert.equal(item.nome, p.nome, p.slug);
+      assert.equal(item.preco_unitario_centavos, 0, p.slug);
+    }
+    assert.equal(cotacao.subtotal_centavos, 0);
+  });
+
+  test('cada produto tem uma foto com texto alternativo e o arquivo existe em public/', () => {
+    for (const p of fotos.migracao.produtos) {
+      assert.equal(p.imagens.length, 1, p.slug);
+      const [{ src, alt }] = p.imagens;
+      assert.match(src, /^\/img\/[a-z0-9/-]+\.jpg$/, p.slug);
+      assert.ok(alt && alt.length > 10, `${p.slug}: alt`);
+      assert.ok(existsSync(`${PUBLIC}${src.slice(1)}`), `falta public${src}`);
+    }
     const migracao = readFileSync(MIGRACAO, 'utf8');
     const doArquivo = [...new Set(migracao.match(/'\/img\/[^']+'/g).map((s) => s.slice(1, -1)))];
     assert.equal(doArquivo.length, 16, `fotos na migração: ${doArquivo.length}`);
-    for (const src of [...doBanco, ...doArquivo]) {
-      assert.ok(existsSync(`${PUBLIC}${src.slice(1)}`), `falta public${src}`);
+    // O catálogo antigo (Cosméticos, Body Splash 200mL, Colar 01–06) saiu da migração.
+    for (const antigo of ["'cosmeticos'", 'body-splash-200ml', 'colar-01', 'Colar 06']) {
+      assert.ok(!migracao.includes(antigo), antigo);
     }
+  });
+
+  test('seed (dev): preços e estoque na coleção Ama Bioessência, 1 promoção, 2–3 destaques; biojoias seguem "Em breve"', () => {
+    const { produtos, cotacao } = fotos.seed;
+    const ama = produtos.filter((p) => !BIOJOIAS.includes(p.slug));
+    for (const p of ama) {
+      assert.ok(p.preco > 0, `${p.slug} preço`);
+      assert.equal(p.estoque, 10, `${p.slug} estoque`);
+      assert.equal(p.ativo, true, `${p.slug} ativo`);
+    }
+    const promocoes = ama.filter((p) => p.promocional !== null);
+    assert.equal(promocoes.length, 1);
+    assert.ok(promocoes[0].promocional > 0 && promocoes[0].promocional < promocoes[0].preco);
+    const destaques = ama.filter((p) => p.destaque).length;
+    assert.ok(destaques >= 2 && destaques <= 3, `destaques: ${destaques}`);
+    for (const p of produtos.filter((x) => BIOJOIAS.includes(x.slug))) {
+      assert.deepEqual([p.preco, p.ativo, p.nome], [0, true, 'Nome em Produção'], p.slug);
+    }
+    for (const item of cotacao.itens) {
+      const p = produtos.find((x) => x.id === item.produto_id);
+      if (BIOJOIAS.includes(p.slug)) {
+        assert.equal(item.motivo, 'sem_preco', p.slug);
+      } else {
+        assert.equal(item.disponivel, true, p.slug);
+        assert.equal(item.preco_unitario_centavos, p.promocional ?? p.preco, p.slug);
+      }
+    }
+  });
+
+  test('rodar a migração de novo não duplica nem desfaz o que a AMA editou', () => {
+    const { categorias, produtos } = fotos.reexecucao;
+    assert.equal(produtos.length, 16);
+    assert.equal(categorias.length, 5);
+    const colar = produtos.find((p) => p.slug === 'biojoia-01');
+    assert.deepEqual([colar.nome, colar.preco, colar.ativo], ['Colar Semente Verde', 8900, false]);
+    const biojoias = categorias.find((c) => c.slug === 'biojoias');
+    assert.deepEqual([biojoias.nome, biojoias.ativo], ['Biojoias da AMA', false]);
+    // O resto continua como o seed deixou (mesmo id, preço, estoque e promoção).
+    const semColar = (lista) => lista.filter((p) => p.slug !== 'biojoia-01');
+    assert.deepEqual(semColar(produtos), semColar(fotos.seed.produtos));
   });
 });
 
@@ -1600,6 +1826,76 @@ describe('confirmar_pagamento', () => {
     }
   });
 
+  test('estorno do único pagamento integral reembolsa, mesmo com outro aprovado a menor', async () => {
+    // A: aprovado com R$ 1,00 (divergente); B: aprovado com o total; B estornado.
+    const { produto, pedido } = await cenario({ estoque: 10, quantidade: 2 });
+    const menor = pagamento(pedido, { transaction_amount: 1 });
+    const integral = pagamento(pedido);
+    assert.equal((await confirmar(pedido.id, menor)).status_novo, 'pagamento_em_analise');
+    assert.equal((await confirmar(pedido.id, integral)).status_novo, 'pago');
+    assert.equal(await lerEstoque(produto.id), 8);
+
+    const r = await confirmar(pedido.id, { ...integral, status: 'refunded' });
+    assert.equal(r.status_novo, 'reembolsado');
+    const p = await lerPedido(pedido.id);
+    assert.equal(p.status, 'reembolsado');
+    assert.equal(p.estoque_baixado, false);
+    assert.equal(p.mp_payment_id, String(integral.id));
+    assert.equal(p.status_pagamento, 'refunded');
+    assert.equal(await lerEstoque(produto.id), 10);
+    const alertas = await lerEventos(pedido.id, 'alerta');
+    assert.ok(!alertas.some((a) => /duplicado/i.test(a.descricao)), 'não é estorno de pagamento em dobro');
+
+    // Com 1 centavo a menos (arredondamento), o outro pagamento ainda conta como integral e segura o pedido.
+    const b = await cenario({ estoque: 10, quantidade: 2 });
+    const quase = pagamento(b.pedido, { transaction_amount: (b.pedido.total_centavos - 1) / 100 });
+    const dobro = pagamento(b.pedido);
+    await confirmar(b.pedido.id, quase);
+    await confirmar(b.pedido.id, dobro);
+    const r2 = await confirmar(b.pedido.id, { ...dobro, status: 'charged_back' });
+    assert.equal(r2.status_novo, 'pago');
+    assert.equal(await lerEstoque(b.produto.id), 8);
+    const [alerta] = await lerEventos(b.pedido.id, 'alerta');
+    assert.match(alerta.descricao, /pagamento duplicado estornado/i);
+    assert.equal(alerta.dados.payment_id_aprovado, String(quase.id));
+    assert.equal((await lerPedido(b.pedido.id)).mp_payment_id, String(quase.id));
+  });
+
+  test('eventos "pagamento" que não vieram do Mercado Pago não seguram o pedido (estorno e recusa)', async () => {
+    // Linhas inseridas à mão pelo service_role (o admin não consegue: RLS só deixa 'nota').
+    const eventoManual = (pedidoId, dados) => semErro(servico.from('pedido_eventos').insert({
+      pedido_id: pedidoId, tipo: 'pagamento', descricao: 'Inserido à mão', autor: EMAIL_ADMIN, dados,
+    }), 'evento manual');
+
+    // Estorno: um "approved" manual de outro payment_id não vira "pagamento duplicado".
+    const a = await cenario({ estoque: 10, quantidade: 2 });
+    const real = pagamento(a.pedido);
+    await confirmar(a.pedido.id, real);
+    await eventoManual(a.pedido.id, {
+      payment_id: String(novoIdPagamento()), status: 'approved', transaction_amount: a.pedido.total_centavos / 100,
+    });
+    const r1 = await confirmar(a.pedido.id, { ...real, status: 'refunded' });
+    assert.equal(r1.status_novo, 'reembolsado');
+    assert.equal(await lerEstoque(a.produto.id), 10);
+    assert.deepEqual(await lerEventos(a.pedido.id, 'alerta'), []);
+
+    // Recusa: um "pending" manual de outro payment_id não segura o pedido em análise.
+    const b = await cenario();
+    const pix = pagamento(b.pedido, { status: 'pending', payment_type_id: 'bank_transfer', payment_method_id: 'pix' });
+    await confirmar(b.pedido.id, pix);
+    await eventoManual(b.pedido.id, { payment_id: String(novoIdPagamento()), status: 'pending' });
+    const r2 = await confirmar(b.pedido.id, { ...pix, status: 'cancelled', status_detail: 'expired' });
+    assert.equal(r2.status_novo, 'aguardando_pagamento');
+
+    // Recusa: um evento manual mais novo do MESMO pagamento não esconde que ele estava pendente.
+    const c = await cenario();
+    const boleto = pagamento(c.pedido, { status: 'pending', payment_type_id: 'ticket', payment_method_id: 'bolbradesco' });
+    await confirmar(c.pedido.id, boleto);
+    await eventoManual(c.pedido.id, { payment_id: String(boleto.id), status: 'approved' });
+    const r3 = await confirmar(c.pedido.id, { ...boleto, status: 'cancelled', status_detail: 'expired' });
+    assert.equal(r3.status_novo, 'aguardando_pagamento');
+  });
+
   test('evento "pagamento" que não veio do Mercado Pago não faz o pagamento real parecer repetido', async () => {
     const { produto, pedido } = await cenario({ estoque: 10, quantidade: 2 });
     const pag = pagamento(pedido);
@@ -1731,6 +2027,22 @@ describe('confirmar_pagamento', () => {
 // --------------------------------------------------------------------------------------
 
 describe('alterar_status_pedido', () => {
+  const URLS_RASTREIO_INVALIDAS = [
+    'javascript:alert(1)', 'ftp://exemplo.com/x', 'rastreio', 'https://', 'https://exemplo.com/a b',
+    'http://inseguro.example/x', 'HTTP://inseguro.example/x', '//exemplo.com/x',
+    'https://x"><img/src=x/onerror=alert(1)>', "https://exemplo.com/x'onmouseover='alert(1)",
+    'https://exemplo.com/<b>', 'https://exemplo.com/`x`', 'https://exemplo.com/x\\y', 'https://exemplo.com/a\tb',
+    'https://user@exemplo.com/x', 'https://-exemplo.com/x', `https://exemplo.com/${'a'.repeat(500)}`,
+  ];
+  const URLS_RASTREIO_VALIDAS = [
+    'https://rastreamento.correios.com.br/app/index.php?objeto=AA123456789BR',
+    'https://www.melhorrastreio.com.br/rastreio/AA123456789BR',
+    'https://app.melhorenvio.com.br:443/rastreio/ME-123#detalhes',
+    'HTTPS://Rastreio.Exemplo.com?codigo=AB%20123&x=1',
+    'https://exemplo.com',
+  ];
+  const CODIGOS_RASTREIO_INVALIDOS = ['<b>AA</b>', 'AA"123', "AA'123", 'AA`123`', 'AA>1', 'AA\n1', 'A'.repeat(201)];
+
   test('marcar manualmente como pago baixa o estoque; evento "status" com autor', async () => {
     const cupom = await criarCupom({ tipo: 'percentual', valor: 5 });
     const { produto, pedido } = await cenario({ estoque: 10, quantidade: 2, cupom: cupom.codigo });
@@ -1789,21 +2101,14 @@ describe('alterar_status_pedido', () => {
 
   test('URL de rastreio inválida → dados_invalidos e nada muda', async () => {
     const { pedido } = await cenario();
-    const invalidas = [
-      'javascript:alert(1)', 'ftp://exemplo.com/x', 'rastreio', 'https://', 'https://exemplo.com/a b',
-      'http://inseguro.example/x', 'HTTP://inseguro.example/x', '//exemplo.com/x',
-      'https://x"><img/src=x/onerror=alert(1)>', "https://exemplo.com/x'onmouseover='alert(1)",
-      'https://exemplo.com/<b>', 'https://exemplo.com/`x`', 'https://exemplo.com/x\\y', 'https://exemplo.com/a\tb',
-      'https://user@exemplo.com/x', 'https://-exemplo.com/x', `https://exemplo.com/${'a'.repeat(500)}`,
-    ];
-    for (const url of invalidas) {
+    for (const url of URLS_RASTREIO_INVALIDAS) {
       const erro = await erroRpc(servico, 'alterar_status_pedido', {
         p_pedido_id: pedido.id, p_status: 'enviado', p_autor: AUTOR, p_rastreio: { url_rastreio: url },
       });
       assert.equal(erro.message, 'dados_invalidos', url);
       assert.equal(erro.details, 'p_rastreio.url_rastreio', url);
     }
-    for (const codigo of [123, '<b>AA</b>', 'AA"123', "AA'123", 'AA`123`', 'AA>1']) {
+    for (const codigo of [123, ...CODIGOS_RASTREIO_INVALIDOS]) {
       const erro = await erroRpc(servico, 'alterar_status_pedido', {
         p_pedido_id: pedido.id, p_status: 'enviado', p_autor: AUTOR, p_rastreio: { codigo_rastreio: codigo },
       });
@@ -1819,16 +2124,40 @@ describe('alterar_status_pedido', () => {
 
   test('URLs de rastreio https comuns são aceitas', async () => {
     const { pedido } = await cenario();
-    for (const url of [
-      'https://rastreamento.correios.com.br/app/index.php?objeto=AA123456789BR',
-      'https://www.melhorrastreio.com.br/rastreio/AA123456789BR',
-      'https://app.melhorenvio.com.br:443/rastreio/ME-123#detalhes',
-      'HTTPS://Rastreio.Exemplo.com?codigo=AB%20123&x=1',
-      'https://exemplo.com',
-    ]) {
+    for (const url of URLS_RASTREIO_VALIDAS) {
       await alterarStatus(pedido.id, 'enviado', { p_rastreio: { codigo_rastreio: 'AA123456789BR', url_rastreio: url } });
       assert.equal((await lerPedido(pedido.id)).url_rastreio, url);
     }
+  });
+
+  test('rastreio gravado direto na tabela (admin pela API ou serviço) segue as mesmas regras: check 23514', async () => {
+    const { pedido } = await cenario();
+    const invalidos = [
+      ...[...URLS_RASTREIO_INVALIDAS, '', ' https://exemplo.com'].map((url) => ['url_rastreio', url]),
+      ...[...CODIGOS_RASTREIO_INVALIDOS, '"><img src=x onerror=alert(1)>'].map((codigo) => ['codigo_rastreio', codigo]),
+    ];
+    for (const [rotulo, cl] of [['admin', admin], ['serviço', servico]]) {
+      for (const [coluna, valor] of invalidos) {
+        const { error } = await cl.from('pedidos').update({ [coluna]: valor }).eq('id', pedido.id);
+        assert.equal(error?.code, '23514', `${rotulo} ${coluna}=${JSON.stringify(valor)}: ${error?.message}`);
+      }
+    }
+    let p = await lerPedido(pedido.id);
+    assert.equal(p.url_rastreio, null);
+    assert.equal(p.codigo_rastreio, null);
+
+    // O que alterar_status_pedido aceita também passa direto (inclusive vários códigos separados por vírgula).
+    for (const url of URLS_RASTREIO_VALIDAS) {
+      await semErro(admin.from('pedidos').update({ url_rastreio: url, codigo_rastreio: 'AA1BR, BB2BR' }).eq('id', pedido.id), url);
+      p = await lerPedido(pedido.id);
+      assert.equal(p.url_rastreio, url);
+      assert.equal(p.codigo_rastreio, 'AA1BR, BB2BR');
+    }
+    await semErro(admin.from('pedidos').update({ url_rastreio: null, codigo_rastreio: null }).eq('id', pedido.id), 'limpar');
+
+    const checks = await sqlJson(`select json_agg(conname order by conname) from pg_constraint
+                                   where conrelid = 'public.pedidos'::regclass and conname like '%rastreio%'`);
+    assert.deepEqual(checks, ['pedidos_codigo_rastreio_check', 'pedidos_url_rastreio_check']);
   });
 
   test('status inválido → status_invalido; pedido inexistente → pedido_nao_encontrado', async () => {

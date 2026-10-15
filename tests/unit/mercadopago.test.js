@@ -384,6 +384,11 @@ describe('validarAssinatura', () => {
     for (const segredo of [undefined, null, '', 123, {}]) {
       assert.equal(validarAssinatura({ ...base, segredo, xSignature: `ts=${TS},v1=${V1}` }), false);
     }
+    // ts precisa ser inteiro positivo, mesmo com um HMAC que confere com o ts malformado.
+    for (const ts of ['abc', '-1', '1.5', '1e12', '0x10', '12345678901234567']) {
+      const v1 = hmac(`id:${ID};request-id:${REQ};ts:${ts};`);
+      assert.equal(validarAssinatura({ ...base, xSignature: `ts=${ts},v1=${v1}` }), false, `ts=${ts}`);
+    }
     assert.equal(validarAssinatura(), false);
     assert.equal(validarAssinatura(null), false);
     assert.equal(validarAssinatura('ts=1,v1=2'), false);
@@ -413,6 +418,7 @@ describe('validarAssinatura', () => {
 describe('chamadas à API contra o Mercado Pago falso', () => {
   let mp;
   let restaurar;
+  let erros;
   before(async () => { mp = await iniciar(); });
   after(async () => { await mp.fechar(); });
   beforeEach((t) => {
@@ -421,9 +427,20 @@ describe('chamadas à API contra o Mercado Pago falso', () => {
     mp.estado.webhookUrl = '';
     mp.estado.falhas = { preferencias: null, pagamentos: null, busca: null };
     restaurar = aplicarAmbiente({ MP_API_BASE: mp.url, MP_ACCESS_TOKEN: 'TEST-token-123' });
-    t.mock.method(console, 'error', () => {});
+    erros = t.mock.method(console, 'error', () => {});
   });
   afterEach(() => { restaurar(); });
+
+  // Toda falha do MP vai para o log (console.error), com o motivo, e nunca com o Access Token.
+  function conferirLog(quantidade, padrao) {
+    assert.equal(erros.mock.callCount(), quantidade, 'uma linha de log por falha');
+    for (const chamada of erros.mock.calls) {
+      const linha = chamada.arguments.map(String).join(' ');
+      assert.match(linha, /^\[mercadopago\] falha ao /);
+      assert.doesNotMatch(linha, /TEST-token-123/);
+    }
+    if (padrao) assert.match(String(erros.mock.calls.at(-1).arguments[0]), padrao);
+  }
 
   const dados = (extra = {}) => ({ pedido: pedidoBase(), cliente: CLIENTE, entrega: ENTREGA, config: CONFIG, siteUrl: SITE, ...extra });
 
@@ -441,6 +458,7 @@ describe('chamadas à API contra o Mercado Pago falso', () => {
     assert.equal(req.cabecalhos.authorization, 'Bearer TEST-token-123');
     assert.equal(req.cabecalhos['x-idempotency-key'], PEDIDO_ID);
     assert.match(req.cabecalhos['content-type'], /application\/json/);
+    assert.equal(req.cabecalhos.accept, 'application/json');
   });
 
   test('mesma chave de idempotência devolve a mesma preferência', async () => {
@@ -478,11 +496,13 @@ describe('chamadas à API contra o Mercado Pago falso', () => {
       assert.doesNotMatch(erro.mensagem, /TEST-token/);
       return true;
     });
+    conferirLog(1, /falha ao criar a preferência de pagamento: Access Token inválido.*\(HTTP 401\).*invalid access token/);
   });
 
   test('erro 500 e resposta ilegível → 502', async () => {
     mp.estado.falhas.preferencias = 500;
     await assert.rejects(criarPreferencia(dados()), (erro) => erro.status === 502 && erro.detalhes.status_mercado_pago === 500);
+    conferirLog(1, /resposta de erro \(HTTP 500\).*erro simulado/);
 
     const fetchFalso = simularFetch(() => new Response('<html>oi</html>', { status: 200 }));
     try {
@@ -496,6 +516,8 @@ describe('chamadas à API contra o Mercado Pago falso', () => {
     } finally {
       semInit.restaurar();
     }
+    conferirLog(3, /resposta sem id ou init_point/);
+    assert.match(String(erros.mock.calls[1].arguments[0]), /resposta ilegível.*<html>oi<\/html>/);
   });
 
   test('tempo esgotado e erro de rede → 502', async () => {
@@ -514,6 +536,8 @@ describe('chamadas à API contra o Mercado Pago falso', () => {
     } finally {
       quebrado.restaurar();
     }
+    conferirLog(2, /falha ao consultar o pagamento 123: erro de rede \(fetch failed\)/);
+    assert.match(String(erros.mock.calls[0].arguments[0]), /tempo esgotado/);
   });
 
   test('obterPagamento: objeto do MP, null no 404 e no id malformado', async () => {
@@ -562,18 +586,22 @@ describe('chamadas à API contra o Mercado Pago falso', () => {
   });
 
   test('buscarPagamentosPorReferencia reordena e filtra mesmo se a API devolver fora de ordem', async () => {
+    // Mesma data: o id maior (mais novo) vem primeiro, mesmo chegando depois na resposta.
     const fetchFalso = simularFetch(() => respostaJson(200, {
-      paging: { total: 4, limit: 50, offset: 0 },
+      paging: { total: 6, limit: 50, offset: 0 },
       results: [
         { id: 1, external_reference: PEDIDO_ID, date_created: '2026-10-01T10:00:00.000-04:00' },
-        { id: 3, external_reference: PEDIDO_ID, date_created: '2026-10-03T10:00:00.000-04:00' },
-        { id: 9, external_reference: 'intruso', date_created: '2026-10-09T10:00:00.000-04:00' },
         { id: 2, external_reference: PEDIDO_ID, date_created: '2026-10-03T10:00:00.000-04:00' },
+        { id: 9, external_reference: 'intruso', date_created: '2026-10-09T10:00:00.000-04:00' },
+        { id: 3, external_reference: PEDIDO_ID, date_created: '2026-10-03T10:00:00.000-04:00' },
+        // Acima de 2^53: como Number seriam iguais; a comparação é exata.
+        { id: '9007199254740992', external_reference: PEDIDO_ID, date_created: '2026-09-01T10:00:00.000-04:00' },
+        { id: '9007199254740993', external_reference: PEDIDO_ID, date_created: '2026-09-01T10:00:00.000-04:00' },
       ],
     }));
     try {
       const lista = await buscarPagamentosPorReferencia(PEDIDO_ID);
-      assert.deepEqual(lista.map((p) => p.id), [3, 2, 1]);
+      assert.deepEqual(lista.map((p) => String(p.id)), ['3', '2', '1', '9007199254740993', '9007199254740992']);
       assert.match(fetchFalso.chamadas[0].url, /\/v1\/payments\/search\?/);
       assert.equal(fetchFalso.chamadas[0].cabecalhos.authorization, 'Bearer TEST-token-123');
     } finally {
@@ -619,10 +647,10 @@ describe('Mercado Pago falso: pagar → webhook assinado → redirecionamento', 
   const SITE_DEV = 'http://127.0.0.1:4321';
   const novaPreferencia = () => criarPreferencia({ pedido: pedidoBase(), cliente: CLIENTE, entrega: ENTREGA, config: CONFIG, siteUrl: SITE_DEV });
 
-  function conferirWebhook(recebido, action) {
+  function conferirWebhook(recebido, action, caminho = '/api/webhooks/mercadopago') {
     const url = new URL(recebido.url, 'http://x');
     assert.equal(recebido.metodo, 'POST');
-    assert.equal(url.pathname, '/api/webhooks/mercadopago');
+    assert.equal(url.pathname, caminho);
     assert.equal(url.searchParams.get('type'), 'payment');
     const dataId = url.searchParams.get('data.id');
     assert.match(dataId, /^\d+$/);
@@ -721,6 +749,83 @@ describe('Mercado Pago falso: pagar → webhook assinado → redirecionamento', 
     assert.equal(lido.transaction_amount_refunded, 113.5);
   });
 
+  test('webhook vai para a notification_url da preferência; sem ela, para a opção webhookUrl', async () => {
+    const { id: prefId, init_point: initPoint } = await novaPreferencia();
+    // O falso (como o MP real) só aceita notification_url https pública na criação; aqui ela é trocada na
+    // preferência guardada para apontar para o receptor local.
+    const pref = mp.estado.preferencias.get(prefId);
+    pref.notification_url = `${urlReceptor}/via-preferencia?source_news=webhooks`;
+
+    const resposta = await fetch(`${initPoint}/aprovar`, { method: 'POST', redirect: 'manual' });
+    assert.equal(resposta.status, 302);
+    assert.equal(recebidos.length, 1);
+    const dataId = conferirWebhook(recebidos[0], 'payment.created', '/via-preferencia');
+    const query = new URL(recebidos[0].url, 'http://x').searchParams;
+    assert.equal(query.get('source_news'), 'webhooks', 'query original da notification_url mantida');
+    assert.equal(mp.estado.webhooks[0].url, `${urlReceptor}/via-preferencia?source_news=webhooks&data.id=${dataId}&type=payment`);
+
+    // Mudanças de status do mesmo pagamento também vão para a notification_url.
+    await mp.estado.alterarStatus(dataId, 'refunded');
+    conferirWebhook(recebidos[1], 'payment.updated', '/via-preferencia');
+    // Pagamento montado com adicionarPagamento acha a preferência pelo external_reference.
+    const avulso = mp.estado.adicionarPagamento({ external_reference: PEDIDO_ID, status: 'approved' });
+    await mp.estado.enviarWebhook(avulso.id);
+    conferirWebhook(recebidos[2], 'payment.updated', '/via-preferencia');
+
+    // Sem notification_url: cai na opção webhookUrl.
+    delete pref.notification_url;
+    await fetch(`${initPoint}/aprovar`, { method: 'POST', redirect: 'manual' });
+    assert.equal(recebidos.length, 4);
+    conferirWebhook(recebidos[3], 'payment.created', '/api/webhooks/mercadopago');
+  });
+
+  test('cada ação redireciona para a sua back_url (success, pending, failure), mantendo a query', async () => {
+    const corpo = {
+      items: [{ id: 'x', title: 'Produto', quantity: 2, currency_id: 'BRL', unit_price: 12.34 }],
+      external_reference: 'ref-retorno',
+      back_urls: {
+        success: `${SITE_DEV}/retorno/sucesso?pedido=1`,
+        pending: `${SITE_DEV}/retorno/pendente?pedido=1`,
+        failure: `${SITE_DEV}/retorno/falha?pedido=1`,
+      },
+    };
+    const criada = await fetch(`${mp.url}/checkout/preferences`, {
+      method: 'POST', headers: { Authorization: 'Bearer TEST-1', 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
+    });
+    assert.equal(criada.status, 201);
+    const { id: prefId, init_point: initPoint } = await criada.json();
+    const casos = [
+      ['aprovar', '/retorno/sucesso', 'approved'],
+      ['pendente', '/retorno/pendente', 'pending'],
+      ['recusar', '/retorno/falha', 'rejected'],
+    ];
+    for (const [acao, caminho, status] of casos) {
+      const resposta = await fetch(`${initPoint}/${acao}`, { method: 'POST', redirect: 'manual' });
+      assert.equal(resposta.status, 302, acao);
+      const destino = new URL(resposta.headers.get('location'));
+      assert.equal(destino.origin, SITE_DEV, acao);
+      assert.equal(destino.pathname, caminho, acao);
+      assert.equal(destino.searchParams.get('pedido'), '1', acao);
+      assert.equal(destino.searchParams.get('status'), status, acao);
+      assert.equal(destino.searchParams.get('external_reference'), 'ref-retorno', acao);
+      assert.equal(destino.searchParams.get('preference_id'), prefId, acao);
+      const pagamento = mp.estado.pagamentos.get(destino.searchParams.get('payment_id'));
+      assert.equal(pagamento.status, status, acao);
+      assert.equal(pagamento.transaction_amount, 24.68, acao);
+    }
+
+    // Sem back_url para a ação: página simples em vez de redirecionar.
+    const semRetorno = await fetch(`${mp.url}/checkout/preferences`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer TEST-1', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...corpo, back_urls: { success: corpo.back_urls.success } }),
+    });
+    const { init_point: semRetornoInit } = await semRetorno.json();
+    const recusado = await fetch(`${semRetornoInit}/recusar`, { method: 'POST', redirect: 'manual' });
+    assert.equal(recusado.status, 200);
+    assert.match(await recusado.text(), /rejected/);
+  });
+
   test('pagar com extras simula valor divergente; sem destino de webhook registra o erro', async () => {
     const { id: prefId } = await novaPreferencia();
     const { pagamento } = await mp.estado.pagar(prefId, 'aprovar', { transaction_amount: 1 });
@@ -803,14 +908,30 @@ describe('Mercado Pago falso: validações como o MP real', () => {
     assert.equal((await lida.json()).id, pref.id);
   });
 
-  test('busca paginada e 404 de pagamento inexistente no formato do MP', async () => {
+  test('busca filtra por external_reference, pagina e 404 de pagamento inexistente no formato do MP', async () => {
     mp.estado.limpar();
-    for (let i = 0; i < 3; i += 1) mp.estado.adicionarPagamento({ external_reference: 'ref-1' });
-    const resposta = await fetch(`${mp.url}/v1/payments/search?external_reference=ref-1&limit=2&offset=0`, { headers: { Authorization: 'Bearer x' } });
-    const corpo = await resposta.json();
+    const buscar = async (query) => (await fetch(`${mp.url}/v1/payments/search?${query}`, { headers: { Authorization: 'Bearer x' } })).json();
+    for (let i = 0; i < 3; i += 1) {
+      mp.estado.adicionarPagamento({ external_reference: 'ref-1' });
+      mp.estado.adicionarPagamento({ external_reference: 'ref-2' });
+    }
+    mp.estado.adicionarPagamento({ external_reference: 'ref-10' });
+    mp.estado.adicionarPagamento({});
+
+    const corpo = await buscar('external_reference=ref-1&limit=2&offset=0');
     assert.deepEqual(corpo.paging, { total: 3, limit: 2, offset: 0 });
     assert.equal(corpo.results.length, 2);
+    assert.ok(corpo.results.every((p) => p.external_reference === 'ref-1'));
     assert.ok(Date.parse(corpo.results[0].date_created) >= Date.parse(corpo.results[1].date_created));
+    const resto = await buscar('external_reference=ref-1&limit=2&offset=2');
+    assert.equal(resto.results.length, 1);
+    assert.equal(resto.results[0].external_reference, 'ref-1');
+
+    const outra = await buscar('external_reference=ref-2');
+    assert.equal(outra.paging.total, 3);
+    assert.deepEqual([...new Set(outra.results.map((p) => p.external_reference))], ['ref-2']);
+    assert.deepEqual((await buscar('external_reference=nada')).results, []);
+    assert.equal((await buscar('limit=50')).paging.total, 8, 'sem external_reference lista todos');
     const naoAchou = await fetch(`${mp.url}/v1/payments/424242`, { headers: { Authorization: 'Bearer x' } });
     assert.equal(naoAchou.status, 404);
     assert.equal((await naoAchou.json()).error, 'not_found');
