@@ -125,13 +125,16 @@ Necessário para o "Esqueci minha senha" do painel funcionar.
 
 | Endereço | O que deve aparecer |
 |---|---|
-| `/` | A página inicial da AMA, com o banner novo "Ama Bioessência" e o item **Loja** no menu |
+| `/` | A página inicial da AMA, com o banner da loja "Produtos AMA" e o item **Cosméticos** no menu |
 | `/loja/` | Os 16 produtos com os preços de teste |
 | `/loja/produto?slug=body-splash-raiz` | A página do produto |
 | `/admin/` | O login do painel. Entre com o usuário do passo 1.6 |
 
-Os produtos já vêm com preço e estoque de teste, então dá para comprar até o fim (com o frete configurado: Melhor
-Envio ou o frete fixo ligado no painel, em **Configurações → Frete**). Sem o Mercado Pago configurado, o checkout mostra "Pagamento online em configuração" e não deixa finalizar a
+Os produtos já vêm com preço e estoque de teste, então dá para comprar até o fim. Mas **não existe retirada na
+sede**: para a loja oferecer uma entrega, configure o Melhor Envio (Parte 2, item 4) **ou** ligue o frete fixo no
+painel, em **Configurações → Frete → Oferecer frete fixo** (ex.: R$ 15,00 para o PA). Sem nenhum dos dois, o
+carrinho não mostra frete e ninguém finaliza a compra; o painel avisa isso na **Visão geral**.
+Sem o Mercado Pago configurado, o checkout mostra "Pagamento online em configuração" e não deixa finalizar a
 compra. Para testar o pagamento, faça o passo 5.
 
 ### Passo 5 (opcional). Pagamento em modo teste no Mercado Pago
@@ -165,21 +168,54 @@ Faça quando a AMA aprovar o site e definir preços.
    na conta recebedora (sem ela o Pix não aparece). Confira as taxas em *Seu negócio → Custos*.
    Se o Mercado Pago não conseguir criar o link de pagamento, o pedido é cancelado sozinho, com uma nota na linha
    do tempo, e o cliente pode tentar de novo.
-4. **Melhor Envio (frete e etiquetas).** Em [melhorenvio.com.br](https://melhorenvio.com.br): crie a conta da AMA,
-   faça a verificação, gere um **token** em *Configurações → Permissões de acesso → Tokens* e cadastre na Vercel
-   `MELHOR_ENVIO_TOKEN`, `MELHOR_ENVIO_EMAIL` (e-mail técnico) e, se usar o ambiente de testes,
-   `MELHOR_ENVIO_AMBIENTE=sandbox`. No painel da loja, preencha o **endereço de origem** (CEP, endereço, CPF/CNPJ,
-   telefone) em Configurações → Frete. As etiquetas são pagas com o saldo da carteira do Melhor Envio.
-   **Converse com o contador** sobre nota fiscal (NF-e) ou declaração de conteúdo: a AMA tem CNPJ e vende.
+4. **Entrega: Melhor Envio e/ou frete fixo.** Não há retirada na sede, então pelo menos um dos dois precisa estar
+   ligado para a loja vender.
+   - **Melhor Envio (Correios e transportadoras, com etiqueta pelo painel).** Em
+     [melhorenvio.com.br](https://melhorenvio.com.br): crie a conta da AMA, faça a verificação, gere um **token** em
+     *Configurações → Permissões de acesso → Tokens* e cadastre na Vercel `MELHOR_ENVIO_TOKEN` e
+     `MELHOR_ENVIO_EMAIL` (e-mail técnico). Em produção deixe `MELHOR_ENVIO_AMBIENTE` vazio (`sandbox` só para o
+     ambiente de testes do Melhor Envio, que usa outro token). No painel, em **Configurações → Frete**, deixe ligado
+     **Calcular o frete pelo Melhor Envio** e preencha o **remetente** (nome, CPF/CNPJ, telefone e endereço com
+     CEP). As etiquetas são pagas com o saldo da carteira do Melhor Envio: coloque saldo antes da primeira venda.
+     O envio é feito na página do pedido (**Pedidos → pedido → Envio**): carrinho → pagar → gerar → imprimir →
+     postar nos Correios → rastreio → "Marcar como enviado" (a cliente vê o código na página do pedido).
+   - **Frete fixo (entrega por conta da AMA).** Em **Configurações → Frete → Oferecer frete fixo**: nome, valor,
+   prazo e estados atendidos (ex.: só `PA`). Pode ficar ligado junto com o Melhor Envio.
+   - O frete usa o **peso e as medidas** de cada produto (**Produtos → produto → Tamanho e peso**). Confira os
+     valores reais, principalmente das biojoias.
+   - **Converse com o contador** sobre nota fiscal (NF-e) ou declaração de conteúdo: a AMA tem CNPJ e vende. Com
+     NF-e, a chave de 44 números entra no primeiro passo do envio.
 5. **E-mails de pedido (opcional).** Crie a conta no [Resend](https://resend.com), verifique o domínio, gere uma
    API key e cadastre `RESEND_API_KEY` e `EMAIL_REMETENTE` (ex.: `AMA <loja@seudominio.com.br>`). No painel, em
-   Configurações, informe o e-mail que recebe o aviso de novo pedido.
+   **Configurações → Avisos por e-mail**, informe o e-mail da equipe que recebe o aviso de novo pedido.
 6. **E-mail de recuperação de senha.** Configure um SMTP próprio no Supabase (**Authentication** → **Emails** →
    **SMTP Settings**; o Resend oferece SMTP). Sem isso, o Supabase envia no máximo 2 e-mails por hora.
 7. **Limites do plano grátis do Supabase:** 500 MB de banco, 1 GB de arquivos (50 MB por arquivo) e o projeto é
    pausado depois de 7 dias sem uso. O site faz uma consulta diária automática (`/api/cron/manter-ativo`) para
    evitar a pausa; mesmo assim, se receber o e-mail de aviso do Supabase, abra o projeto e clique em restaurar.
    Prefira vídeos no YouTube/Instagram e fotos comprimidas (o painel já reduz as fotos antes de enviar).
+8. **Banco atualizado.** Sempre que o arquivo da migração mudar (o pull request avisa), rode-o de novo no **SQL
+   Editor** (Passo 1, item 4). Ele não apaga produtos, pedidos nem textos já editados.
+
+### Antes de abrir as vendas (lista de conferência)
+
+No painel (`/admin/`):
+
+- [ ] **Configurações → Integrações**: Supabase, Mercado Pago (modo **produção**), avisos de pagamento e Melhor
+      Envio aparecem como configurados. O painel nunca mostra as chaves, só se elas existem.
+- [ ] **Produtos**: troque os **preços e estoques de teste** (R$ 59,90, R$ 69,90… e 10 unidades) pelos reais; dê
+      nome, descrição e fotos às 6 biojoias ("Nome em Produção"); confira peso e medidas. Produto sem preço não
+      pode ser comprado (a lista avisa).
+- [ ] **Configurações → Loja**: WhatsApp, e-mail de contato e aviso do topo (opcional).
+- [ ] **Configurações → Frete**: remetente completo; Melhor Envio ligado e/ou frete fixo; frete grátis (opcional).
+- [ ] **Configurações → Pagamento**: parcelas no cartão, boleto e prazo para pagar.
+- [ ] **Configurações → Avisos por e-mail**: e-mail da equipe (se usar o Resend).
+- [ ] **Compra de verdade**: faça um pedido pequeno com Pix pelo domínio definitivo e confira: o pedido vira
+      "Pago" sozinho (sem o webhook ele fica esperando), o estoque baixa, o e-mail chega (se configurado) e o envio
+      funciona até a etiqueta. Depois devolva o dinheiro pelo Mercado Pago e marque o pedido como
+      **Reembolsado** em **Mudar situação** (com "Devolver os produtos ao estoque").
+- [ ] Apague os pedidos de teste em **Mais ações → Apagar pedido** (aparece para pedidos aguardando pagamento,
+      cancelados ou reembolsados cujos produtos já voltaram ao estoque).
 
 ## Referência: variáveis de ambiente
 
@@ -191,7 +227,7 @@ Todas estão explicadas em [`.env.example`](../.env.example). Resumo:
 | `CRON_SECRET` | Recomendada | Protege a consulta diária que evita a pausa do Supabase |
 | `SITE_URL` | Em produção | Endereço público (links de pagamento, e-mails) |
 | `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET`, `MP_MODO` | Para vender | Mercado Pago |
-| `MELHOR_ENVIO_TOKEN`, `MELHOR_ENVIO_EMAIL`, `MELHOR_ENVIO_AMBIENTE` | Opcional | Frete calculado e etiquetas |
+| `MELHOR_ENVIO_TOKEN`, `MELHOR_ENVIO_EMAIL`, `MELHOR_ENVIO_AMBIENTE` | Para vender (ou o frete fixo ligado no painel) | Frete calculado e etiquetas |
 | `RESEND_API_KEY`, `EMAIL_REMETENTE` | Opcional | E-mails de pedido |
 
 Depois de criar ou mudar uma variável na Vercel, publique de novo (**Deployments** → **Redeploy**).
