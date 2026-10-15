@@ -8,12 +8,15 @@
 //   (saldo na visão geral) e o Mercado Pago em modo teste (sem rede).
 // - Em cada largura: login (vazio, senha errada, certo), visão geral, menu fechado/aberto no
 //   celular, página não encontrada, uma página de vitrine dos componentes (injetada com
-//   page.route no lugar de paginas/cupons.js, usando só o contrato ctx), aviso de alterações
+//   page.route no lugar de paginas/categorias.js, usando só o contrato ctx), aviso de alterações
 //   não salvas, modal, toasts e saída. Em 390 px também o seletor de mídia com envio real
 //   para o bucket (o arquivo é apagado no fim).
 // - Usuário comum (criado e apagado aqui) recebe "sem permissão"; rota preservada no login;
 //   sessão encerrada em outra aba mostra o login por cima da página; "Esqueci minha senha";
 //   painel sem Supabase mostra "Painel em configuração".
+// - Regressões do núcleo (docs/PAINEL.md §13): botões do topo por largura, "Tentar novamente" da
+//   visão geral, ctx.navegar(hash atual, { substituir: true }), modal fechado pelo botão Voltar e
+//   pelo login por cima, caixa de marcar clicável numa tabela com link.
 // - Falha (código 1) com erro no console/página, rolagem horizontal ou verificação errada.
 
 import { mkdirSync } from 'node:fs';
@@ -37,11 +40,13 @@ const SAIDA = path.resolve(argumento('saida', path.join(os.tmpdir(), 'capturas-p
 const LARGURAS = argumento('larguras', '390,768,1440').split(',').map(Number).filter(Boolean);
 const ALTURAS = { 360: 760, 390: 844, 768: 1024, 1024: 800, 1440: 900 };
 const ADMIN = { email: 'admin@ama.local', senha: 'admin123456' };
-const ROTA_VITRINE = '#/cupons';
+const ROTA_VITRINE = '#/categorias';
 const IMAGEM_TESTE = path.join(RAIZ, 'public', 'img', 'logo-ama-icone.png');
 
 const problemas = [];
 const enviados = [];
+// Requisição que o teste faz falhar de propósito (o erro no console é esperado).
+let falhaSimulada = null;
 const falhar = (texto) => {
   problemas.push(texto);
   console.log(`  ✗ ${texto}`);
@@ -53,6 +58,8 @@ const VITRINE = String.raw`
 export async function renderizar(ctx) {
   const { ui, midia } = ctx;
   const { el } = ui;
+  window.__rendersVitrine = (window.__rendersVitrine || 0) + 1;
+  window.__navegarVitrine = (destino, opcoes) => ctx.navegar(destino, opcoes);
   const nome = ui.campo({ rotulo: 'Nome do produto', nome: 'nome', obrigatorio: true, valor: 'Body Splash Raiz', ajuda: 'Aparece na loja, no carrinho e no pedido.' });
   const preco = ui.campo({ rotulo: 'Preço', nome: 'preco', tipo: 'preco', valor: 4590, obrigatorio: true });
   const promo = ui.campo({ rotulo: 'Preço promocional', nome: 'promo', tipo: 'preco', ajuda: 'Vazio = sem promoção.' });
@@ -77,9 +84,9 @@ export async function renderizar(ctx) {
 
   const resultado = el('p', { id: 'resultado-midia', class: 'texto-pequeno mono truncar' }, 'Nenhuma imagem escolhida.');
   const abrirModal = ui.botao({ texto: 'Abrir modal', icone: 'info', attrs: { id: 'abrir-modal' }, aoClicar: () => ui.modal({
-    titulo: 'Novo cupom', conteudo: el('div', { class: 'formulario' }, ui.campo({ rotulo: 'Código', nome: 'codigo', valor: 'AMA10' }).elemento,
-      ui.campo({ rotulo: 'Desconto', nome: 'valor', tipo: 'number', valor: 10, sufixo: '%' }).elemento),
-    acoes: [{ texto: 'Cancelar', valor: null }, { texto: 'Criar cupom', tipo: 'primario', aoClicar: () => new Promise((r) => setTimeout(() => r('ok'), 300)) }] }) });
+    titulo: 'Nova categoria', conteudo: el('div', { class: 'formulario' }, ui.campo({ rotulo: 'Nome', nome: 'nome', valor: 'Biojoias' }).elemento,
+      ui.campo({ rotulo: 'Ordem', nome: 'ordem', tipo: 'number', valor: 10 }).elemento),
+    acoes: [{ texto: 'Cancelar', valor: null }, { texto: 'Criar categoria', tipo: 'primario', aoClicar: () => new Promise((r) => setTimeout(() => r('ok'), 300)) }] }) });
   const toasts = ui.botao({ texto: 'Mostrar avisos', icone: 'alerta', attrs: { id: 'mostrar-toasts' }, aoClicar: () => {
     ui.toast('Produto salvo com sucesso.', 'sucesso', { duracao: 0 });
     ui.toast('Não foi possível falar com o servidor. Verifique sua internet.', 'erro', { duracao: 0 });
@@ -89,7 +96,7 @@ export async function renderizar(ctx) {
     resultado.textContent = url || 'cancelado';
   } });
   const confirmar = ui.botao({ texto: 'Excluir…', tipo: 'perigo-suave', icone: 'lixeira', attrs: { id: 'confirmar' }, aoClicar: async () => {
-    const sim = await ui.confirmar('Excluir o cupom AMA10? Esta ação não pode ser desfeita.', { perigo: true, textoConfirmar: 'Excluir cupom' });
+    const sim = await ui.confirmar('Excluir a categoria Biojoias? Esta ação não pode ser desfeita.', { perigo: true, textoConfirmar: 'Excluir categoria' });
     ui.toast(sim ? 'Excluído.' : 'Cancelado.', sim ? 'sucesso' : 'info');
   } });
 
@@ -104,6 +111,7 @@ export async function renderizar(ctx) {
     { titulo: 'Total', alinhar: 'direita', celula: (p) => ui.formatarPreco(p.total) },
     { titulo: 'Status', celula: (p) => ui.seloStatusPedido(p.status) },
     { titulo: 'Quando', celula: (p) => ui.tempoRelativo(p.criado) },
+    { titulo: 'Separado', celula: (p) => el('input', { type: 'checkbox', class: 'caixa__entrada', 'aria-label': 'Separado: pedido ' + p.numero, dataset: { pedido: p.numero } }) },
   ] });
   const fotos = ['body-splash-raiz', 'body-splash-bruma', 'body-splash-orvalho'];
   const lista = el('ul', { class: 'lista-ordenavel', 'aria-label': 'Fotos do produto' }, fotos.map((f, i) => el('li', { class: 'lista-ordenavel__item' },
@@ -125,7 +133,7 @@ export async function renderizar(ctx) {
   ] });
   const upload = midia.criarAreaUpload({ tipo: 'imagem', aoEscolher: () => {} });
   upload.definirProgresso(0.42, 'Enviando foto.jpg… 42%');
-  const vazio = ui.estadoVazio(null, 'Crie o primeiro cupom para oferecer desconto.', { titulo: 'Nenhum cupom ainda', icone: 'cupons', acao: { texto: 'Novo cupom', icone: 'mais' } });
+  const vazio = ui.estadoVazio(null, 'Crie a primeira categoria para organizar a loja.', { titulo: 'Nenhuma categoria ainda', icone: 'categorias', acao: { texto: 'Nova categoria', icone: 'mais' } });
   const carregando = ui.estadoCarregando(null, { linhas: 3 });
 
   ctx.raiz.append(
@@ -168,7 +176,7 @@ async function novaPagina(navegador, largura, rotulo) {
       await rota.abort().catch(() => {});
     }
   });
-  await contexto.route(/\/admin\/js\/paginas\/cupons\.js(\?.*)?$/, (rota) => rota.fulfill({
+  await contexto.route(/\/admin\/js\/paginas\/categorias\.js(\?.*)?$/, (rota) => rota.fulfill({
     status: 200, contentType: 'text/javascript; charset=utf-8', body: VITRINE,
   }));
   const vigiar = (pagina) => {
@@ -180,7 +188,7 @@ async function novaPagina(navegador, largura, rotulo) {
       // o 400 do login com senha errada também é esperado.
       // O Supabase local não tem servidor de e-mail: o /recover responde 500 (o painel mostra o aviso).
       if (/fonts\.(googleapis|gstatic)\.com/.test(origem) || /\/admin\/js\/paginas\//.test(origem)
-        || /\/auth\/v1\/(token|recover)/.test(origem)) return;
+        || /\/auth\/v1\/(token|recover)/.test(origem) || (falhaSimulada && falhaSimulada.test(origem))) return;
       falhar(`[${rotulo}] console: ${m.text()} ${origem}`);
     });
   };
@@ -252,6 +260,43 @@ async function testarVitrine(pagina, largura) {
   ok('vitrine (página injetada) renderizou pelo contrato ctx');
   await capturar(pagina, `componentes-${largura}`);
   await semRolagemHorizontal(pagina, 'vitrine de componentes');
+
+  // ctx.navegar para o próprio hash com { substituir: true } renderiza de novo.
+  const rendersAntes = await pagina.evaluate(() => window.__rendersVitrine);
+  await pagina.evaluate(() => window.__navegarVitrine(window.location.hash, { substituir: true }));
+  await pagina.waitForFunction((n) => window.__rendersVitrine > n && document.querySelector('#form-vitrine'), rendersAntes, { timeout: 10_000 })
+    .then(() => ok('ctx.navegar(hash atual, { substituir: true }) renderiza a página de novo'))
+    .catch(() => falhar('ctx.navegar(hash atual, { substituir: true }) não renderizou de novo'));
+
+  // Tabela com link: a caixa de marcar de uma célula fica por cima da camada do link.
+  const caixa = pagina.locator('input[data-pedido="1042"]');
+  const noTopo = await caixa.evaluate((e) => {
+    e.scrollIntoView({ block: 'center' });
+    const r = e.getBoundingClientRect();
+    return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === e;
+  });
+  if (!noTopo) {
+    falhar('caixa de marcar numa tabela com link ficou por baixo da camada do link');
+  } else {
+    await caixa.click();
+    const depois = await pagina.evaluate(() => ({ hash: window.location.hash, marcada: document.querySelector('input[data-pedido="1042"]').checked }));
+    if (depois.hash !== ROTA_VITRINE || !depois.marcada) falhar(`clique na caixa da tabela: ${JSON.stringify(depois)}`);
+    else ok('tabela com link: caixa de marcar na célula funciona sem abrir a linha');
+  }
+
+  // Botão Voltar do navegador com um modal aberto: a rota troca e o modal fecha.
+  await pagina.locator('#abrir-modal').click();
+  await pagina.waitForSelector('dialog.modal[open]');
+  await pagina.goBack();
+  await pagina.waitForSelector('.pagina[data-pagina="nao-encontrada"]');
+  if (await pagina.locator('dialog.modal').count()) {
+    falhar('o modal continuou aberto depois do botão Voltar');
+    await pagina.keyboard.press('Escape');
+  } else {
+    ok('botão Voltar com modal aberto troca a rota e fecha o modal');
+  }
+  await pagina.goForward();
+  await pagina.waitForSelector('#form-vitrine');
 
   // Alterações não salvas → confirmação ao trocar de rota.
   await pagina.locator('#form-vitrine input[name="nome"]').fill('Body Splash Raiz — 200 mL');
@@ -370,6 +415,37 @@ async function rodarLargura(navegador, base, largura) {
     await capturar(pagina, `visao-geral-${largura}`);
     await semRolagemHorizontal(pagina, 'visão geral');
 
+    // Topo: "Abrir menu" só abaixo de 1024 px; "Sair" do topo só a partir de 640 px (no celular fica na gaveta).
+    const menuVisivel = await pagina.isVisible('.topo__menu');
+    const sairVisivel = await pagina.isVisible('.topo__sair');
+    if (menuVisivel !== largura < 1024) falhar(`botão "Abrir menu" ${menuVisivel ? 'aparece' : 'não aparece'} no topo em ${largura}px`);
+    if (sairVisivel !== largura >= 640) falhar(`"Sair" do topo ${sairVisivel ? 'aparece' : 'não aparece'} em ${largura}px`);
+    if (menuVisivel === largura < 1024 && sairVisivel === largura >= 640) {
+      ok(`topo: "Abrir menu" ${menuVisivel ? 'visível' : 'oculto'}, "Sair" ${sairVisivel ? 'visível' : 'oculto (fica na gaveta)'}`);
+    }
+
+    // "Tentar novamente" de "Últimos pedidos" (a consulta falha uma vez de propósito).
+    falhaSimulada = /\/rest\/v1\/pedidos\?select=id%2Cnumero/;
+    let falhas = 0;
+    await contexto.route(falhaSimulada, (rota) => (falhas++ === 0
+      ? rota.fulfill({ status: 500, contentType: 'application/json', body: '{"message":"falha simulada"}' })
+      : rota.continue()));
+    try {
+      await irPara(pagina, '#/?teste=falha', 'section:has(#vg-ultimos) .estado-vazio--erro');
+      if (largura === 390) await capturar(pagina, `visao-geral-erro-${largura}`, { inteira: false });
+      await pagina.locator('section:has(#vg-ultimos) .estado-vazio--erro .botao').click();
+      await pagina.waitForFunction(() => {
+        const cartao = document.querySelector('#vg-ultimos')?.closest('.cartao');
+        return cartao && !cartao.querySelector('.estado-vazio--erro, .carregando');
+      }, null, { timeout: 15_000 });
+      ok('visão geral: "Tentar novamente" de "Últimos pedidos" carrega de novo');
+    } catch (erro) {
+      falhar(`visão geral: "Tentar novamente" não recarregou (${erro.message.split('\n')[0]})`);
+    } finally {
+      await contexto.unroute(falhaSimulada);
+      falhaSimulada = null;
+    }
+
     if (largura < 1024) {
       await capturar(pagina, `menu-fechado-${largura}`, { inteira: false });
       if (!(await pagina.evaluate(() => document.getElementById('menu-lateral').inert))) falhar('gaveta fechada deveria ficar inerte (fora do Tab)');
@@ -440,6 +516,9 @@ async function testarAcesso(navegador, base) {
     await pagina.waitForSelector('#form-vitrine', { timeout: 20_000 });
     ok(`depois do login a rota pedida (${ROTA_VITRINE}) foi mantida`);
     await pagina.locator('#form-vitrine input[name="nome"]').fill('Texto ainda não salvo');
+    // Um modal aberto não pode deixar a tela de login inerte quando a sessão acaba.
+    await pagina.locator('#abrir-modal').click();
+    await pagina.waitForSelector('dialog.modal[open]');
 
     // Saída em outra aba = sessão encerrada aqui: login por cima, página preservada.
     const outra = await contexto.newPage();
@@ -451,6 +530,8 @@ async function testarAcesso(navegador, base) {
     await outra.waitForSelector('form.acesso__formulario');
     await outra.close();
     await pagina.waitForSelector('.acesso form.acesso__formulario', { timeout: 15_000 });
+    if (await pagina.locator('dialog.modal').count()) falhar('sessão encerrada: o modal da página ficou aberto por cima do login');
+    else ok('sessão encerrada: o modal aberto fechou e o login ficou utilizável');
     const aviso = (await pagina.locator('.acesso .aviso:not([hidden])').first().textContent()).trim();
     if (!/sessão expirou/i.test(aviso)) falhar(`sessão encerrada: aviso inesperado "${aviso}"`);
     const preservada = await pagina.evaluate(() => ({

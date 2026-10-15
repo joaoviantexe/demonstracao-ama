@@ -25,7 +25,7 @@ export function hrefSeguro(valor) {
 }
 
 /**
- * Cria um elemento. props: class, texto, html (SÓ para marcação constante do código), dataset,
+ * Cria um elemento. props: class, texto, dataset,
  * on<evento>, href/src (filtrados por URL segura), booleanos e demais atributos.
  * Filhos: nós ou textos (textos viram nós de texto).
  */
@@ -35,7 +35,6 @@ export function el(tag, props = {}, ...filhos) {
     if (valor === null || valor === undefined || valor === false) continue;
     if (chave === 'class') no.className = valor;
     else if (chave === 'texto') no.textContent = String(valor);
-    else if (chave === 'html') no.innerHTML = valor;
     else if (chave === 'dataset') Object.assign(no.dataset, valor);
     else if (chave.startsWith('on') && typeof valor === 'function') no.addEventListener(chave.slice(2), valor);
     else if (chave === 'href') {
@@ -73,7 +72,6 @@ const ICONES = {
   alerta: '<path d="M12 3.5l9 16H3l9-16z"/><path d="M12 10v4.5M12 17.2v.3"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.8v.3"/>',
   busca: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
-  etiqueta: '<path d="M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7l8.3 8.3a1 1 0 0 1 0 1.4l-7.3 7.3a1 1 0 0 1-1.4 0L3.5 12.2z"/><circle cx="8" cy="8" r="1.5"/>',
   folha: '<path d="M5 19.5C5 11 10 5 20 4c-.5 10-6.5 15.5-15 15.5z"/><path d="M5 19.5l7.5-7.5"/>',
   cartao: '<rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h3"/>',
   coracao: '<path d="M12 20s-7.5-4.6-9.2-9.4A4.9 4.9 0 0 1 12 7.2a4.9 4.9 0 0 1 9.2 3.4C19.5 15.4 12 20 12 20z"/>',
@@ -82,7 +80,6 @@ const ICONES = {
   recibo: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
   relogio: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2"/>',
   fechar: '<path d="M6 6l12 12M18 6L6 18"/>',
-  local: '<path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
   escudo: '<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6L12 3z"/><path d="M8.8 12.2l2.2 2.2 4.2-4.4"/>',
   presente: '<rect x="3.5" y="8.5" width="17" height="4" rx="1"/><path d="M5 12.5v8h14v-8M12 8.5v12"/><path d="M12 8.5S10.5 4 8 4.5 7 8.5 12 8.5zM12 8.5S13.5 4 16 4.5 17 8.5 12 8.5z"/>',
 };

@@ -26,10 +26,8 @@ function pedidoBase(extra = {}) {
     numero: 1001,
     token_acesso: TOKEN,
     subtotal_centavos: 9000,
-    desconto_centavos: 0,
     frete_centavos: 2350,
     total_centavos: 11350,
-    cupom_codigo: null,
     endereco: { cep: '66000000', logradouro: 'Rua das Flores', numero: '28', complemento: '', bairro: 'Icuí', cidade: 'Ananindeua', uf: 'PA' },
     itens: [
       { produto_id: 'prod-raiz', nome: 'Body Splash Raiz', imagem: '/img/produtos/raiz.jpg', preco_unitario_centavos: 4500, quantidade: 2, total_centavos: 9000 },
@@ -130,47 +128,13 @@ describe('montarPreferencia', () => {
     assert.equal(somaCentavos(pref.items), pedido.total_centavos);
   });
 
-  test('com desconto: um único item "Pedido #N — AMA" já descontado + frete', () => {
-    // 3 × R$ 33,33 = R$ 99,99; 10% → desconto de R$ 9,99 (floor); produtos R$ 90,00.
-    const pedido = pedidoBase({
-      itens: [{ produto_id: 'x', nome: 'Sabonete Sólido', preco_unitario_centavos: 3333, quantidade: 3, total_centavos: 9999 }],
-      subtotal_centavos: 9999, desconto_centavos: 999, frete_centavos: 1501, total_centavos: 10501, cupom_codigo: 'AMA10',
-    });
-    const pref = montar({ pedido, entrega: { ...ENTREGA, preco_centavos: 1501 } });
-    assert.equal(pref.items.length, 2);
-    assert.equal(pref.items[0].title, 'Pedido #1001 — AMA');
-    assert.equal(pref.items[0].quantity, 1);
-    assert.equal(pref.items[0].unit_price, 90);
-    assert.match(pref.items[0].description, /3× Sabonete Sólido/);
-    assert.match(pref.items[0].description, /AMA10/);
-    assert.deepEqual(pref.items[1], { id: 'frete', title: 'Frete — PAC', quantity: 1, currency_id: 'BRL', unit_price: 15.01 });
-    conferirDuasCasas(pref.items);
-    assert.equal(somaCentavos(pref.items), 10501);
-  });
-
-  test('desconto com dízima: valor descontado com 2 casas e soma exata', () => {
-    const pedido = pedidoBase({
-      itens: [{ produto_id: 'x', nome: 'Creme', preco_unitario_centavos: 1999, quantidade: 3, total_centavos: 5997 }],
-      subtotal_centavos: 5997, desconto_centavos: 599, frete_centavos: 0, total_centavos: 5398,
-    });
-    const pref = montar({ pedido, entrega: { tipo: 'retirada', id: 'retirada', nome: 'Retirar na sede', preco_centavos: 0 } });
-    assert.equal(pref.items.length, 1, 'retirada não tem item de frete');
-    assert.equal(pref.items[0].unit_price, 53.98);
-    assert.equal(somaCentavos(pref.items), 5398);
-  });
-
-  test('desconto que zera os produtos: só o frete vai, nunca item negativo ou zero', () => {
-    const pedido = pedidoBase({ subtotal_centavos: 9000, desconto_centavos: 9000, frete_centavos: 1500, total_centavos: 1500 });
-    const pref = montar({ pedido, entrega: { ...ENTREGA, nome: 'Entrega local', preco_centavos: 1500 } });
-    assert.deepEqual(pref.items, [{ id: 'frete', title: 'Frete — Entrega local', quantity: 1, currency_id: 'BRL', unit_price: 15 }]);
-  });
-
   test('itens que não fecham com o total viram um item único com o valor certo', () => {
     const pedido = pedidoBase({ total_centavos: 12000 });
     const pref = montar({ pedido });
     assert.equal(pref.items.length, 2);
     assert.equal(pref.items[0].title, 'Pedido #1001 — AMA');
     assert.equal(pref.items[0].unit_price, 96.5);
+    assert.match(pref.items[0].description, /2× Body Splash Raiz/);
     assert.equal(somaCentavos(pref.items), 12000);
   });
 

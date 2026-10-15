@@ -148,7 +148,7 @@ function textoDe(origem, nome) {
 
 /**
  * Valida os dados do formulário do checkout com as MESMAS regras e mensagens do servidor
- * (validarDadosCheckout, sem itens nem cupom). Entrada { cliente, endereco, frete_id }.
+ * (validarDadosCheckout, sem os itens). Entrada { cliente, endereco, frete_id }.
  * Devolve { ok, erros } com chaves 'cliente.nome', 'endereco.cep', 'frete_id'...
  */
 export function validarFormularioCheckout({ cliente, endereco, frete_id: freteId } = {}) {
@@ -177,24 +177,22 @@ export function validarFormularioCheckout({ cliente, endereco, frete_id: freteId
   const frete = /^[A-Za-z0-9_-]{1,60}$/.test(freteTexto) ? freteTexto : '';
   if (!frete) erros.frete_id = 'Escolha uma opção de entrega.';
 
-  if (frete !== 'retirada') {
-    const e = endereco && typeof endereco === 'object' && !Array.isArray(endereco) ? endereco : {};
-    const cep = somenteDigitos(typeof e.cep === 'string' || typeof e.cep === 'number' ? e.cep : '');
-    if (!validarCep(cep)) erros['endereco.cep'] = 'Informe um CEP válido (8 dígitos).';
-    const obrigatorios = [
-      ['logradouro', 200, 'Informe a rua ou avenida.'],
-      ['numero', 20, 'Informe o número (ou "S/N").'],
-      ['bairro', 100, 'Informe o bairro.'],
-      ['cidade', 100, 'Informe a cidade.'],
-    ];
-    for (const [campo, max, mensagem] of obrigatorios) {
-      const valor = textoDe(e, campo);
-      if (!valor) erros[`endereco.${campo}`] = mensagem;
-      else if (tamanho(valor) > max) erros[`endereco.${campo}`] = `Use no máximo ${max} caracteres.`;
-    }
-    if (tamanho(textoDe(e, 'complemento')) > 100) erros['endereco.complemento'] = 'Use no máximo 100 caracteres.';
-    if (!validarUf(textoDe(e, 'uf'))) erros['endereco.uf'] = 'Escolha o estado (UF).';
+  const e = endereco && typeof endereco === 'object' && !Array.isArray(endereco) ? endereco : {};
+  const cep = somenteDigitos(typeof e.cep === 'string' || typeof e.cep === 'number' ? e.cep : '');
+  if (!validarCep(cep)) erros['endereco.cep'] = 'Informe um CEP válido (8 dígitos).';
+  const obrigatorios = [
+    ['logradouro', 200, 'Informe a rua ou avenida.'],
+    ['numero', 20, 'Informe o número (ou "S/N").'],
+    ['bairro', 100, 'Informe o bairro.'],
+    ['cidade', 100, 'Informe a cidade.'],
+  ];
+  for (const [campo, max, mensagem] of obrigatorios) {
+    const valor = textoDe(e, campo);
+    if (!valor) erros[`endereco.${campo}`] = mensagem;
+    else if (tamanho(valor) > max) erros[`endereco.${campo}`] = `Use no máximo ${max} caracteres.`;
   }
+  if (tamanho(textoDe(e, 'complemento')) > 100) erros['endereco.complemento'] = 'Use no máximo 100 caracteres.';
+  if (!validarUf(textoDe(e, 'uf'))) erros['endereco.uf'] = 'Escolha o estado (UF).';
   return { ok: Object.keys(erros).length === 0, erros };
 }
 

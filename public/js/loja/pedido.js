@@ -33,19 +33,18 @@ let timerAtualizacao = null;
 // ---------------------------------------------------------------------------
 // Textos
 
-function rotuloEtapa(etapa, retirada) {
+function rotuloEtapa(etapa) {
   switch (etapa) {
     case 'aguardando_pagamento': return 'Aguardando pagamento';
     case 'pago': return 'Pago';
     case 'em_separacao': return 'Em separação';
-    case 'enviado': return retirada ? 'Pronto para retirada' : 'Enviado';
-    case 'entregue': return retirada ? 'Retirado' : 'Entregue';
+    case 'enviado': return 'Enviado';
+    case 'entregue': return 'Entregue';
     default: return etapa;
   }
 }
 
 function situacao(pedido) {
-  const retirada = pedido.entrega && pedido.entrega.tipo === 'retirada';
   const nome = pedido.primeiro_nome ? `, ${pedido.primeiro_nome}` : '';
   switch (pedido.status) {
     case 'aguardando_pagamento':
@@ -59,7 +58,7 @@ function situacao(pedido) {
     case 'pagamento_em_analise':
       return {
         titulo: `Olá${nome}!`,
-        texto: 'Seu pagamento está em análise pelo Mercado Pago. Pix costuma ser confirmado em minutos; boleto, em até 3 dias úteis.',
+        texto: 'Seu pagamento está em análise. Pix costuma ser confirmado em minutos; boleto, em até 3 dias úteis.',
         tom: 'aguardando',
       };
     case 'pago':
@@ -67,11 +66,9 @@ function situacao(pedido) {
     case 'em_separacao':
       return { titulo: `Obrigada${nome}!`, texto: 'Seu pedido está sendo separado com carinho pela equipe da AMA.', tom: 'ok' };
     case 'enviado':
-      return retirada
-        ? { titulo: `Tudo pronto${nome}!`, texto: 'Seu pedido está pronto para retirada na sede da AMA, em Ananindeua (PA).', tom: 'ok' }
-        : { titulo: `A caminho${nome}!`, texto: 'Seu pedido foi enviado. Acompanhe a entrega pelo código de rastreio.', tom: 'ok' };
+      return { titulo: `A caminho${nome}!`, texto: 'Seu pedido foi enviado. Acompanhe a entrega pelo código de rastreio.', tom: 'ok' };
     case 'entregue':
-      return { titulo: `Obrigada${nome}!`, texto: retirada ? 'Pedido retirado. Obrigada por comprar na AMA!' : 'Pedido entregue. Obrigada por comprar na AMA!', tom: 'ok' };
+      return { titulo: `Obrigada${nome}!`, texto: 'Pedido entregue. Obrigada por comprar na AMA!', tom: 'ok' };
     case 'cancelado':
       return { titulo: 'Pedido cancelado', texto: 'Este pedido foi cancelado. Se você tiver dúvidas ou quiser comprar de novo, fale com a AMA.', tom: 'cancelado' };
     case 'reembolsado':
@@ -85,7 +82,6 @@ function situacao(pedido) {
 // Blocos
 
 function linhaDoTempo(pedido) {
-  const retirada = pedido.entrega && pedido.entrega.tipo === 'retirada';
   const indice = pedido.status === 'pagamento_em_analise' ? 0 : ETAPAS.indexOf(pedido.status);
   const datas = { aguardando_pagamento: pedido.criado_em, pago: pedido.pago_em, enviado: pedido.enviado_em };
   return el('ol', { class: 'linha-tempo', 'aria-label': 'Andamento do pedido' },
@@ -105,7 +101,7 @@ function linhaDoTempo(pedido) {
       return el('li', { class: classes.join(' '), 'aria-current': atual ? 'step' : null },
         el('span', { class: 'etapa-marca', 'aria-hidden': 'true' }, feito ? icone('check') : atual ? icone('relogio') : String(i + 1)),
         el('span', { class: 'etapa-texto' },
-          el('span', { class: 'etapa-rotulo', texto: rotuloEtapa(etapa, retirada) }),
+          el('span', { class: 'etapa-rotulo', texto: rotuloEtapa(etapa) }),
           el('span', { class: 'sr-only', texto: feito ? ' (concluído)' : atual ? ' (etapa atual)' : ' (próxima etapa)' }),
           detalhe ? el('span', { class: 'etapa-data', texto: detalhe }) : null));
     }));
@@ -127,30 +123,24 @@ function blocoItens(pedido) {
 }
 
 function blocoTotais(pedido) {
-  const retirada = pedido.entrega && pedido.entrega.tipo === 'retirada';
   const linha = (rotulo, valor, classe = '') => el('div', { class: `totais-linha${classe ? ` ${classe}` : ''}` }, el('dt', { texto: rotulo }), el('dd', { texto: valor }));
   return el('section', { class: 'cartao-pedido', 'aria-labelledby': 'totais-titulo' },
     el('h2', { class: 'cartao-pedido-titulo', id: 'totais-titulo', texto: 'Resumo' }),
     el('dl', { class: 'totais' },
       linha('Subtotal', formatarPreco(pedido.subtotal_centavos)),
-      pedido.desconto_centavos > 0 ? linha('Desconto', `− ${formatarPreco(pedido.desconto_centavos)}`, 'totais-linha--desconto') : null,
-      linha('Frete', pedido.frete_centavos > 0 ? formatarPreco(pedido.frete_centavos) : (retirada ? 'Sem custo' : 'Grátis'),
+      linha('Frete', pedido.frete_centavos > 0 ? formatarPreco(pedido.frete_centavos) : 'Grátis',
         pedido.frete_centavos > 0 ? '' : 'totais-linha--gratis'),
       linha('Total', formatarPreco(pedido.total_centavos), 'totais-linha--total')));
 }
 
 function blocoEntrega(pedido) {
   const entrega = pedido.entrega || {};
-  const retirada = entrega.tipo === 'retirada';
-  const numero = formatarNumeroPedido(pedido.numero);
   const conteudo = [];
   conteudo.push(el('p', { class: 'entrega-nome' },
-    icone(retirada ? 'local' : 'caminhao'),
-    el('span', {}, el('strong', { texto: entrega.nome || (retirada ? 'Retirada na sede da AMA' : 'Entrega') }),
+    icone('caminhao'),
+    el('span', {}, el('strong', { texto: entrega.nome || 'Entrega' }),
       entrega.empresa ? el('span', { class: 'entrega-empresa', texto: ` · ${entrega.empresa}` }) : null)));
-  if (retirada) {
-    conteudo.push(el('p', { class: 'entrega-texto', texto: 'Retire na sede da AMA, em Ananindeua (PA), quando o pedido estiver pronto. Acompanhe a situação por esta página.' }));
-  } else if (Number.isInteger(entrega.prazo_dias) && entrega.prazo_dias > 0) {
+  if (Number.isInteger(entrega.prazo_dias) && entrega.prazo_dias > 0) {
     conteudo.push(el('p', { class: 'entrega-texto', texto: `Prazo estimado: até ${pluralizar(entrega.prazo_dias, 'dia útil', 'dias úteis')} após o envio.` }));
   }
   const codigos = String(pedido.codigo_rastreio || '').split(',').map((c) => c.trim()).filter(Boolean);
@@ -164,7 +154,7 @@ function blocoEntrega(pedido) {
         : null));
   }
   return el('section', { class: 'cartao-pedido', 'aria-labelledby': 'entrega-titulo' },
-    el('h2', { class: 'cartao-pedido-titulo', id: 'entrega-titulo', texto: retirada ? 'Retirada' : 'Entrega' }),
+    el('h2', { class: 'cartao-pedido-titulo', id: 'entrega-titulo', texto: 'Entrega' }),
     ...conteudo);
 }
 
@@ -203,7 +193,7 @@ function renderizarPedido(pedido) {
         el('p', { class: 'pedido-texto', texto: info.texto }),
         avisoRetorno,
         el('div', { class: 'pedido-acoes' }, ...acoes)),
-      el('span', { class: 'pedido-selo-status', texto: pedido.status === 'pagamento_em_analise' ? 'Pagamento em análise' : rotuloEtapa(pedido.status, pedido.entrega && pedido.entrega.tipo === 'retirada') })),
+      el('span', { class: 'pedido-selo-status', texto: pedido.status === 'pagamento_em_analise' ? 'Pagamento em análise' : rotuloEtapa(pedido.status) })),
     el('div', { class: 'pedido-layout' },
       el('div', { class: 'pedido-principal' },
         ['cancelado', 'reembolsado'].includes(pedido.status)

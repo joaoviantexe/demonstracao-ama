@@ -1,0 +1,135 @@
+/* ================================================================
+   Painel AMA — produtos e categorias
+   Carregado por paginas/produtos.js e paginas/categorias.js (ui.carregarCss('produtos')).
+   Usa os tokens de admin.css; tudo dentro da página (ou do modal da página).
+   ================================================================ */
+
+/* ---------- Lista de produtos ---------- */
+.pagina[data-pagina="produtos"] .produtos-filtros{gap:10px;border-bottom:1px solid var(--linha)}
+.pagina[data-pagina="produtos"] .produtos-filtros .filtros > select{flex:1 1 180px}
+.pagina[data-pagina="produtos"] .produtos-contador{font-size:.875rem;color:var(--tinta-suave)}
+.pagina[data-pagina="produtos"] .produtos-contador:empty{display:none}
+.pagina[data-pagina="produtos"] .produtos-avisos:empty{display:none}
+.pagina[data-pagina="produtos"] .produtos-avisos__texto{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
+.pagina[data-pagina="produtos"] .produtos-avisos__texto > span{flex:1 1 260px}
+
+.pagina[data-pagina="produtos"] .produto-celula{display:flex;align-items:center;gap:12px;min-width:0}
+.pagina[data-pagina="produtos"] .produto-celula__foto{
+  flex:none;width:52px;height:52px;border-radius:var(--raio);overflow:hidden;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--superficie-2);border:1px solid var(--linha);color:var(--placeholder);
+}
+.pagina[data-pagina="produtos"] .produto-celula__foto img{width:100%;height:100%;object-fit:cover}
+.pagina[data-pagina="produtos"] .produto-celula__foto .icone{width:22px;height:22px}
+.pagina[data-pagina="produtos"] .produto-celula__textos{display:flex;flex-direction:column;gap:2px;min-width:0}
+.pagina[data-pagina="produtos"] .produto-celula__nome{
+  color:var(--verde-950);font-weight:700;text-decoration:none;line-height:1.3;overflow-wrap:anywhere;
+}
+.pagina[data-pagina="produtos"] .produto-celula__nome:hover{text-decoration:underline;text-underline-offset:3px}
+.pagina[data-pagina="produtos"] .produto-celula__detalhe{display:flex;flex-wrap:wrap;gap:2px 10px;font-size:.82rem;font-weight:500;color:var(--tinta-suave)}
+.pagina[data-pagina="produtos"] .produto-celula__detalhe:empty{display:none}
+
+.pagina[data-pagina="produtos"] .produto-preco{white-space:nowrap;font-weight:600}
+.pagina[data-pagina="produtos"] .produto-preco__antigo{color:var(--tinta-suave);font-weight:500;font-size:.88em;margin-right:6px}
+.pagina[data-pagina="produtos"] .produto-preco__atual{color:var(--ouro-700)}
+.pagina[data-pagina="produtos"] .produto-preco--zero{color:var(--alerta)}
+.pagina[data-pagina="produtos"] .produto-estoque{font-weight:700}
+.pagina[data-pagina="produtos"] .produto-estoque--baixo{color:var(--alerta)}
+.pagina[data-pagina="produtos"] .produto-estoque--zero{color:var(--perigo)}
+.pagina[data-pagina="produtos"] .produto-selos{display:flex;flex-wrap:wrap;gap:4px 6px}
+.pagina[data-pagina="produtos"] .produto-interruptor{min-height:40px;font-weight:600;font-size:.9rem;color:var(--tinta-suave)}
+.pagina[data-pagina="produtos"] .produto-interruptor .interruptor__entrada:checked ~ .interruptor__texto{color:var(--sucesso)}
+.pagina[data-pagina="produtos"] .produto-interruptor .interruptor__entrada:disabled ~ .interruptor__texto{opacity:.6}
+.pagina[data-pagina="produtos"] .produtos-tabela td{vertical-align:middle}
+.pagina[data-pagina="produtos"] .produtos-tabela .produtos-col-situacao{min-width:150px}
+
+@media (max-width:719.98px){
+  .pagina[data-pagina="produtos"] .produtos-tabela tr{gap:8px 12px;padding:14px 16px}
+  .pagina[data-pagina="produtos"] .produtos-tabela td.tabela__principal{margin-bottom:2px}
+  .pagina[data-pagina="produtos"] .produtos-tabela .produtos-col-situacao{min-width:0}
+  .pagina[data-pagina="produtos"] .produto-selos{justify-content:flex-end}
+  /* "À venda" e "Editar" dividem a última linha do cartão. */
+  .pagina[data-pagina="produtos"] .produtos-tabela td.produtos-col-venda{flex:1 1 auto;justify-content:flex-start;gap:12px}
+  .pagina[data-pagina="produtos"] .produtos-tabela td.produtos-col-acoes{flex:0 0 auto}
+  .pagina[data-pagina="produtos"] .produtos-tabela td.produtos-col-acoes::before{display:none}
+  .pagina[data-pagina="produtos"] .produtos-tabela td.produtos-col-venda,
+  .pagina[data-pagina="produtos"] .produtos-tabela td.produtos-col-acoes{padding-top:4px}
+  /* Sem selos, a linha "Situação" some do cartão. */
+  .pagina[data-pagina="produtos"] .produtos-tabela td:has(> .produto-selos-vazio){display:none}
+}
+
+/* ---------- Formulário do produto ---------- */
+.pagina[data-pagina="produtos"] .produto-topo__descricao{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
+.pagina[data-pagina="produtos"] .produto-endereco{
+  display:flex;flex-wrap:wrap;align-items:center;gap:2px 10px;margin-top:-2px;
+  font-size:.85rem;color:var(--tinta-suave);overflow-wrap:anywhere;min-width:0;
+}
+.pagina[data-pagina="produtos"] .produto-endereco .mono{color:var(--verde-700);overflow-wrap:anywhere;min-width:0}
+.pagina[data-pagina="produtos"] .produto-endereco__gerar{font-size:.85rem;min-height:36px}
+.pagina[data-pagina="produtos"] .produto-dica{display:grid;gap:10px}
+.pagina[data-pagina="produtos"] .produto-dica:empty{display:none}
+
+.pagina[data-pagina="produtos"] .produto-medidas{display:grid;gap:16px;grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (min-width:720px){
+  .pagina[data-pagina="produtos"] .produto-medidas{grid-template-columns:repeat(4,minmax(0,1fr))}
+}
+.pagina[data-pagina="produtos"] .produto-medidas .entrada-grupo__extra{padding:0 10px}
+.pagina[data-pagina="produtos"] .produto-medidas__padrao .botao-link{font-size:.88rem;text-align:left}
+
+/* Formulário longo: no desktop a barra "Cancelar / Salvar" também acompanha a rolagem
+   (no celular o admin.css já a prende no rodapé). */
+@media (min-width:720px){
+  .pagina[data-pagina="produtos"] .produto-form > .barra-acoes{
+    position:sticky;bottom:12px;z-index:20;padding:12px 16px;
+    background:rgba(255,255,255,.97);border:1px solid var(--linha);border-radius:var(--raio-grande);box-shadow:var(--sombra-2);
+  }
+}
+
+.pagina[data-pagina="produtos"] .barra-acoes__info.produto-barra__erro{color:var(--perigo);font-weight:700}
+
+.pagina[data-pagina="produtos"] .produto-categoria{display:flex;flex-direction:column;gap:8px}
+.pagina[data-pagina="produtos"] .produto-categoria__nova{align-self:flex-start}
+
+/* Fotos */
+.pagina[data-pagina="produtos"] .produto-fotos__vazio{
+  display:flex;align-items:center;gap:10px;padding:14px;border-radius:var(--raio);
+  background:var(--superficie-2);border:1px dashed var(--linha-forte);color:var(--tinta-suave);font-size:.92rem;
+}
+.pagina[data-pagina="produtos"] .produto-fotos__vazio .icone{color:var(--ouro-600)}
+.pagina[data-pagina="produtos"] .produto-foto{align-items:flex-start;padding:10px}
+.pagina[data-pagina="produtos"] .produto-foto__miniatura{width:72px;height:72px;border:1px solid var(--linha)}
+.pagina[data-pagina="produtos"] .produto-foto__conteudo{display:flex;flex-direction:column;gap:6px}
+.pagina[data-pagina="produtos"] .produto-foto__titulo{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;font-weight:700}
+.pagina[data-pagina="produtos"] .produto-foto__capa{min-height:32px;font-size:.85rem}
+.pagina[data-pagina="produtos"] .produto-foto__rotulo{font-size:.82rem;font-weight:600;color:var(--tinta-suave)}
+.pagina[data-pagina="produtos"] .produto-foto__alt{min-height:40px;padding:8px 10px;font-size:1rem}
+.pagina[data-pagina="produtos"] .produto-foto .lista-ordenavel__acoes{align-self:center}
+.pagina[data-pagina="produtos"] .produto-fotos__envio{display:grid;gap:12px}
+.pagina[data-pagina="produtos"] .produto-fotos__biblioteca{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px 12px;text-align:center}
+@media (max-width:479.98px){
+  .pagina[data-pagina="produtos"] .produto-foto__miniatura{width:64px;height:64px}
+  .pagina[data-pagina="produtos"] .produto-foto__conteudo{flex:1 1 calc(100% - 80px)}
+  .pagina[data-pagina="produtos"] .produto-fotos__biblioteca .botao{width:100%}
+}
+
+/* ---------- Categorias ---------- */
+/* A tabela encosta no topo do cartão: sem isto o fundo do cabeçalho apaga os cantos arredondados. */
+.pagina[data-pagina="categorias"] .categorias-cartao{overflow:hidden}
+.pagina[data-pagina="categorias"] .categoria-celula{display:flex;flex-direction:column;gap:2px;min-width:0}
+.pagina[data-pagina="categorias"] .categoria-celula__nome{font-weight:700;color:var(--verde-950);overflow-wrap:anywhere}
+.pagina[data-pagina="categorias"] .categoria-celula__slug{font-size:.8rem;font-weight:500;color:var(--tinta-suave);overflow-wrap:anywhere}
+.pagina[data-pagina="categorias"] .categorias-tabela .categorias-col-descricao{max-width:340px;color:var(--tinta-suave);font-size:.9rem}
+.pagina[data-pagina="categorias"] .categoria-produtos{font-weight:700;white-space:nowrap}
+.pagina[data-pagina="categorias"] .categoria-ordem,
+.pagina[data-pagina="categorias"] .categoria-acoes{gap:4px;flex-wrap:nowrap}
+.pagina[data-pagina="categorias"] .categoria-acoes{justify-content:flex-end}
+.pagina[data-pagina="categorias"] .categoria-apagar{color:var(--perigo)}
+.pagina[data-pagina="categorias"] .categoria-apagar:hover:not(:disabled){background:var(--perigo-fundo);color:var(--perigo-escuro)}
+@media (max-width:719.98px){
+  .pagina[data-pagina="categorias"] .categorias-tabela tr{gap:8px 12px;padding:14px 16px}
+  .pagina[data-pagina="categorias"] .categorias-tabela td.categorias-col-ordem{flex:1 1 auto;justify-content:flex-start;gap:8px}
+  .pagina[data-pagina="categorias"] .categorias-tabela td.categorias-col-acoes{flex:0 0 auto}
+  .pagina[data-pagina="categorias"] .categorias-tabela td.categorias-col-acoes::before{display:none}
+  .pagina[data-pagina="categorias"] .categorias-tabela td.categorias-col-ordem,
+  .pagina[data-pagina="categorias"] .categorias-tabela td.categorias-col-acoes{padding-top:4px}
+}

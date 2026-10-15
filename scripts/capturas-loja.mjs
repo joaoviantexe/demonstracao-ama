@@ -9,13 +9,13 @@
 //   (webhook assinado com MP_WEBHOOK_SECRET=segredo-teste para o próprio dev-server) e o Melhor Envio falso.
 // - ViaCEP é interceptado com uma resposta falsa; as fontes do Google são buscadas pelo Node
 //   (com proxy, rode com NODE_USE_ENV_PROXY=1); sem acesso, as páginas usam as fontes de reserva.
-// - Fluxo: catálogo → produto → adicionar → carrinho (cupom AMA10, CEP 66010-000, retirada) →
+// - Fluxo: catálogo → produto → adicionar → carrinho (CEP 66010-000, PAC) →
 //   checkout preenchido → Mercado Pago falso (Aprovar) → pedido "Pago" → meus pedidos.
-//   Também: carrinho vazio, produto sem preço, o catálogo no "modo apresentação" (todos os preços 0),
-//   carrinho com itens indisponíveis e produto inexistente.
+//   Também: carrinho vazio, uma biojoia, o catálogo no "modo apresentação" (todos os preços 0),
+//   carrinho com itens indisponíveis (um produto fica sem preço só durante esse fluxo) e produto inexistente.
 // - Cada página é capturada em 390, 768 e 1440 px. O script falha (código 1) se houver erro no console
 //   das páginas da loja ou conteúdo saindo da tela na horizontal.
-// - No fim, apaga os pedidos criados (devolvendo o estoque e o uso do cupom que o pagamento consumiu).
+// - No fim, apaga os pedidos criados (devolvendo o estoque que o pagamento consumiu).
 
 import { mkdirSync } from 'node:fs';
 import os from 'node:os';
@@ -39,6 +39,7 @@ const SAIDA = path.resolve(argumento('saida', path.join(os.tmpdir(), 'capturas-l
 const LARGURAS = argumento('larguras', '390,768,1440').split(',').map(Number).filter(Boolean);
 const ALTURAS = { 390: 844, 768: 1024, 1440: 900 };
 const FLUXOS = argumento('fluxos', 'compra,apresentacao,estados').split(',');
+const PRODUTO_SEM_PRECO = 'biojoia-06';
 const SUFIXO = randomBytes(4).toString('hex');
 const EMAIL = `capturas.${SUFIXO}@exemplo.com.br`;
 
@@ -219,30 +220,25 @@ async function fluxoCompra(navegador, base) {
     await pagina.getByRole('button', { name: 'Calcular' }).click();
     await pagina.waitForSelector('.frete-opcao-linha');
 
-    // Produto sem preço (biojoia): aparece como os demais, com "R$ 00,00"
+    // Biojoia (nome e descrição "em produção", preço de teste)
     await pagina.goto(`${base}/loja/produto?slug=biojoia-01`);
     await pagina.waitForSelector('.ficha-nome');
-    await capturar(pagina, '04-produto-sem-preco');
+    await capturar(pagina, '04-produto-biojoia');
 
-    // Carrinho: cupom, CEP e retirada
+    // Carrinho: CEP e PAC
     await pagina.goto(`${base}/loja/carrinho`);
-    await esperarTotais(pagina);
-    await pagina.fill('#carrinho-cupom', 'ama10');
-    await pagina.locator('.cupom').getByRole('button', { name: 'Aplicar' }).click();
-    await pagina.waitForSelector('.cupom--aplicado');
     await esperarTotais(pagina);
     await pagina.fill('#carrinho-cep', '66010000');
     await pagina.getByRole('button', { name: 'Calcular' }).click();
-    await pagina.waitForSelector('.opcao-frete input[value="retirada"]');
+    await pagina.waitForSelector('.opcao-frete input[value="me-1"]');
     await esperarTotais(pagina);
-    await pagina.locator('.opcao-frete', { has: pagina.locator('input[value="retirada"]') }).click();
+    await pagina.locator('.opcao-frete', { has: pagina.locator('input[value="me-1"]') }).click();
     await esperarTotais(pagina);
     await capturar(pagina, '05-carrinho');
 
     // Checkout
     await pagina.getByRole('link', { name: 'Finalizar compra' }).click();
     await pagina.waitForSelector('#form-checkout:not([hidden])');
-    await pagina.waitForSelector('.cupom--aplicado');
     await esperarTotais(pagina);
     await pagina.fill('#nome', 'Maria Teste da Silva');
     await pagina.fill('#email', EMAIL);
@@ -250,16 +246,17 @@ async function fluxoCompra(navegador, base) {
     await pagina.fill('#cpf', '52998224725');
     await pagina.fill('#observacoes', 'É para presente: se possível, embalar com carinho.');
     // Entrega pelos Correios para mostrar o endereço preenchido pelo ViaCEP
-    await pagina.locator('.opcao-frete', { has: pagina.locator('input:not([value="retirada"])') }).first().click();
+    if (await pagina.locator('.opcao-frete input[value="retirada"]').count()) registrarProblema('o checkout ainda oferece a retirada na sede');
+    await pagina.locator('.opcao-frete', { has: pagina.locator('input[value="me-1"]') }).click();
     await pagina.waitForFunction(() => document.getElementById('logradouro').value === 'Avenida Presidente Vargas');
     await pagina.fill('#numero', '123');
     await pagina.fill('#complemento', 'Apto 401');
     await esperarTotais(pagina);
     await capturar(pagina, '06-checkout-entrega');
-    // Volta para a retirada (o fluxo pedido)
-    await pagina.locator('.opcao-frete', { has: pagina.locator('input[value="retirada"]') }).click();
+    // Troca para o SEDEX (o fluxo pedido): o total acompanha o frete escolhido
+    await pagina.locator('.opcao-frete', { has: pagina.locator('input[value="me-2"]') }).click();
     await esperarTotais(pagina);
-    await capturar(pagina, '07-checkout-retirada');
+    await capturar(pagina, '07-checkout-sedex');
 
     // Pagamento no Mercado Pago falso
     await Promise.all([
@@ -306,7 +303,7 @@ async function fluxoEstados(navegador, base, produtos) {
     };
     const itens = [
       linha('body-splash-raiz', 20),
-      linha('biojoia-01', 1),
+      linha(PRODUTO_SEM_PRECO, 1),
       { produto_id: '00000000-0000-4000-8000-000000000999', quantidade: 1, nome: 'Produto que saiu da loja', preco_centavos: 1000, imagem: '', slug: 'antigo' },
       linha('creme-hidratante-cupuacu', 1),
     ];
@@ -371,11 +368,6 @@ async function limparPedidos() {
              where d.cliente_email = '${EMAIL}' and d.estoque_baixado and i.produto_id is not null
              group by i.produto_id) x
      where p.id = x.produto_id and p.controlar_estoque;
-    update public.cupons c set usos = greatest(0, c.usos - x.n)
-      from (select cupom_codigo, count(*) as n from public.pedidos
-             where cliente_email = '${EMAIL}' and estoque_baixado and cupom_codigo is not null
-             group by cupom_codigo) x
-     where c.codigo = x.cupom_codigo;
     delete from public.pedidos where cliente_email = '${EMAIL}';
     commit;`);
   return ids.length;
@@ -416,7 +408,14 @@ async function principal() {
       const produtos = await (await fetch(`${supabase.url}/rest/v1/produtos?select=id,slug,nome,preco_centavos,imagens&ativo=eq.true`, {
         headers: { apikey: supabase.anonKey },
       })).json();
-      await fluxoEstados(navegador, servidor.url, produtos);
+      // Um produto fica sem preço só durante este fluxo (o catálogo inicial vem com preços de teste).
+      const precoOriginal = await sql(`select preco_centavos from public.produtos where slug = '${PRODUTO_SEM_PRECO}'`);
+      await sql(`update public.produtos set preco_centavos = 0 where slug = '${PRODUTO_SEM_PRECO}'`);
+      try {
+        await fluxoEstados(navegador, servidor.url, produtos);
+      } finally {
+        await sql(`update public.produtos set preco_centavos = ${Number(precoOriginal)} where slug = '${PRODUTO_SEM_PRECO}'`);
+      }
     }
   } catch (erro) {
     registrarProblema(`o fluxo parou: ${erro.message.split('\n').slice(0, 14).join('\n')}`);

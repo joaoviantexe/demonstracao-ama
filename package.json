@@ -10,7 +10,8 @@
   "scripts": {
     "dev": "node scripts/dev-server.mjs",
     "test": "node --test \"tests/unit/**/*.test.js\"",
-    "test:integracao": "node --test --test-concurrency=1 \"tests/integracao/**/*.test.js\""
+    "test:integracao": "node --test --test-concurrency=1 \"tests/integracao/**/*.test.js\"",
+    "test:e2e": "node --test --test-concurrency=1 \"tests/e2e/**/*.test.js\""
   },
   "dependencies": {
     "linkedom": "0.18.13"

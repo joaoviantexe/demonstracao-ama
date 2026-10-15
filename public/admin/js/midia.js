@@ -45,6 +45,9 @@ export class ErroMidia extends Error {
   }
 }
 
+// Pasta de envio: só a-z, 0-9 e hífens simples (sem "/", "." ou espaço).
+const PASTA_VALIDA = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
 function extensaoDe(nome) {
   const m = String(nome || '').toLowerCase().match(/\.([a-z0-9]{1,8})$/);
   return m ? m[1] : '';
@@ -80,7 +83,7 @@ function hexAleatorio(tamanho = 6) {
  */
 export function nomeSeguroArquivo(nomeOriginal, pasta = 'site', { tipo, data = new Date(), sufixo } = {}) {
   const p = String(pasta || 'site');
-  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(p)) throw new TypeError(`Pasta inválida: "${pasta}"`);
+  if (!PASTA_VALIDA.test(p)) throw new TypeError(`Pasta inválida: "${pasta}"`);
   const nome = String(nomeOriginal || '').split(/[\\/]/).pop();
   const extNome = extensaoDe(nome);
   const ext = EXTENSAO_DO_TIPO[String(tipo || '').toLowerCase()]
@@ -259,11 +262,16 @@ function enviarComProgresso({ url, token, chave, arquivo, tipo, aoProgresso, sin
 }
 
 /**
- * Envia um arquivo para o bucket. pasta: 'site' | 'produtos' | 'videos' (ou outra pasta a-z0-9-).
- * opções: { otimizar = true (imagens JPEG/PNG/WebP), aoProgresso({ enviados, total, fracao }), sinal }.
- * → { url, caminho, tamanho, tipo, nome, otimizado, avisos }. Lança ErroMidia com mensagem em português.
+ * Envia um arquivo para o bucket. pasta: 'site' | 'produtos' | 'videos' (ou outra pasta a-z0-9-;
+ * vazia → 'site'). opções: { otimizar = true (imagens JPEG/PNG/WebP), aoProgresso({ enviados, total, fracao }), sinal }.
+ * → { url, caminho, tamanho, tipo, nome, otimizado, avisos }. Lança ErroMidia com mensagem em português
+ * (inclusive 'pasta_invalida', antes de otimizar ou enviar qualquer coisa).
  */
 export async function enviarArquivo(arquivo, pasta = 'site', { otimizar = true, aoProgresso, sinal } = {}) {
+  const destino = pasta === null || pasta === undefined || pasta === '' ? 'site' : String(pasta);
+  if (!PASTA_VALIDA.test(destino)) {
+    throw new ErroMidia(`Pasta de envio inválida ("${destino.slice(0, 40)}"). Use ${PASTAS.join(', ')}.`, 'pasta_invalida');
+  }
   if (!arquivo) throw new ErroMidia('Nenhum arquivo escolhido.', 'sem_arquivo');
   const validacao = validarArquivo(arquivo);
   if (!validacao.ok) throw new ErroMidia(validacao.erro, 'arquivo_invalido');
@@ -284,7 +292,7 @@ export async function enviarArquivo(arquivo, pasta = 'site', { otimizar = true, 
   if (!token) throw new ErroMidia('Sua sessão expirou. Entre novamente.', 'nao_autenticado');
 
   for (let tentativa = 0; tentativa < 2; tentativa += 1) {
-    const caminho = nomeSeguroArquivo(arquivo.name, pasta, { tipo });
+    const caminho = nomeSeguroArquivo(arquivo.name, destino, { tipo });
     const url = `${supabaseUrl}/storage/v1/object/${BUCKET}/${caminho.split('/').map(encodeURIComponent).join('/')}`;
     const { status, json } = await enviarComProgresso({ url, token, chave: supabaseAnonKey, arquivo: final, tipo, aoProgresso, sinal });
     if (status >= 200 && status < 300) {

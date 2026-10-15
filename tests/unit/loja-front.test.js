@@ -3,6 +3,7 @@
 
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
 
 import * as formatos from '../../public/js/loja/formatos.js';
 import * as produtos from '../../public/js/loja/produtos.js';
@@ -138,6 +139,12 @@ describe('formatos: validações iguais às do servidor', () => {
     const casos = [
       { cliente: {}, endereco: {}, frete_id: '' },
       { cliente: { nome: 'Maria', email: 'x', telefone: '123', cpf: '111' }, endereco: { cep: '1' }, frete_id: 'me-1' },
+      {
+        cliente: { nome: 'Maria da Silva', email: 'maria@exemplo.com', telefone: '91981056049', cpf: '52998224725' },
+        endereco: { cep: '66010000', logradouro: 'Rua A', numero: '1', bairro: 'Campina', cidade: 'Belém', uf: 'PA' },
+        frete_id: 'fixo-1',
+      },
+      // Sem endereço: sempre obrigatório (não existe retirada na sede).
       { cliente: { nome: 'Maria da Silva', email: 'maria@exemplo.com', telefone: '91981056049', cpf: '52998224725' }, endereco: {}, frete_id: 'retirada' },
       {
         cliente: { nome: 'Maria da Silva', email: 'maria@exemplo.com', telefone: '91981056049', cpf: '529.982.247-25' },
@@ -157,6 +164,7 @@ describe('formatos: validações iguais às do servidor', () => {
     }
     const ok = formatos.validarFormularioCheckout(casos[2]);
     assert.equal(ok.ok, true);
+    assert.equal(formatos.validarFormularioCheckout(casos[3]).ok, false);
   });
 });
 
@@ -438,13 +446,16 @@ describe('carrinho (localStorage falso)', () => {
     assert.equal(eventos.at(-1)[0].quantidade, 4);
   });
 
-  test('preferências (CEP, cupom, frete) validadas', () => {
-    assert.deepEqual(carrinho.lerPreferencias(), { cep: '', cupom: '', frete_id: '' });
-    carrinho.salvarPreferencias({ cep: '66010000', cupom: 'AMA10', frete_id: 'retirada' });
+  test('preferências (CEP, frete) validadas', () => {
+    assert.deepEqual(carrinho.lerPreferencias(), { cep: '', frete_id: '' });
+    carrinho.salvarPreferencias({ cep: '66010000', frete_id: 'fixo-1' });
     carrinho.salvarPreferencias({ frete_id: 'me-1' });
-    assert.deepEqual(carrinho.lerPreferencias(), { cep: '66010000', cupom: 'AMA10', frete_id: 'me-1' });
-    armazenamento.setItem(carrinho.CHAVE_PREFERENCIAS, JSON.stringify({ cep: '660', cupom: '<b>', frete_id: 'a b' }));
-    assert.deepEqual(carrinho.lerPreferencias(), { cep: '', cupom: '', frete_id: '' });
+    assert.deepEqual(carrinho.lerPreferencias(), { cep: '66010000', frete_id: 'me-1' });
+    // Preferência antiga com cupom: o campo é ignorado.
+    armazenamento.setItem(carrinho.CHAVE_PREFERENCIAS, JSON.stringify({ cep: '66010000', cupom: 'AMA10', frete_id: 'me-1' }));
+    assert.deepEqual(carrinho.lerPreferencias(), { cep: '66010000', frete_id: 'me-1' });
+    armazenamento.setItem(carrinho.CHAVE_PREFERENCIAS, JSON.stringify({ cep: '660', frete_id: 'a b' }));
+    assert.deepEqual(carrinho.lerPreferencias(), { cep: '', frete_id: '' });
   });
 
   test('pedidos guardados neste aparelho (ama_pedidos_v1)', () => {
@@ -537,13 +548,13 @@ describe('config e APIs (fetch simulado)', () => {
     assert.equal(config.normalizarConfigLoja({ frete_gratis_acima_centavos: -5 }).frete_gratis_acima_centavos, null);
   });
 
-  test('cotar envia só produto, quantidade, CEP e cupom', async () => {
+  test('cotar envia só produto, quantidade e CEP', async () => {
     simularFetch(() => new Response(JSON.stringify({ ok: true, itens: [], subtotal_centavos: 0 }), { status: 200 }));
     const r = await api.cotar({ itens: [{ produto_id: ID_A, quantidade: 2 }], cep: '66010000', cupom: 'AMA10' });
     assert.equal(r.ok, true);
     assert.equal(chamadas[0].url, '/api/loja/cotacao');
     assert.equal(chamadas[0].init.method, 'POST');
-    assert.deepEqual(JSON.parse(chamadas[0].init.body), { itens: [{ produto_id: ID_A, quantidade: 2 }], cep: '66010000', cupom: 'AMA10' });
+    assert.deepEqual(JSON.parse(chamadas[0].init.body), { itens: [{ produto_id: ID_A, quantidade: 2 }], cep: '66010000' });
     await api.cotar({ itens: [{ produto_id: ID_A, quantidade: 1 }] });
     assert.deepEqual(JSON.parse(chamadas[1].init.body), { itens: [{ produto_id: ID_A, quantidade: 1 }] });
   });
@@ -574,17 +585,32 @@ describe('config e APIs (fetch simulado)', () => {
 describe('resumo: total exibido com os números do servidor', () => {
   const cotacao = {
     subtotal_centavos: 17970,
-    desconto_centavos: 1797,
-    frete: { opcoes: [{ id: 'me-1', preco_centavos: 2440 }, { id: 'retirada', preco_centavos: 0 }] },
+    frete: { opcoes: [{ id: 'me-1', preco_centavos: 2440 }, { id: 'fixo-gratis', preco_centavos: 0 }] },
   };
 
   test('opcaoEscolhida e totalExibido', () => {
     assert.equal(opcaoEscolhida(cotacao, 'me-1').preco_centavos, 2440);
     assert.equal(opcaoEscolhida(cotacao, 'nao-existe'), null);
     assert.equal(opcaoEscolhida(null, 'me-1'), null);
-    assert.equal(totalExibido(cotacao, opcaoEscolhida(cotacao, 'me-1')), 18613);
-    assert.equal(totalExibido(cotacao, opcaoEscolhida(cotacao, 'retirada')), 16173);
-    assert.equal(totalExibido(cotacao, null), 16173);
+    assert.equal(totalExibido(cotacao, opcaoEscolhida(cotacao, 'me-1')), 20410);
+    assert.equal(totalExibido(cotacao, opcaoEscolhida(cotacao, 'fixo-gratis')), 17970);
+    assert.equal(totalExibido(cotacao, null), 17970);
     assert.equal(totalExibido(null, null), 0);
+  });
+});
+
+describe('textos da loja para a cliente', () => {
+  test('não citam o Mercado Pago (fora de comentários)', () => {
+    const raiz = new URL('../../', import.meta.url);
+    const arquivos = [
+      ...readdirSync(new URL('public/js/loja/', raiz)).map((nome) => `public/js/loja/${nome}`),
+      ...readdirSync(new URL('public/loja/', raiz)).map((nome) => `public/loja/${nome}`),
+      'templates/home.html', 'public/js/main.js',
+    ];
+    for (const arquivo of arquivos) {
+      const semComentarios = readFileSync(new URL(arquivo, raiz), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '').replace(/^\s*\/\/.*$/gm, '');
+      assert.doesNotMatch(semComentarios, /mercado ?pago/i, arquivo);
+    }
   });
 });

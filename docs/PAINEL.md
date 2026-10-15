@@ -60,7 +60,7 @@ Público do painel: mulheres da AMA, sem formação técnica, muitas vezes no **
 | `public/admin/admin.css` | Sistema de design (tokens, layout, componentes). |
 | `public/admin/js/paginas/visao-geral.js` | Página real que serve de exemplo (métricas, tabela, avisos, integrações). |
 | `public/admin/js/paginas/em-breve.js` | Página provisória usada quando `paginas/<nome>.js` ainda não existe. |
-| `public/admin/css/<nome>.css` | (não existe ainda) CSS próprio de cada página. |
+| `public/admin/css/<nome>.css` | CSS próprio de cada página (criado pela trilha da página; §3.5). |
 
 Na inicialização o `app.js` confere `window.AMA_CONFIG` (`configurado`, `supabaseUrl`, `supabaseAnonKey`). Sem ela
 mostra "Painel em configuração" ou "Não foi possível abrir o painel"; nenhuma página roda. O cliente é criado com
@@ -114,7 +114,8 @@ O `docs/ARQUITETURA.md` §8 lista só uma parte; este é o `ctx` completo criado
 
 1. `hashchange` (link, menu, botão Voltar) ou `ctx.navegar`. Se há alterações não salvas, aparece a confirmação
    "Descartar alterações?"; em "Continuar editando" a URL volta e nada muda (§6).
-2. Limpeza da página anterior: `ctx.sinal` é abortado e a função de limpeza é chamada (erros dela só vão para o console).
+2. Limpeza da página anterior: `ctx.sinal` é abortado, a função de limpeza é chamada (erros dela só vão para o console)
+   e os modais que ainda estiverem abertos são fechados com `null` (`ui.fecharModais()`).
 3. O aviso de alterações é zerado, a gaveta do menu fecha, o item do menu é marcado, o título da aba vira
    `"<título da rota> · Painel AMA"`, uma `raiz` nova substitui a anterior e a janela rola para o topo.
 4. Caminho desconhecido → "Página não encontrada" (nenhum módulo é carregado).
@@ -135,9 +136,10 @@ A função devolvida por `renderizar` é chamada quando a rota troca (inclusive 
 novo) e quando a pessoa clica em "Sair". **Não** é chamada quando a sessão expira: nesse caso a página fica viva
 por baixo da tela de login (§7).
 
-Use para: `clearInterval`/`clearTimeout`, `removeEventListener` em `window`/`document`, `debounce(...).cancelar()`,
-e **fechar modais abertos pela página** (`controle.fechar(null)`): o botão Voltar do navegador troca a rota mesmo
-com um modal aberto, e o modal continuaria na tela por cima da página nova.
+Use para: `clearInterval`/`clearTimeout`, `removeEventListener` em `window`/`document` e `debounce(...).cancelar()`.
+Modais não precisam ser fechados aqui: logo depois da limpeza o app fecha todos os que ficaram abertos (inclusive o
+`seletorDeMidia`), e cada `resultado` resolve com `null` — por isso confira `ctx.ativo()` depois de esperar um modal.
+Feche na limpeza só se quiser resolver o modal com outro valor.
 
 ### 3.5 CSS próprio da página
 
@@ -361,7 +363,6 @@ export async function renderizar(ctx) {
 | `#/categorias` | `categorias.js` | `{}` | Categorias | categorias |
 | `#/pedidos` | `pedidos.js` | `{}` | Pedidos | pedidos |
 | `#/pedidos/<uuid>` | `pedidos.js` | `{ id }` (uuid em minúsculas) | Pedido | pedidos |
-| `#/cupons` | `cupons.js` | `{}` | Cupons | cupons |
 | `#/configuracoes` | `configuracoes.js` | `{}` | Configurações | configuracoes |
 
 - O mesmo arquivo atende lista e detalhe: decida por `ctx.params.id` (`undefined` = lista, `'novo'` = criação, uuid = edição).
@@ -375,10 +376,12 @@ export async function renderizar(ctx) {
 ### 5.2 Menu lateral (`MENU` em `app.js`)
 
 Seções e itens, na ordem: *(sem título)* Visão geral · **Site**: Conteúdo do site, Mídia · **Loja**: Pedidos,
-Produtos, Categorias, Cupons · **Ajustes**: Configurações. Cada link tem `data-menu="<id>"` e
+Produtos, Categorias · **Ajustes**: Configurações. Cada link tem `data-menu="<id>"` e
 `aria-current="page"` quando ativo. Só o item "Pedidos" tem contador (pedidos `pago` + `em_separacao`).
 O rodapé do menu tem "Ver loja" (`/loja/`, nova aba) e, só na gaveta do celular, o e-mail, "Ver site" e "Sair".
-No desktop (≥ 1024 px) o menu fica fixo à esquerda; abaixo disso vira gaveta aberta pelo botão "Abrir menu" do topo.
+No desktop (≥ 1024 px) o menu fica fixo à esquerda; abaixo disso vira gaveta aberta pelo botão "Abrir menu" do topo
+(que só aparece abaixo de 1024 px). O topo tem ainda o e-mail (≥ 720 px), "Ver site" e "Sair" (≥ 640 px; abaixo
+disso o "Sair" fica só na gaveta).
 
 ### 5.3 `ctx.navegar(destino, opcoes)`
 
@@ -390,11 +393,14 @@ ctx.navegar(`#/pedidos?${new URLSearchParams({ status: 'pago' })}`);
 | Opção | Efeito |
 |---|---|
 | *(nenhuma)* | Cria entrada no histórico e renderiza a rota. Se o destino é **o hash atual**, renderiza a página de novo. |
-| `{ substituir: true }` | Troca a entrada atual do histórico (sem criar outra) e renderiza. Use depois de criar algo: de `#/produtos/novo` para `#/produtos/<id>`. **Se o destino for igual ao hash atual, nada acontece** (§13). |
+| `{ substituir: true }` | Troca a entrada atual do histórico (sem criar outra) e renderiza — também quando o destino é o hash atual. Use depois de criar algo (de `#/produtos/novo` para `#/produtos/<id>`) e no "Tentar novamente" de uma página inteira. |
 | `{ silencioso: true }` | Só troca a URL (sem histórico, sem renderizar, sem confirmação). Para guardar filtros, página da lista ou aba atual na URL. `ctx.consulta` e `ctx.hash` **não** mudam: a página mantém o próprio estado. |
 
 - Para renderizar a página atual de novo (ex.: "Tentar novamente" de uma página inteira):
-  `ctx.navegar(window.location.hash)`.
+  `ctx.navegar(window.location.hash)` (cria entrada no histórico só se o hash mudou) ou
+  `ctx.navegar(ctx.hash, { substituir: true })` (volta ao hash da renderização, descartando filtros gravados com
+  `silencioso`). A visão geral usa a segunda forma.
+- Trocar de rota fecha os modais abertos (§3.3), inclusive pelo botão Voltar do navegador.
 - Com alterações não salvas, `navegar` (sem `silencioso`) pede a confirmação de descarte. Depois de salvar,
   chame `ctx.marcarAlterado(false)` **antes** de navegar.
 - Links comuns funcionam: `<a href="#/pedidos/<id>">` ou `ui.botao({ texto: 'Ver', href: '#/pedidos/<id>' })`.
@@ -426,13 +432,15 @@ O aviso é desligado automaticamente a cada renderização de rota. `marcarAlter
 
 - Só quem está em `admins` (`rpc('eh_admin')` = `true`) vê o painel; os demais recebem "Sem permissão…" e saem.
 - `ctx.supabase` usa o JWT da administradora. Pela RLS (ARQUITETURA §4.3) ela pode tudo em `conteudo_site`,
-  `configuracoes`, `categorias`, `produtos` e `cupons`; em `pedidos`/`pedido_itens` pode ler, alterar e apagar;
+  `configuracoes`, `categorias` e `produtos`; em `pedidos`/`pedido_itens` pode ler, alterar e apagar;
   em `pedido_eventos` pode ler e apagar, e criar/alterar só eventos com `tipo = 'nota'`; em `admins`, só ler.
   As RPCs `alterar_status_pedido` e `confirmar_pagamento` são só do servidor: use `/api/admin/*` (§9.5).
 - **Sessão expirada**: quando `chamarApi` recebe 401 (mesmo depois de renovar o token) ou `erroSupabase` vê JWT
   vencido, o app abre o login **por cima** da página, que fica inerte e preservada. Se a mesma pessoa entra de novo,
   volta exatamente para onde estava, com o que tinha digitado (a página **não** é renderizada de novo e a limpeza
   não é chamada). A página só precisa mostrar `r.mensagem` ("Sua sessão expirou. Entre novamente.") e seguir.
+  Modais abertos são fechados com `null` quando o login aparece (um `<dialog>` modal deixaria a tela de login
+  inerte); o que estava digitado **dentro** do modal se perde, o da página fica.
 - "Sair": confirma se houver alterações, chama a limpeza da página e desmonta o painel.
 - Recuperação de senha, convite e links vencidos são tratados no `app.js`; nenhuma página mexe nisso.
 
@@ -440,7 +448,8 @@ O aviso é desligado automaticamente a cada renderização de rota. `marcarAlter
 
 ## 8. `ui.js` — referência completa
 
-Todas as 34 exportações. As de 8.1 são puras (rodam no Node, sem `document`); as demais criam elementos.
+Todas as 35 exportações. As de 8.1 são puras (rodam no Node, sem `document`); as demais criam elementos.
+Testes em `tests/unit/painel-ui.test.js` (as que criam elementos rodam num DOM do linkedom).
 
 ### 8.1 Formatação e utilitários (puros)
 
@@ -528,7 +537,8 @@ campoBusca.addEventListener('input', buscar);
 - `value`, `checked`, `selected`, `indeterminate` viram propriedades (em `<textarea>`, `value` vira o texto; em
   `<select>`, `value` é aplicado depois das opções).
 - Booleanos: `true` → atributo vazio (`hidden: true`, `disabled: true`); `false`/`null`/`undefined` → **omitido**.
-  Para ARIA use texto: `'aria-expanded': 'false'`.
+  Em `aria-*` o booleano vira texto: `'aria-expanded': false` → `aria-expanded="false"`, `'aria-hidden': true` →
+  `aria-hidden="true"` (`null`/`undefined` continuam omitindo). `data-*` com `false` é omitido.
 - Demais atributos → `setAttribute` (números viram texto).
 - Lança `TypeError` para `on*` (`onclick`…), `srcdoc`, `innerHTML`, `outerHTML`, tag ou nome de atributo inválido.
 - URL recusada por `urlPermitida` em `href/src/action/formaction/poster/cite/data/background/xlink:href`, ou
@@ -546,8 +556,8 @@ el('input', { type: 'checkbox', checked: produto.ativo, eventos: { change: aoMud
 (`currentColor`). Decorativo (`aria-hidden="true"`) por padrão; com `rotulo` vira `role="img"` com `<title>`.
 `tamanho` define `width`/`height`; sem ele o tamanho vem do CSS (`.icone` = 1,25 em). Nome desconhecido → ícone `info`.
 
-**`ICONES`** — nomes aceitos (48):
-`inicio, conteudo, midia, produtos, categorias, pedidos, cupons, configuracoes, sair, externo, menu, fechar, olho,
+**`ICONES`** — nomes aceitos (47):
+`inicio, conteudo, midia, produtos, categorias, pedidos, configuracoes, sair, externo, menu, fechar, olho,
 olho-fechado, mais, lixeira, editar, subir, descer, copiar, duplicar, arrastar, upload, busca, check, alerta, info,
 sucesso, erro, voltar, avancar, video, loja, caminhao, relogio, dinheiro, atualizar, link, caixa, usuario, cadeado,
 email, cartao, banco, escudo, imagem, grafico, estrela`.
@@ -651,18 +661,20 @@ vira lista de cartões abaixo de 720 px.
 |---|---|
 | `colunas` | `[{ titulo, chave?, celula?(linha, i), alinhar?, principal?, classe?, ocultarNoCelular? }]`. `celula` devolve elemento, texto, número ou lista; sem `celula`, usa `linha[chave]`. `alinhar`: `'direita'` (valores, números tabulares) ou `'centro'`. |
 | `linhas` | Lista de objetos. |
-| `link` | `(linha) => hash`: a coluna principal (ou a primeira) vira `<a class="tabela__link">` que cobre a linha inteira. |
+| `link` | `(linha) => hash`: a coluna principal (ou a primeira) vira `<a class="tabela__link">` que cobre a linha inteira. Células com botão, link ou entrada ficam por cima (ver abaixo). |
 | `vazio` | Texto do estado vazio (padrão `"Nada por aqui ainda."`). |
 | `legenda` | `<caption>` só para leitores de tela. |
 | `classe` | Classe extra no container. |
 
-- Célula `null`, `undefined` ou `''` mostra `"—"`. **Booleano não aparece** (`false`/`true` são ignorados por `el`):
-  converta para texto ou selo.
+- Célula `null`, `undefined` ou `''` mostra `"—"`; booleano mostra `"Sim"`/`"Não"` (para outra palavra, devolva
+  texto ou um selo); `0` aparece como `"0"`.
 - `principal: true`: negrito; no celular aparece sem rótulo e maior. Ponha a coluna principal primeiro.
 - Cada `<td>` recebe `data-rotulo="<titulo>"`, usado como rótulo no celular.
 - `ocultarNoCelular: true`: coluna some abaixo de 720 px.
-- Com `link`, o link cobre a linha: **`ui.botao` continua clicável** em outras células, mas `<input>` e `<a>`
-  comuns ficam por baixo da camada do link. Não misture `link` com caixas de marcar ou links nas células.
+- Com `link`, o link cobre a linha, mas toda célula (fora a do link) que tem `a[href]`, `button`, `input`,
+  `select`, `textarea`, `label` ou `[tabindex]` recebe `tabela__celula--interativa` e fica por cima: caixas de
+  marcar, links e botões funcionam normalmente; clicar no resto dessa célula não abre a linha. Não ponha outros
+  controles na célula do link.
 
 **`abas({ abas, ativa, aoTrocar, rotulo = 'Seções' }) → { elemento, ativar(id, { focar }), ativa() }`** — abas
 acessíveis (`role="tablist"`, setas ←/→, Home/End). Cada aba: `{ id, rotulo, icone?, conteudo }`; `conteudo` pode
@@ -704,18 +716,19 @@ ui.estadoErro(lista, r.mensagem, { aoTentarNovamente: carregar });
 ```
 
 **`aviso(mensagem, tipo = 'info', { titulo }) → <div class="aviso aviso--<tipo>">`** — caixa fixa na página.
-`tipo`: `info`, `sucesso`, `alerta`, `erro` (só `erro` recebe `role="alert"`). `mensagem` pode ser texto ou elemento.
+`tipo`: `info`, `sucesso`, `alerta` (ou `aviso`, o mesmo âmbar), `erro` (só `erro` recebe `role="alert"`);
+desconhecido vira `info`. `mensagem` pode ser texto ou elemento.
 
 ```js
 ui.aviso('As mudanças aparecem no site em até 15 segundos.', 'info');
-ui.aviso('3 produtos estão sem preço e aparecem como "Em breve".', 'alerta', { titulo: 'Sem preço' });
+ui.aviso('3 produtos estão sem preço: aparecem na loja com R$ 00,00 e ninguém consegue finalizar a compra até você definir o preço.', 'alerta', { titulo: 'Sem preço' });
 ```
 
 ### 8.5 Toasts, modais e confirmação
 
 **`toast(msg, tipo = 'info', { duracao }) → fechar()`** — mensagem passageira no canto inferior direito (no
-celular, faixa inferior). `tipo`: `info`, `sucesso`, `erro`, `aviso` (**atenção**: `aviso`, não `alerta` como em
-`ui.aviso`; tipo desconhecido vira `info`). Duração: erro 8 s, demais 4,5 s; `duracao: 0` só fecha no X. Pausa com o
+celular, faixa inferior). `tipo`: `info`, `sucesso`, `erro`, `aviso` (ou `alerta`: os dois nomes valem aqui e em `ui.aviso`; tipo
+desconhecido vira `info`). Duração: erro 8 s, demais 4,5 s; `duracao: 0` só fecha no X. Pausa com o
 mouse em cima. No máximo 4 na tela. Aparece por cima de modais abertos.
 
 **`modal(opcoes) → controle`** — `<dialog>` nativo: fundo inerte, Esc, foco preso dentro e devolvido ao elemento
@@ -741,6 +754,8 @@ Regras das ações:
   Senão fecha com `valor` (se definido) ou com o que `aoClicar` devolveu.
 - Foco inicial: elemento com `autofocus` no conteúdo → ação com `autofoco: true` → primeira entrada do conteúdo →
   botão primário/perigo → X.
+- Troca de rota (link, menu, `ctx.navegar`, botão Voltar) e login por cima (sessão expirada) fecham o modal com
+  `null` (§3.3, §7).
 
 `controle = { elemento, corpo, rodape, resultado: Promise, fechar(valor = null), definirTitulo(texto), definirOcupado(bool) }`.
 `definirOcupado(true)` bloqueia Esc, X e clique fora (use durante um envio feito fora das ações).
@@ -759,13 +774,18 @@ const salvou = await controle.resultado; // true, null (cancelou/Esc/X) ou o val
 
 Enter dentro do modal não envia nada sozinho (o conteúdo não é um `<form>`).
 
+**`fecharModais(valor = null) → número`** — fecha todos os modais abertos (o mais recente primeiro; cada
+`resultado` resolve com `valor`, e `confirmar` com `false`) e devolve quantos fechou. O app já chama na troca de
+rota e quando o login aparece; a página raramente precisa (ex.: fechar o `seletorDeMidia`, que não devolve o
+controle).
+
 **`confirmar(msg, { perigo = false, titulo, textoConfirmar, textoCancelar = 'Cancelar' }) → Promise<boolean>`** —
 modal pequeno de sim/não. `msg` é sempre texto (seguro com dado do banco). Com `perigo`: título padrão
 "Tem certeza?", botão vermelho "Sim, continuar" (troque por `textoConfirmar`) e foco inicial em "Cancelar". Sem
 `perigo`: "Confirmar" e botão primário. Esc/X/fundo → `false`.
 
 ```js
-if (!(await ui.confirmar(`Excluir o cupom ${c.codigo}? Esta ação não pode ser desfeita.`, { perigo: true, textoConfirmar: 'Excluir cupom' }))) return;
+if (!(await ui.confirmar(`Excluir a categoria ${c.nome}? Esta ação não pode ser desfeita.`, { perigo: true, textoConfirmar: 'Excluir categoria' }))) return;
 ```
 
 ### 8.6 Diversos
@@ -857,14 +877,14 @@ Converte erros do PostgREST, Auth e Storage. `detalhe` guarda a mensagem origina
 | `23505` (único) | `duplicado` + `campo` | "Já existe um registro com este endereço (slug)." (`slug`, `codigo` → código, `nome`, `sku` → SKU, `chave`, `email` → e-mail; outros: "Já existe um registro igual.") |
 | `23503` (chave estrangeira) | `em_uso` | "Este item está ligado a outros registros e não pode ser removido." |
 | `23502` (não nulo) | `campo_obrigatorio` + `campo` | "Preencha os campos obrigatórios." |
-| `23514`, `22P02`, `22003`, `22001` (check, formato, número, tamanho) | `dados_invalidos` + `restricao` (nome do check, ex. `cupons_valor_check`) | "Algum valor não foi aceito. Confira os campos e tente de novo." |
+| `23514`, `22P02`, `22003`, `22001` (check, formato, número, tamanho) | `dados_invalidos` + `restricao` (nome do check, ex. `produtos_preco_promocional_check`) | "Algum valor não foi aceito. Confira os campos e tente de novo." |
 | `PGRST116` | `nao_encontrado` | "Registro não encontrado." |
 | 413 / arquivo grande | `muito_grande` | "O arquivo passa do limite de 50 MB." |
 | Tipo de arquivo recusado | `tipo_nao_aceito` | "Tipo de arquivo não aceito. Use JPG, PNG, WebP, GIF, AVIF, MP4 ou WebM." |
 | 429 | `muitas_tentativas` | "Muitas tentativas seguidas…" |
 | Outro | `erro_supabase` | "Não foi possível concluir a operação. Tente de novo." |
 
-Use `restricao` para pôr o erro no campo certo (ex.: `cupons_valor_check` → campo "valor").
+Use `restricao` para pôr o erro no campo certo (ex.: `produtos_preco_promocional_check` → campo "preço promocional").
 
 ### 9.4 Outras exportações
 
@@ -939,7 +959,8 @@ do bucket. `pasta` só `a-z0-9` e hífens (sem `/`), senão **`TypeError`**. Ext
 antes), otimiza imagens JPEG/PNG/WebP (`otimizarImagem`), envia direto ao Storage com o JWT e `x-upsert: false`
 (nome repetido: tenta uma vez com outro sufixo). `aoProgresso({ enviados, total, fracao })` acompanha o envio (não a
 otimização). `sinal` cancela (lança `ErroMidia` `cancelado`). `avisos` só vem preenchido quando não otimizou.
-Lança `ErroMidia` em qualquer falha (e `TypeError` se `pasta` for inválida).
+Lança `ErroMidia` em qualquer falha, inclusive `pasta_invalida` (pasta fora de `a-z0-9-`, antes de otimizar ou
+enviar; `pasta` vazia vira `'site'`). Só a função pura `nomeSeguroArquivo` lança `TypeError`.
 
 **`listarArquivos(pasta) → Promise<[{ nome, caminho, pasta, url, tamanho, tipo, categoria, criado_em }]>`** —
 arquivos de `'site'`, `'produtos'`, `'videos'` ou de uma subpasta (`'site/2026-10'`); sem `pasta`, de todas.
@@ -1013,7 +1034,8 @@ modal grande com (envio e biblioteca lado a lado a partir de 880 px; empilhados 
 - `atual`: URL já escolhida (fica selecionada na biblioteca, ou preenchida no campo de endereço se não for do bucket).
 
 Resolve com a URL escolhida ("Usar esta imagem"/"Usar este vídeo"), ou `null` se cancelar. O arquivo enviado
-ali já fica selecionado. Fechar no meio do envio cancela o upload. Não há como fechar esse modal por fora (§13).
+ali já fica selecionado. Fechar no meio do envio cancela o upload. A troca de rota fecha o modal (resolve com
+`null`); para fechá-lo por fora, use `ui.fecharModais()`.
 
 ```js
 const url = await ctx.midia.seletorDeMidia({ tipo: 'imagem', pasta: 'produtos', titulo: 'Foto do produto', atual: foto.src });
@@ -1047,7 +1069,8 @@ mostram a estrutura que o CSS espera (quando há função em `ui.js`, prefira a 
 480 px (ações do cabeçalho e listas reordenáveis), 600 px (modais e toasts), 640 px (topo), **720 px**
 (tabelas viram cartões, `oculto-celular`/`so-celular`, barra de ações fixa, espaçamentos), 880 px (seletor de mídia
 em 2 colunas), 900 px (métricas em 4 colunas), **1024 px** (menu fixo × gaveta), 1100 px (`grade--painel` em 2
-colunas), 1280 px (gutter 40 px), 1300 px (`lista-dados--colunas` em 4). Em telas de toque (`pointer: coarse`) os
+colunas), 1280 px (gutter 40 px). `lista-dados--colunas` muda pela largura dela mesma (4 colunas a partir de
+36 rem), não da tela. Em telas de toque (`pointer: coarse`) os
 botões têm no mínimo 44 px.
 
 ### 11.3 Utilitários
@@ -1229,7 +1252,8 @@ Gerada por `ui.tabela`; à mão:
 - `tabela-container` rola na horizontal se a tabela for larga (desktop).
 - Abaixo de 720 px, `tabela--responsiva` esconde o `<thead>` e transforma cada linha em cartão: cada célula mostra
   `data-rotulo` à esquerda e o valor à direita; `tabela__principal` aparece sem rótulo, maior.
-- `tabela__linha--link` + `tabela__link`: a linha inteira é clicável (ver ressalva em §8.3).
+- `tabela__linha--link` + `tabela__link`: a linha inteira é clicável. `tabela__celula--interativa` (posta pelo
+  `ui.tabela`, ou automática via `:has` nos navegadores que têm) deixa a célula por cima da camada do link (§8.3).
 - `td.truncar` limita a 220 px com reticências no desktop.
 
 ### 11.12 Selos de status
@@ -1256,6 +1280,7 @@ Gerado por `ui.aviso`:
 ```
 
 Tipos: `aviso--info` (azul), `aviso--sucesso` (verde), `aviso--alerta` (âmbar), `aviso--erro` (vermelho).
+`ui.aviso(msg, 'aviso')` também gera `aviso--alerta`.
 
 ### 11.14 Abas
 
@@ -1372,7 +1397,8 @@ dourada), `seletor-midia`, `seletor-midia__envio`, `seletor-midia__biblioteca` (
 |---|---|
 | `grade` | Grade com 16 px (20 px ≥ 720) entre itens. |
 | `grade--2` / `grade--3` / `grade--4` | Colunas automáticas de no mínimo 320 / 260 / 200 px. |
-| `grade--painel` | 1 coluna; a partir de 1100 px, principal larga (1,65 fr) + lateral (mín. 300 px). |
+| `grade--painel` | 1 coluna; a partir de 1100 px, principal larga (1,65 fr) + lateral (mín. 300 px). O primeiro filho já é a coluna larga. |
+| `grade__largo` | Item que ocupa a linha inteira da grade (`grid-column: 1 / -1`), em qualquer `grade`. |
 | `pilha` | Coluna com 16 px (20 px ≥ 720). `pilha--estreita`: 10 px. |
 | `linha` | Itens lado a lado, centralizados, com quebra e 10 px. `linha--entre`: espaçados nas pontas. |
 | `empurrar` | `margin-left: auto` (empurra o item para a direita numa `linha`). |
@@ -1403,8 +1429,9 @@ os cartões e termine-o com a barra (exemplo em §4.1).
 </dl>
 ```
 
-Rótulo à esquerda, valor em negrito à direita, linha entre itens. `lista-dados--colunas`: blocos com número grande
-(2 colunas; 4 a partir de 1300 px), como "À venda / Rascunhos" da visão geral.
+Rótulo à esquerda, valor em negrito à direita, linha entre itens. `lista-dados--colunas`: blocos com número grande,
+como "À venda / Rascunhos" da visão geral: 2 colunas, ou 4 quando a própria lista tem 36 rem (576 px) ou mais — num
+cartão estreito (a lateral da `grade--painel`) continua em 2 em qualquer tela. Pensada para 2 ou 4 itens.
 
 ### 11.22 Atalhos e integrações (visão geral)
 
@@ -1436,9 +1463,9 @@ Rótulo à esquerda, valor em negrito à direita, linha entre itens. `lista-dado
 ```html
 <div class="estado-vazio">
   <div class="estado-vazio__icone"><svg class="icone">…</svg></div>
-  <p class="estado-vazio__titulo">Nenhum cupom ainda</p>
-  <p class="estado-vazio__texto">Crie o primeiro cupom para oferecer desconto.</p>
-  <button type="button" class="botao botao--primario">Novo cupom</button>
+  <p class="estado-vazio__titulo">Nenhuma categoria ainda</p>
+  <p class="estado-vazio__texto">Crie a primeira categoria para organizar a loja.</p>
+  <button type="button" class="botao botao--primario">Nova categoria</button>
 </div>
 
 <div class="carregando carregando--lista" role="status" aria-live="polite" aria-busy="true">
@@ -1462,7 +1489,7 @@ Gerado por `ui.modal`:
 ```html
 <dialog class="modal modal--medio" aria-labelledby="modal-3-titulo">
   <div class="modal__caixa">
-    <div class="modal__cabecalho"><h2 class="modal__titulo" id="modal-3-titulo">Novo cupom</h2><button class="botao botao--fantasma botao--icone modal__fechar" aria-label="Fechar">…</button></div>
+    <div class="modal__cabecalho"><h2 class="modal__titulo" id="modal-3-titulo">Nova categoria</h2><button class="botao botao--fantasma botao--icone modal__fechar" aria-label="Fechar">…</button></div>
     <div class="modal__corpo"><p class="modal__descricao">…</p>…</div>
     <div class="modal__rodape">…botões…</div>
   </div>
@@ -1491,7 +1518,10 @@ devagar). Não crie animações que dependam de terminar para a página funciona
 
 - **Funções puras**: `ui.js` (§8.1) e as puras de `midia.js` importam no Node:
   `node -e "import('./public/admin/js/ui.js').then((ui) => console.log(ui.lerPreco('12,50')))"`.
-  Testes unitários vão em `tests/unit/**/*.test.js` (`node --test`, via `npm test`).
+  Testes unitários vão em `tests/unit/**/*.test.js` (`node --test`, via `npm test`). Os do núcleo estão em
+  `tests/unit/painel-ui.test.js`: funções puras de `ui.js`/`midia.js`, `el`, `tabela`, avisos, toasts e modais num
+  DOM do linkedom (`parseHTML` + `globalThis.document`), `enviarArquivo` com pasta inválida e o roteador
+  (`resolverRota`, `normalizarHash`). Use o mesmo modelo para testar a lógica de uma página.
 - **No navegador**: `scripts/capturas-painel.mjs` é o modelo de Playwright com login. O essencial:
   - sobe o servidor com o Supabase local: `subirServidor({ ...AMBIENTE_VAZIO, SUPABASE_URL: local.url, SUPABASE_ANON_KEY: local.anonKey, SUPABASE_SERVICE_ROLE_KEY: local.serviceKey })`
     (`tests/apoio/servidor.js` e `ambienteLocal()` de `tests/apoio/supabase-local.js`);
@@ -1502,34 +1532,54 @@ devagar). Não crie animações que dependam de terminar para a página funciona
     depois do login a rota pedida é mantida;
   - falha com erro no console/página e com rolagem horizontal (função `semRolagemHorizontal`);
   - para upload: `page.waitForEvent('filechooser')` + `setFiles(...)`; apague do bucket o que enviou.
-- O próprio `capturas-painel.mjs` injeta uma "vitrine de componentes" no lugar de `paginas/cupons.js`
-  (`page.route`), então continua funcionando quando a página real de cupons existir:
-  `node scripts/capturas-painel.mjs --larguras 390,1440 --saida <pasta>`.
+- O próprio `capturas-painel.mjs` injeta uma "vitrine de componentes" no lugar de `paginas/categorias.js`
+  (`page.route`; a página real de categorias é testada por `capturas-painel-produtos.mjs`):
+  `node scripts/capturas-painel.mjs --larguras 390,1440 --saida <pasta>`. Ele também confere as correções do
+  §13 no navegador (botões do topo por largura, "Tentar novamente" da visão geral com falha simulada,
+  `navegar` com `substituir` no mesmo hash, modal fechado pelo botão Voltar e pelo login, caixa de marcar numa
+  tabela com `link`).
 - Dados de teste: crie com sufixo aleatório e apague no fim; não altere o seed. Nada de `db reset`.
 
 ---
 
 ## 13. Armadilhas e pendências conhecidas do núcleo
 
-Comportamentos do núcleo atual, conferidos no código e no navegador (o núcleo não deve ser editado pelas páginas;
-contorne como indicado):
+Problemas encontrados no núcleo, conferidos no código e no navegador. **Todos corrigidos em 15/10/2026**; cada
+item diz o que mudou, para quem escreveu uma página contornando o comportamento antigo. As regressões são
+cobertas por `tests/unit/painel-ui.test.js` e pelo `scripts/capturas-painel.mjs` (§12).
 
-1. **`ctx.navegar(hashAtual, { substituir: true })` não faz nada** (o roteador ignora destino igual ao hash atual sem
-   "forçar"). Para renderizar de novo use `ctx.navegar(window.location.hash)`. O "Tentar novamente" do cartão
-   "Últimos pedidos" em `visao-geral.js` usa a forma que não funciona.
-2. **Modal aberto + botão Voltar do navegador**: a rota troca e o modal continua aberto por cima da página nova.
-   Feche os modais da página na limpeza. O `seletorDeMidia` não devolve o controle do modal, então não dá para
-   fechá-lo por fora.
-3. **Tabela com `link`**: a camada do link cobre a linha; `ui.botao` nas células continua clicável (é
-   `position: relative`), mas `<input>` e `<a>` comuns não.
-4. **`el` ignora `true`/`false` como filhos e omite atributos `false`**: célula booleana sai vazia; ARIA precisa de
-   texto (`'aria-selected': 'false'`).
-5. **`toast` usa o tipo `'aviso'`; `ui.aviso` usa `'alerta'`** para a mesma cor âmbar.
-6. **`enviarArquivo` com pasta inválida lança `TypeError`** (não `ErroMidia`). Passe só `site`, `produtos`, `videos`.
-7. **CSS do topo**: `.topo__menu` (botão "Abrir menu") deveria sumir a partir de 1024 px e `.topo__sair` abaixo de
-   640 px, mas a regra `.botao { display: inline-flex }` vem depois no `admin.css` e vence. Resultado: no desktop
-   aparece o ícone de menu no topo (clicar não faz nada) e no celular o "Sair" aparece no topo além da gaveta.
-8. **`.grade__largo`** é usada em `visao-geral.js`, mas não existe no `admin.css` (não tem efeito; não use).
-9. O comentário do `ui.js` cita `tests/unit/painel-ui.test.js`, que não existe: hoje não há testes unitários de
-   `ui.js`, `api.js`, `midia.js` nem do roteador; a verificação do núcleo é o `scripts/capturas-painel.mjs`.
-10. ARQUITETURA §8 descreve um `ctx` menor; o `ctx` completo é o da §3.2 deste documento.
+1. **Corrigido — `ctx.navegar(hashAtual, { substituir: true })` não fazia nada** (o roteador ignorava destino
+   igual ao hash atual). Agora `substituir` sempre renderiza, inclusive no mesmo hash; o "Tentar novamente" do
+   cartão "Últimos pedidos" (e o novo do cartão "Catálogo") da visão geral voltou a funcionar (§5.3).
+   O contorno `ctx.navegar(window.location.hash)` continua valendo.
+2. **Corrigido — modal aberto + botão Voltar do navegador**: o modal ficava por cima da página nova. Agora o app
+   fecha todos os modais abertos (resolvem com `null`) logo depois da limpeza da página, e também quando o login
+   aparece por cima (antes, um modal aberto deixava a tela de login inerte). Nova função `ui.fecharModais()`
+   (§8.5), que também fecha o `seletorDeMidia`. Fechar os próprios modais na limpeza continua permitido.
+3. **Corrigido — tabela com `link`**: `<input>` e `<a>` comuns nas células ficavam por baixo da camada do link.
+   Agora as células com controles recebem `tabela__celula--interativa` (e há uma regra `:has` para conteúdo
+   trocado depois) e ficam por cima (§8.3, §11.11).
+4. **Corrigido — booleanos**: célula booleana de `ui.tabela` saía vazia; agora mostra "Sim"/"Não". Em `el`,
+   `aria-*` com `true`/`false` vira `"true"`/`"false"` (antes `false` sumia e `true` virava `aria-hidden=""`).
+   Filhos `true`/`false` continuam ignorados de propósito (`cond && el(...)`), como documentado (§8.2).
+5. **Corrigido — nomes do tipo âmbar**: `ui.toast` e `ui.aviso` aceitam `'aviso'` e `'alerta'` (mesma cor).
+6. **Corrigido — `enviarArquivo` com pasta inválida** lançava `TypeError`; agora rejeita com `ErroMidia`
+   `pasta_invalida` antes de otimizar ou enviar (§10.3).
+7. **Corrigido — CSS do topo**: `.botao { display: inline-flex }` vinha depois e vencia, então o ícone "Abrir menu"
+   aparecia no desktop (sem função) e o "Sair" aparecia no topo do celular além da gaveta. As regras agora são
+   `.topo .topo__menu` / `.topo .topo__sair` (mais específicas).
+8. **Corrigido — `.grade__largo`** era usada na visão geral sem existir no CSS. Agora existe (ocupa a linha
+   inteira de qualquer `grade`, §11.19) e saiu da visão geral, onde o cartão já é a coluna larga.
+9. **Corrigido — testes do núcleo**: `tests/unit/painel-ui.test.js` cobre `lerPreco`, `formatarPreco`,
+   `slugify`, `escapar`, rótulos/cores de status (conferidos com o banco, a API e o `admin.css`), datas, `el`
+   seguro, `tabela`, avisos, toasts, modais, `nomeSeguroArquivo`, `validarArquivo`, `enviarArquivo` com pasta
+   inválida, `caminhoDaUrl` e o roteador.
+10. **Corrigido — `lista-dados--colunas`** (visto nas capturas): passava para 4 colunas pela largura da tela
+    (≥ 1300 px) mesmo no cartão estreito da lateral da visão geral, e "Rascunhos" estourava a caixa. Agora muda
+    pela largura da própria lista (§11.21).
+
+Ainda vale saber:
+
+- ARQUITETURA §8 descreve um `ctx` menor; o `ctx` completo é o da §3.2 deste documento.
+- Um toast mostrado com um modal aberto aparece por cima, mas o botão X dele não recebe clique enquanto o modal
+  estiver aberto (o `<dialog>` modal deixa o resto da página inerte); ele some sozinho no tempo normal.

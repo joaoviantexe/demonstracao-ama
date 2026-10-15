@@ -1,0 +1,25 @@
+/* ================================================================
+   Painel AMA — configurações
+   Carregado por paginas/configuracoes.js (ui.carregarCss('configuracoes')).
+   Usa os tokens de admin.css; tudo dentro da página.
+   ================================================================ */
+
+.pagina[data-pagina="configuracoes"] .config-barra__erro{color:var(--perigo);font-weight:600}
+.pagina[data-pagina="configuracoes"] .config-aviso-entrega:empty{display:none}
+
+/* Serviços do Melhor Envio: caixas uma embaixo da outra. */
+.pagina[data-pagina="configuracoes"] .config-servicos{display:flex;flex-direction:column;gap:10px}
+.pagina[data-pagina="configuracoes"] .config-servicos > legend{font-weight:700;color:var(--verde-950);margin-bottom:4px}
+
+/* Opções de frete fixo. */
+.pagina[data-pagina="configuracoes"] .config-fixo__item{
+  display:flex;flex-direction:column;gap:12px;padding:14px;border:1px solid var(--linha);border-radius:var(--raio);background:var(--superficie-2);
+}
+.pagina[data-pagina="configuracoes"] .config-fixo__topo{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.pagina[data-pagina="configuracoes"] .config-fixo__titulo{font-family:var(--display);font-weight:700;color:var(--verde-950)}
+
+/* Medidas da embalagem: duas por linha (o cartão fica na coluna estreita). */
+.pagina[data-pagina="configuracoes"] .config-medidas{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+
+.pagina[data-pagina="configuracoes"] .config-resumo{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font-size:.92rem}
+.pagina[data-pagina="configuracoes"] .config-integracao__acao{font-weight:600;color:var(--verde-800)}

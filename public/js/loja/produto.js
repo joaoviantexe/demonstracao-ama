@@ -152,7 +152,7 @@ function calculadoraFrete(produto, lerQuantidade) {
           o.empresa ? el('span', { class: 'frete-opcao-empresa', texto: o.empresa }) : null,
           el('span', { class: 'frete-opcao-prazo', texto: formatarPrazo(o) })),
         el('span', { class: `frete-opcao-preco${o.gratis ? ' frete-opcao-preco--gratis' : ''}` },
-          o.gratis || o.preco_centavos === 0 ? (o.tipo === 'retirada' ? 'Sem custo' : 'Grátis') : formatarPreco(o.preco_centavos)))));
+          o.gratis || o.preco_centavos === 0 ? 'Grátis' : formatarPreco(o.preco_centavos)))));
       trocarConteudo(resultado,
         opcoes.length ? lista : null,
         cotacao.frete && cotacao.frete.erro ? el('p', { class: 'frete-aviso', texto: cotacao.frete.erro }) : null,
@@ -276,11 +276,11 @@ function renderizarProduto(produto) {
         el('div', { class: 'ficha-preco-bloco' },
           blocoPreco(situacao, { classe: 'preco ficha-preco' }),
           economia,
-          situacao.vendavel ? el('p', { class: 'ficha-parcelas', texto: 'Pague com Pix, cartão ou boleto pelo Mercado Pago' }) : null),
+          situacao.vendavel ? el('p', { class: 'ficha-parcelas', texto: 'Pague com Pix, cartão ou boleto' }) : null),
         estoque,
         ...areaCompra(produto, situacao),
         el('ul', { class: 'ficha-garantias' },
-          el('li', {}, icone('escudo'), 'Compra segura pelo Mercado Pago'),
+          el('li', {}, icone('escudo'), 'Compra segura'),
           el('li', {}, icone('coracao'), 'Feito por mulheres da Amazônia')))),
     el('section', { class: 'ficha-descricao', 'aria-labelledby': 'descricao-titulo' },
       el('h2', { id: 'descricao-titulo', texto: 'Sobre o produto' }),

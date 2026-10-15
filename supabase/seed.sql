@@ -50,9 +50,9 @@ $$;
 
 
 -- -----------------------------------------------------------------------------
--- 2. Preços e estoque de exemplo para a coleção Ama Bioessência
---    Nome, descrição, foto, peso e medidas já vêm da migração. As biojoias
---    continuam com preço 0 ("R$ 00,00" e "Em breve" na loja).
+-- 2. Promoção, destaques e SKU de exemplo para a coleção Ama Bioessência
+--    Nome, descrição, foto, peso, medidas, preços e estoque de teste já vêm da
+--    migração (as biojoias também: R$ 89,90 e 10 unidades).
 -- -----------------------------------------------------------------------------
 
 update public.produtos p
@@ -78,17 +78,7 @@ update public.produtos p
 
 
 -- -----------------------------------------------------------------------------
--- 3. Cupons de exemplo
--- -----------------------------------------------------------------------------
-
-insert into public.cupons (codigo, descricao, tipo, valor, minimo_centavos) values
-  ('AMA10',       '10% de desconto em toda a loja', 'percentual',   10, 0),
-  ('FRETEGRATIS', 'Frete grátis',                   'frete_gratis',  0, 0)
-on conflict (codigo) do nothing;
-
-
--- -----------------------------------------------------------------------------
--- 4. Origem do frete (dados fictícios; CEP do Conjunto Uirapuru, Icuí-Guajará)
+-- 3. Origem do frete (dados fictícios; CEP do Conjunto Uirapuru, Icuí-Guajará)
 -- -----------------------------------------------------------------------------
 
 update public.configuracoes

@@ -61,7 +61,7 @@ const itemCotado = (extra = {}) => ({
 });
 
 const COTACAO_OK = {
-  itens: [itemCotado()], subtotal_centavos: 4500, desconto_centavos: 0, cupom: null, frete_gratis_cupom: false,
+  itens: [itemCotado()], subtotal_centavos: 4500,
 };
 
 const LINHAS_CONFIG = [
@@ -106,7 +106,7 @@ describe('lib/loja.js — configurações e erros', () => {
     assert.deepEqual(vazio.loja, { ...CONFIG_PADRAO.loja });
     assert.deepEqual(vazio.checkout, { parcelas_max: 6, aceitar_boleto: true, expiracao_horas: 72 });
     assert.equal(vazio.notificacoes.email_admin, '');
-    assert.equal(vazio.frete.retirada.ativa, true);
+    assert.equal('retirada' in vazio.frete, false, 'não existe retirada na sede');
     assert.deepEqual(vazio.frete.melhor_envio.servicos, [1, 2]);
     assert.equal(Object.isFrozen(vazio.frete.melhor_envio.servicos), false, 'cópia mutável');
 
@@ -134,8 +134,6 @@ describe('lib/loja.js — configurações e erros', () => {
     assert.equal(item.status, 409);
     assert.equal(item.erro, 'item_indisponivel');
     assert.deepEqual(item.extra.itens, [1]);
-    const cupom = erroDaLoja(new ErroSupabase(400, 'cupom_invalido', 'Cupom expirado'));
-    assert.deepEqual([cupom.status, cupom.erro, cupom.mensagem], [400, 'cupom_invalido', 'Cupom expirado.']);
     const dados = erroDaLoja(new ErroSupabase(400, 'dados_invalidos', 'cliente.cpf'));
     assert.deepEqual([dados.status, dados.extra.campo], [400, 'cliente.cpf']);
     assert.equal(erroDaLoja(new ErroSupabase(400, 'carrinho_vazio')).status, 400);
@@ -183,18 +181,18 @@ describe('lib/loja.js — cotar e sincronizarPagamento', () => {
     fetchSimulado = supabaseFalso();
     const r = await cotar({
       itens: [{ produto_id: ` ${ID_PRODUTO.toUpperCase()} `, quantidade: '2' }, { quantidade: 1 }, 'lixo'],
-      cupom: ' ama10 ',
+      cupom: ' ama10 ', // campo antigo: ignorado
     });
     assert.equal(r.frete, null);
     assert.equal(r.subtotal_centavos, 4500);
     assert.equal(r.frete_gratis_acima_centavos, 20000);
-    assert.deepEqual(Object.keys(r).sort(), ['cupom', 'desconto_centavos', 'frete', 'frete_gratis_acima_centavos', 'itens', 'subtotal_centavos']);
+    assert.deepEqual(Object.keys(r).sort(), ['frete', 'frete_gratis_acima_centavos', 'itens', 'subtotal_centavos']);
     const [chamada] = rpcs('cotar_carrinho');
-    assert.deepEqual(JSON.parse(chamada.corpo), { p: { itens: [{ produto_id: ID_PRODUTO, quantidade: 2 }], cupom: 'AMA10' } });
+    assert.deepEqual(JSON.parse(chamada.corpo), { p: { itens: [{ produto_id: ID_PRODUTO, quantidade: 2 }] } });
     assert.equal(chamada.cabecalhos.authorization, `Bearer ${SERVICO}`);
   });
 
-  test('cotar: carrinho vazio ou inválido → 400 sem consultar o banco; comFrete sem CEP → só retirada', async () => {
+  test('cotar: carrinho vazio ou inválido → 400 sem consultar o banco; comFrete sem CEP → sem opções e com erro', async () => {
     aplicarAmbiente(SUPABASE);
     fetchSimulado = supabaseFalso();
     await assert.rejects(cotar({ itens: [] }), (e) => e.status === 400 && e.erro === 'carrinho_vazio');
@@ -203,35 +201,27 @@ describe('lib/loja.js — cotar e sincronizarPagamento', () => {
     assert.equal(fetchSimulado.chamadas.length, 0);
 
     const r = await cotar({ itens: [{ produto_id: ID_PRODUTO, quantidade: 1 }] }, { comFrete: true });
-    assert.deepEqual(r.frete.opcoes.map((o) => o.id), ['retirada']);
+    assert.deepEqual(r.frete.opcoes, []);
     assert.ok(r.frete.erro);
   });
 
-  test('cotar: frete grátis por valor mínimo usa o subtotal já com desconto; cupom frete_gratis sempre vale', async () => {
+  test('cotar: frete grátis por valor mínimo usa o subtotal', async () => {
     aplicarAmbiente(SUPABASE);
-    const item = itemCotado({ preco_unitario_centavos: 10_000, quantidade: 2, total_centavos: 20_000 });
-    const comDesconto = { ...COTACAO_OK, itens: [item], subtotal_centavos: 20_000, desconto_centavos: 2_000 };
-    fetchSimulado = supabaseFalso({ 'rpc/cotar_carrinho': comDesconto });
-    // Limite de LINHAS_CONFIG: R$ 200,00. Subtotal R$ 200,00 − R$ 20,00 de desconto = R$ 180,00 → sem frete grátis.
+    const abaixoItem = itemCotado({ preco_unitario_centavos: 9_999, quantidade: 2, total_centavos: 19_998 });
+    fetchSimulado = supabaseFalso({ 'rpc/cotar_carrinho': { ...COTACAO_OK, itens: [abaixoItem], subtotal_centavos: 19_998 } });
+    // Limite de LINHAS_CONFIG: R$ 200,00.
     const abaixo = await cotar({ itens: [{ produto_id: ID_PRODUTO, quantidade: 2 }], cep: '66010-000' });
     assert.equal(abaixo.frete_gratis_acima_centavos, 20_000);
-    assert.deepEqual(abaixo.frete.opcoes.map((o) => o.id), ['fixo-1', 'retirada']);
+    assert.deepEqual(abaixo.frete.opcoes.map((o) => o.id), ['fixo-1']);
     assert.ok(abaixo.frete.opcoes.every((o) => o.gratis === false));
 
     fetchSimulado.restaurar();
-    fetchSimulado = supabaseFalso({ 'rpc/cotar_carrinho': { ...comDesconto, desconto_centavos: 0 } });
+    const item = itemCotado({ preco_unitario_centavos: 10_000, quantidade: 2, total_centavos: 20_000 });
+    fetchSimulado = supabaseFalso({ 'rpc/cotar_carrinho': { ...COTACAO_OK, itens: [item], subtotal_centavos: 20_000 } });
     const noLimite = await cotar({ itens: [{ produto_id: ID_PRODUTO, quantidade: 2 }], cep: '66010-000' });
     assert.equal(noLimite.frete.opcoes[0].gratis, true);
     assert.equal(noLimite.frete.opcoes[0].preco_centavos, 0);
     assert.equal(noLimite.frete.opcoes[0].preco_original_centavos, 1500);
-
-    fetchSimulado.restaurar();
-    fetchSimulado = supabaseFalso({
-      'rpc/cotar_carrinho': { ...COTACAO_OK, frete_gratis_cupom: true, cupom: { codigo: 'FRETE', valido: true, tipo: 'frete_gratis', mensagem: 'ok' } },
-    });
-    const cupom = await cotar({ itens: [{ produto_id: ID_PRODUTO, quantidade: 1 }], cep: '66010-000', cupom: 'frete' });
-    assert.equal(cupom.frete.opcoes.find((o) => o.id === 'fixo-1').gratis, true);
-    assert.equal(cupom.cupom.tipo, 'frete_gratis');
   });
 
   test('cotar: banco devolve itens vazios → 400 carrinho_vazio', async () => {
@@ -252,8 +242,8 @@ describe('lib/loja.js — cotar e sincronizarPagamento', () => {
     aplicarAmbiente({ ...SUPABASE, RESEND_API_KEY: 're_teste', RESEND_API_BASE: RESEND, SITE_URL: 'https://ama.org.br' });
     const pedido = {
       id: ID_PEDIDO, numero: 1001, token_acesso: TOKEN, status: 'pago', cliente_nome: 'Maria Silva', cliente_email: 'maria@exemplo.com',
-      entrega: { tipo: 'retirada', nome: 'Retirar na sede' }, total_centavos: 4500, subtotal_centavos: 4500,
-      desconto_centavos: 0, frete_centavos: 0, pedido_itens: [{ nome: 'Creme', quantidade: 1, preco_unitario_centavos: 4500, total_centavos: 4500 }],
+      entrega: { tipo: 'fixo', id: 'fixo-1', nome: 'Entrega local' }, total_centavos: 4500, subtotal_centavos: 4500,
+      frete_centavos: 0, pedido_itens: [{ nome: 'Creme', quantidade: 1, preco_unitario_centavos: 4500, total_centavos: 4500 }],
     };
     fetchSimulado = supabaseFalso({
       'rpc/confirmar_pagamento': { pedido_id: ID_PEDIDO, numero: 1001, status_anterior: 'aguardando_pagamento', status_novo: 'pago', mudou: true, virou_pago: true },
@@ -327,8 +317,9 @@ describe('api/loja/cotacao.js e api/loja/checkout.js', () => {
 
   const corpoCheckout = (extra = {}) => ({
     itens: [{ produto_id: ID_PRODUTO, quantidade: 1 }],
-    frete_id: 'retirada',
+    frete_id: 'fixo-1',
     cliente: { nome: 'Maria da Silva', email: 'maria@exemplo.com', telefone: '91981056049', cpf: '52998224725' },
+    endereco: { cep: '66010000', logradouro: 'Rua A', numero: '1', bairro: 'Centro', cidade: 'Belém', uf: 'PA' },
     ...extra,
   });
 
@@ -377,7 +368,7 @@ describe('api/loja/cotacao.js e api/loja/checkout.js', () => {
     aplicarAmbiente({ ...SUPABASE, MP_ACCESS_TOKEN: 'APP_USR-x', MP_API_BASE: MP, SITE_URL: 'https://ama.org.br' });
     fetchSimulado = supabaseFalso({
       'rpc/criar_pedido': {
-        id: ID_PEDIDO, numero: 1001, token_acesso: TOKEN, subtotal_centavos: 4500, desconto_centavos: 0, frete_centavos: 0,
+        id: ID_PEDIDO, numero: 1001, token_acesso: TOKEN, subtotal_centavos: 4500, frete_centavos: 0,
         total_centavos: 4500, itens: [itemCotado()],
       },
       'rpc/alterar_status_pedido': { status_anterior: 'aguardando_pagamento', status_novo: 'cancelado' },
@@ -397,8 +388,8 @@ describe('api/loja/cotacao.js e api/loja/checkout.js', () => {
 describe('api/loja/pedido.js', () => {
   const linha = {
     id: ID_PEDIDO, numero: 1001, token_acesso: TOKEN, status: 'aguardando_pagamento', status_pagamento: null,
-    criado_em: '2026-10-14T12:00:00Z', pago_em: null, enviado_em: null, subtotal_centavos: 4500, desconto_centavos: 0,
-    frete_centavos: 0, total_centavos: 4500, entrega: { tipo: 'retirada', id: 'retirada', nome: 'Retirar na sede', preco_centavos: 0 },
+    criado_em: '2026-10-14T12:00:00Z', pago_em: null, enviado_em: null, subtotal_centavos: 4500,
+    frete_centavos: 0, total_centavos: 4500, entrega: { tipo: 'fixo', id: 'fixo-1', nome: 'Entrega local', preco_centavos: 0 },
     codigo_rastreio: null, url_rastreio: null, cliente_nome: '  Maria   Silva', mp_init_point: 'https://mp.teste/pagar/1',
     pedido_itens: [{ nome: 'Creme', imagem: '/img/c.jpg', quantidade: 1, preco_unitario_centavos: 4500, total_centavos: 4500 }],
   };
@@ -416,7 +407,7 @@ describe('api/loja/pedido.js', () => {
     assert.equal(p.primeiro_nome, 'Maria');
     assert.equal(p.pode_pagar, true);
     assert.equal(p.link_pagamento, linha.mp_init_point);
-    assert.deepEqual(p.entrega, { tipo: 'retirada', nome: 'Retirar na sede', empresa: null, prazo_dias: null });
+    assert.deepEqual(p.entrega, { tipo: 'fixo', nome: 'Entrega local', empresa: null, prazo_dias: null });
     const texto = JSON.stringify(p);
     for (const proibido of ['52998224725', 'x@y.com', 'segredo', TOKEN]) assert.ok(!texto.includes(proibido));
     const pago = pedidoPublico({ ...linha, status: 'pago' });
@@ -645,7 +636,7 @@ describe('rotas de admin (unidade)', () => {
     assert.equal(semMe.json().erro, 'frete_nao_configurado');
   });
 
-  test('envio: chave da NF-e inválida → 400 antes de chamar o Melhor Envio; pedido de retirada → 409', async () => {
+  test('envio: chave da NF-e inválida → 400 antes de chamar o Melhor Envio; pedido de frete fixo → 409', async () => {
     aplicarAmbiente({ ...SUPABASE, MELHOR_ENVIO_TOKEN: 'token-me', MELHOR_ENVIO_API_BASE: ME });
     const pedido = {
       id: ID_PEDIDO, numero: 1001, status: 'pago', entrega: { tipo: 'melhor_envio', servico_id: 1, nome: 'PAC' },
@@ -661,10 +652,10 @@ describe('rotas de admin (unidade)', () => {
     assert.equal(r.json().campo, 'chave_nfe');
     assert.equal(fetchSimulado.chamadas.filter((c) => c.url.startsWith(ME)).length, 0);
 
-    linha = { ...pedido, entrega: { tipo: 'retirada' } };
-    const retirada = await chamarHandler(envio, { method: 'POST', headers: comAdmin, body: { pedido_id: ID_PEDIDO, acao: 'rastrear' } });
-    assert.equal(retirada.statusCode, 409);
-    assert.equal(retirada.json().erro, 'envio_indisponivel');
+    linha = { ...pedido, entrega: { tipo: 'fixo' } };
+    const fixo = await chamarHandler(envio, { method: 'POST', headers: comAdmin, body: { pedido_id: ID_PEDIDO, acao: 'rastrear' } });
+    assert.equal(fixo.statusCode, 409);
+    assert.equal(fixo.json().erro, 'envio_indisponivel');
 
     linha = { ...pedido, status: 'aguardando_pagamento' };
     const naoPago = await chamarHandler(envio, { method: 'POST', headers: comAdmin, body: { pedido_id: ID_PEDIDO, acao: 'rastrear' } });

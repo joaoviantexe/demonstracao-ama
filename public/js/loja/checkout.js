@@ -1,6 +1,6 @@
-// Checkout /loja/checkout — dados, entrega (CEP com ViaCEP), frete, observações, cupom e resumo.
+// Checkout /loja/checkout — dados, entrega (CEP com ViaCEP), frete, observações e resumo.
 // "Ir para o pagamento" → POST /api/loja/checkout → Mercado Pago (window.location = redirecionar).
-// O navegador só envia produto, quantidade, cupom, frete escolhido e dados do cliente: valores
+// O navegador só envia produto, quantidade, frete escolhido e dados do cliente: valores
 // cobrados são sempre calculados no servidor.
 
 import { cotar, finalizar } from './api.js';
@@ -13,11 +13,11 @@ import {
   aplicarMascara, blocoEstado, el, icone, iniciarPagina, trocarConteudo,
 } from './comum.js';
 import {
-  descreverMotivo, formatarPreco, formatarPrazo, mascararCep, mascararCpf, mascararTelefone,
+  descreverMotivo, formatarPreco, mascararCep, mascararCpf, mascararTelefone,
   normalizarTexto, somenteDigitos, UFS, urlSegura, validarCep, validarFormularioCheckout, validarUf,
 } from './formatos.js';
 import {
-  avisoFreteGratis, blocoCupom, blocoTotais, listaOpcoesFrete, opcaoEscolhida, totalExibido,
+  avisoFreteGratis, blocoTotais, listaOpcoesFrete, opcaoEscolhida, totalExibido,
 } from './resumo.js';
 
 iniciarPagina();
@@ -27,8 +27,6 @@ const areaEstado = document.getElementById('checkout-estado');
 const alerta = document.getElementById('alerta-checkout');
 const opcoesFrete = document.getElementById('opcoes-frete');
 const erroFrete = document.getElementById('erro-frete');
-const enderecoCampos = document.getElementById('endereco-campos');
-const retiradaInfo = document.getElementById('retirada-info');
 const avisoCep = document.getElementById('aviso-cep');
 const cepCarregando = document.getElementById('cep-carregando');
 const resumoConteudo = document.getElementById('resumo-conteudo');
@@ -51,8 +49,6 @@ const estado = {
   cotacao: null,
   carregando: false,
   sequencia: 0,
-  cupom: prefs.cupom,
-  cupomMensagem: null,
   freteId: prefs.frete_id,
   cepCotado: '',
   cepBuscado: '',
@@ -148,13 +144,7 @@ function opcaoAtual() {
   return opcaoEscolhida(estado.cotacao, estado.freteId);
 }
 
-function ehRetirada() {
-  const opcao = opcaoAtual();
-  return !!(opcao && opcao.tipo === 'retirada');
-}
-
 function coletarDados() {
-  const retirada = ehRetirada();
   return {
     cliente: {
       nome: campo.nome.value,
@@ -162,7 +152,7 @@ function coletarDados() {
       telefone: somenteDigitos(campo.telefone.value),
       cpf: somenteDigitos(campo.cpf.value),
     },
-    endereco: retirada ? {} : {
+    endereco: {
       cep: somenteDigitos(campo.cep.value),
       logradouro: campo.logradouro.value,
       numero: campo.numero.value,
@@ -203,23 +193,7 @@ function esconderAlerta() {
 }
 
 // ---------------------------------------------------------------------------
-// Entrega: opções de frete e retirada
-
-function aplicarTipoEntrega() {
-  const opcao = opcaoAtual();
-  const retirada = !!(opcao && opcao.tipo === 'retirada');
-  enderecoCampos.hidden = retirada;
-  enderecoCampos.querySelectorAll('input, select').forEach((entrada) => { entrada.disabled = retirada; });
-  retiradaInfo.hidden = !retirada;
-  if (retirada) {
-    trocarConteudo(retiradaInfo,
-      el('span', { class: 'retirada-icone' }, icone('local')),
-      el('div', {},
-        el('strong', { texto: opcao.nome }),
-        el('p', { texto: formatarPrazo(opcao) || 'Disponível após a confirmação do pagamento.' }),
-        el('p', { class: 'retirada-nota', texto: 'Não precisa informar endereço. Depois do pagamento, acompanhe pela página do pedido quando ele estiver pronto para retirada.' })));
-  }
-}
+// Entrega: opções de frete
 
 function renderizarOpcoesFrete() {
   const c = estado.cotacao;
@@ -236,7 +210,6 @@ function renderizarOpcoesFrete() {
     trocarConteudo(opcoesFrete,
       el('p', { class: 'opcoes-frete-vazio' }, icone('caminhao'),
         c && c.frete && c.frete.erro ? c.frete.erro : 'Informe o CEP para ver as opções de entrega e o prazo.'));
-    aplicarTipoEntrega();
     return;
   }
   trocarConteudo(opcoesFrete,
@@ -249,7 +222,6 @@ function renderizarOpcoesFrete() {
       opcoesFrete.querySelector(`input[value="${CSS.escape(id)}"]`)?.focus();
     }, { nome: 'frete' }),
     c.frete.erro ? el('p', { class: 'frete-aviso', texto: c.frete.erro }) : null);
-  aplicarTipoEntrega();
 }
 
 // ---------------------------------------------------------------------------
@@ -258,7 +230,7 @@ function renderizarOpcoesFrete() {
 const botaoPagar = el('button', { type: 'submit', class: 'botao botao--ouro botao--bloco resumo-finalizar', id: 'botao-pagar' },
   icone('cadeado'), el('span', { class: 'botao-texto', texto: 'Ir para o pagamento' }));
 const notaPagamento = el('p', { class: 'resumo-seguro' }, icone('escudo'),
-  'Você será levado ao ambiente seguro do Mercado Pago para pagar com Pix, cartão ou boleto.');
+  'Na próxima etapa você paga com Pix, cartão ou boleto, em ambiente seguro.');
 const motivoBloqueio = el('p', { class: 'resumo-bloqueio', hidden: true });
 resumo.append(motivoBloqueio, botaoPagar, notaPagamento);
 
@@ -282,24 +254,6 @@ function renderizarResumo() {
   const c = estado.cotacao;
   const porId = new Map((c && Array.isArray(c.itens) ? c.itens : []).map((i) => [i.produto_id, i]));
   const itens = el('ul', { class: 'resumo-itens' }, estado.itens.map((item) => itemResumo(item, porId.get(item.produto_id))));
-  const cupom = blocoCupom({
-    aplicado: c && c.cupom && c.cupom.valido ? { codigo: c.cupom.codigo, mensagem: c.cupom.mensagem } : null,
-    mensagem: estado.cupomMensagem,
-    ocupado: estado.carregando || estado.enviando,
-    id: 'checkout-cupom',
-  }, {
-    aoAplicar: (codigo) => {
-      estado.cupom = codigo;
-      estado.cupomMensagem = null;
-      cotarAgora({ focarCupom: true });
-    },
-    aoRemover: () => {
-      estado.cupom = '';
-      estado.cupomMensagem = null;
-      salvarPreferencias({ cupom: '' });
-      cotarAgora({ focarCupom: true });
-    },
-  });
   let totais;
   if (c) {
     totais = blocoTotais(c, opcaoAtual(), { semFreteTexto: 'Informe o CEP', atualizando: estado.carregando });
@@ -315,7 +269,6 @@ function renderizarResumo() {
   trocarConteudo(resumoConteudo,
     itens,
     el('a', { class: 'link-seta resumo-editar', href: '/loja/carrinho' }, 'Editar carrinho'),
-    cupom,
     avisoFreteGratis(c),
     totais);
 
@@ -330,7 +283,7 @@ function renderizarResumo() {
 
 let esperaCotacao = null;
 
-async function cotarAgora({ focarCupom = false } = {}) {
+async function cotarAgora() {
   clearTimeout(esperaCotacao);
   const sequencia = ++estado.sequencia;
   const cep = somenteDigitos(campo.cep.value);
@@ -339,22 +292,12 @@ async function cotarAgora({ focarCupom = false } = {}) {
   renderizarOpcoesFrete();
   renderizarResumo();
   try {
-    const cotacao = await cotar({ itens: itensParaCotacao(estado.itens), cep: cepValido ? cep : undefined, cupom: estado.cupom });
+    const cotacao = await cotar({ itens: itensParaCotacao(estado.itens), cep: cepValido ? cep : undefined });
     if (sequencia !== estado.sequencia) return;
     estado.cotacao = cotacao;
     estado.erroCotacao = null;
     estado.cepCotado = cepValido ? cep : '';
     if (cepValido) salvarPreferencias({ cep });
-    if (estado.cupom) {
-      if (cotacao.cupom && cotacao.cupom.valido) {
-        estado.cupomMensagem = null;
-        salvarPreferencias({ cupom: estado.cupom });
-      } else {
-        estado.cupomMensagem = { tipo: 'erro', texto: (cotacao.cupom && cotacao.cupom.mensagem) || 'Cupom inválido.' };
-        estado.cupom = '';
-        salvarPreferencias({ cupom: '' });
-      }
-    }
     const opcoes = cotacao.frete && Array.isArray(cotacao.frete.opcoes) ? cotacao.frete.opcoes : [];
     if (opcoes.length && !opcoes.some((o) => o.id === estado.freteId)) {
       estado.freteId = opcoes[0].id;
@@ -375,7 +318,6 @@ async function cotarAgora({ focarCupom = false } = {}) {
       estado.carregando = false;
       renderizarOpcoesFrete();
       renderizarResumo();
-      if (focarCupom) resumoConteudo.querySelector('.cupom input, .cupom-remover')?.focus();
     }
   }
 }
@@ -448,10 +390,8 @@ async function aoMudarCep({ forcar = false } = {}) {
     ? 'Endereço encontrado. Confira e informe o número.'
     : 'Cidade encontrada. Informe a rua, o número e o bairro.');
   salvarRascunho();
-  if (!enderecoCampos.hidden) {
-    const proximo = endereco.logradouro ? campo.numero : campo.logradouro;
-    if (document.activeElement === campo.cep || document.activeElement === document.body) proximo.focus();
-  }
+  const proximo = endereco.logradouro ? campo.numero : campo.logradouro;
+  if (document.activeElement === campo.cep || document.activeElement === document.body) proximo.focus();
 }
 
 // ---------------------------------------------------------------------------
@@ -502,13 +442,6 @@ function tratarErroEnvio(erro, dados) {
     cotarAgora();
     return;
   }
-  if (erro.status === 400 && erro.erro === 'cupom_invalido') {
-    estado.cupom = '';
-    salvarPreferencias({ cupom: '' });
-    estado.cupomMensagem = { tipo: 'erro', texto: erro.mensagem };
-    cotarAgora({ focarCupom: true });
-    return;
-  }
   if (erro.status === 400 && extra.erros && typeof extra.erros === 'object') {
     const total = mostrarErros(extra.erros);
     if (total) return;
@@ -551,7 +484,6 @@ form.addEventListener('submit', async (evento) => {
   try {
     const resposta = await finalizar({
       itens: itensParaCotacao(estado.itens),
-      cupom: estado.cupom || undefined,
       frete_id: dados.frete_id,
       cliente: dados.cliente,
       endereco: dados.endereco,

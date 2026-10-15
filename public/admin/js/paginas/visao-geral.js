@@ -62,7 +62,7 @@ export async function renderizar(ctx) {
     [
       { texto: 'Editar o site', detalhe: 'Textos, fotos e vídeos da página inicial', icone: 'conteudo', href: '#/conteudo' },
       { texto: 'Novo produto', detalhe: 'Cadastrar um item na loja', icone: 'produtos', href: '#/produtos/novo' },
-      { texto: 'Pedidos para enviar', detalhe: 'Pagos e em separação', icone: 'caminhao', href: '#/pedidos?status=pago' },
+      { texto: 'Pedidos para enviar', detalhe: 'Pagos e em separação', icone: 'caminhao', href: '#/pedidos?status=para_enviar' },
       { texto: 'Ver a loja', detalhe: 'Abre em outra aba', icone: 'loja', href: '/loja/', externo: true },
     ].map((a) => el('a', {
       class: 'atalho', href: a.href, target: a.externo ? '_blank' : null, rel: a.externo ? 'noopener' : null,
@@ -74,7 +74,7 @@ export async function renderizar(ctx) {
     cabecalho,
     metricas,
     el('div', { class: 'grade grade--painel' },
-      el('section', { class: 'cartao grade__largo', 'aria-labelledby': 'vg-ultimos' },
+      el('section', { class: 'cartao', 'aria-labelledby': 'vg-ultimos' },
         el('div', { class: 'cartao__cabecalho' },
           el('h2', { class: 'cartao__titulo', id: 'vg-ultimos' }, 'Últimos pedidos'),
           el('a', { class: 'cartao__link', href: '#/pedidos' }, 'Ver todos', icone('avancar'))),
@@ -130,7 +130,7 @@ export async function renderizar(ctx) {
   const totalAEnviar = aEnviar.ok ? aEnviar.total || 0 : null;
   metricas.replaceChildren(
     metrica({
-      rotulo: 'Pedidos para enviar', icone: 'caminhao', href: '#/pedidos?status=pago', destaque: totalAEnviar > 0,
+      rotulo: 'Pedidos para enviar', icone: 'caminhao', href: '#/pedidos?status=para_enviar', destaque: totalAEnviar > 0,
       valor: valor(aEnviar, (r) => String(r.total || 0)),
       detalhe: totalAEnviar ? 'Pagos, aguardando separação ou envio' : 'Nenhum pedido esperando envio',
     }),
@@ -151,9 +151,12 @@ export async function renderizar(ctx) {
     }),
   );
 
+  // "Tentar novamente": renderiza a visão geral de novo (navegar para o próprio hash).
+  const recarregar = () => ctx.navegar(ctx.hash, { substituir: true });
+
   // Últimos pedidos
   if (!recentes.ok) {
-    ui.estadoErro(ultimos, recentes.mensagem, { aoTentarNovamente: () => ctx.navegar('#/', { substituir: true }) });
+    ui.estadoErro(ultimos, recentes.mensagem, { aoTentarNovamente: recarregar });
   } else if (!recentes.dados.length) {
     ui.estadoVazio(ultimos, 'Quando alguém comprar na loja, o pedido aparece aqui.', { titulo: 'Nenhum pedido ainda', icone: 'pedidos' });
   } else {
@@ -173,7 +176,7 @@ export async function renderizar(ctx) {
 
   // Catálogo
   if (!resumo) {
-    ui.estadoErro(catalogo, produtos.mensagem);
+    ui.estadoErro(catalogo, produtos.mensagem, { aoTentarNovamente: recarregar });
   } else {
     const linhas = [];
     if (resumo.semPreco) {
@@ -237,7 +240,7 @@ export function descreverIntegracoes(integracoes, formatarPreco) {
   const me = i.melhor_envio || {};
   const ambiente = me.ambiente === 'sandbox' ? ' (sandbox)' : '';
   if (!me.configurado) {
-    itens.push({ nome: 'Fretes (Melhor Envio)', icone: 'caminhao', cor: 'cinza', estado: 'Opcional', texto: 'Sem MELHOR_ENVIO_TOKEN a loja oferece só o frete fixo e a retirada na sede.' });
+    itens.push({ nome: 'Fretes (Melhor Envio)', icone: 'caminhao', cor: 'ambar', estado: 'Recomendado', texto: 'Sem MELHOR_ENVIO_TOKEN a loja oferece só o frete fixo (ligue em Configurações → Frete); sem nenhum dos dois, ninguém consegue finalizar a compra.' });
   } else if (me.erro) {
     itens.push({ nome: 'Fretes (Melhor Envio)', icone: 'caminhao', cor: 'vermelho', estado: 'Com erro', texto: `Não foi possível consultar a conta${ambiente}: ${me.erro} Confira o token.` });
   } else {

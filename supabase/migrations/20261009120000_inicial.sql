@@ -91,32 +91,9 @@ create table if not exists public.produtos (
   atualizado_em              timestamptz not null default now()
 );
 
--- Cupons. percentual: valor de 1 a 100; fixo: valor em centavos; frete_gratis: valor ignorado.
-create table if not exists public.cupons (
-  id              uuid primary key default gen_random_uuid(),
-  codigo          text not null unique
-                  constraint cupons_codigo_check check (codigo = upper(codigo) and codigo ~ '^[A-Z0-9_-]{3,30}$'),
-  descricao       text default '',
-  tipo            text not null
-                  constraint cupons_tipo_check check (tipo in ('percentual', 'fixo', 'frete_gratis')),
-  valor           int not null default 0,
-  minimo_centavos int not null default 0
-                  constraint cupons_minimo_check check (minimo_centavos >= 0),
-  inicio          timestamptz,
-  fim             timestamptz,
-  usos_max        int
-                  constraint cupons_usos_max_check check (usos_max is null or usos_max >= 0),
-  usos            int not null default 0
-                  constraint cupons_usos_check check (usos >= 0),
-  ativo           boolean not null default true,
-  criado_em       timestamptz not null default now(),
-  constraint cupons_valor_check check (
-    (tipo = 'percentual' and valor between 1 and 100)
-    or (tipo = 'fixo' and valor > 0)
-    or (tipo = 'frete_gratis' and valor >= 0)
-  ),
-  constraint cupons_periodo_check check (inicio is null or fim is null or fim > inicio)
-);
+-- O sistema de cupons foi removido: apaga a tabela em projetos que já a têm
+-- (as policies e os GRANTs dela saem junto).
+drop table if exists public.cupons cascade;
 
 create table if not exists public.pedidos (
   id                       uuid primary key default gen_random_uuid(),
@@ -142,23 +119,20 @@ create table if not exists public.pedidos (
   -- Só dígitos.
   cliente_cpf              text not null
                            constraint pedidos_cpf_check check (cliente_cpf ~ '^[0-9]{11}$'),
-  -- { cep, logradouro, numero, complemento, bairro, cidade, uf } — vazio na retirada.
+  -- { cep, logradouro, numero, complemento, bairro, cidade, uf } (sempre preenchido: não há retirada).
   endereco                 jsonb not null default '{}'::jsonb
                            constraint pedidos_endereco_check check (jsonb_typeof(endereco) = 'object'),
   -- { tipo, id, nome, empresa, prazo_dias, preco_centavos, servico_id }
   entrega                  jsonb not null
                            constraint pedidos_entrega_check check (
                              jsonb_typeof(entrega) = 'object'
-                             and (entrega ->> 'tipo') in ('melhor_envio', 'fixo', 'retirada')),
+                             and (entrega ->> 'tipo') in ('melhor_envio', 'fixo')),
   subtotal_centavos        int not null
                            constraint pedidos_subtotal_check check (subtotal_centavos >= 0),
-  desconto_centavos        int not null default 0
-                           constraint pedidos_desconto_check check (desconto_centavos >= 0),
   frete_centavos           int not null default 0
                            constraint pedidos_frete_check check (frete_centavos >= 0),
   total_centavos           int not null
                            constraint pedidos_total_check check (total_centavos > 0),
-  cupom_codigo             text,
   codigo_rastreio          text,
   url_rastreio             text,
   -- Ids das etiquetas no Melhor Envio.
@@ -177,6 +151,25 @@ create table if not exists public.pedidos (
   criado_em                timestamptz not null default now(),
   atualizado_em            timestamptz not null default now()
 );
+
+-- Colunas do antigo sistema de cupons, em projetos criados antes da remoção.
+alter table public.pedidos
+  drop column if exists desconto_centavos,
+  drop column if exists cupom_codigo;
+
+-- A retirada na sede foi removida: projetos criados antes recebem o check novo.
+-- "not valid" mantém pedidos antigos de retirada (se houver) e vale para os novos.
+do $$
+begin
+  if exists (select 1 from pg_constraint
+              where conrelid = 'public.pedidos'::regclass and conname = 'pedidos_entrega_check'
+                and pg_get_constraintdef(oid) like '%retirada%') then
+    alter table public.pedidos drop constraint pedidos_entrega_check;
+    alter table public.pedidos add constraint pedidos_entrega_check check (
+      jsonb_typeof(entrega) = 'object' and (entrega ->> 'tipo') in ('melhor_envio', 'fixo')) not valid;
+  end if;
+end;
+$$;
 
 -- Rastreio: as mesmas regras de alterar_status_pedido também para quem grava
 -- direto na tabela (o admin pode dar update em pedidos pela API). O valor vai
@@ -328,8 +321,8 @@ as $$
   end;
 $$;
 
--- Desconta do estoque os itens do pedido (só produtos com controlar_estoque),
--- marca estoque_baixado = true e soma 1 no uso do cupom.
+-- Desconta do estoque os itens do pedido (só produtos com controlar_estoque)
+-- e marca estoque_baixado = true.
 -- Quem chama já deve ter travado o pedido (select … for update) e conferido
 -- que estoque_baixado = false. Devolve a lista de itens que faltaram.
 create or replace function public._baixar_estoque(p_pedido_id uuid)
@@ -341,7 +334,6 @@ declare
   r         record;
   v_estoque int;
   v_faltas  jsonb := '[]'::jsonb;
-  v_cupom   text;
 begin
   -- Ordem fixa por produto evita impasse (deadlock) entre pedidos simultâneos.
   for r in
@@ -373,26 +365,20 @@ begin
 
   update public.pedidos
      set estoque_baixado = true
-   where id = p_pedido_id
-  returning cupom_codigo into v_cupom;
-
-  if v_cupom is not null then
-    update public.cupons set usos = usos + 1 where codigo = v_cupom;
-  end if;
+   where id = p_pedido_id;
 
   return v_faltas;
 end;
 $$;
 
--- Devolve ao estoque os itens do pedido, zera estoque_baixado e devolve o uso do cupom.
+-- Devolve ao estoque os itens do pedido e zera estoque_baixado.
 create or replace function public._repor_estoque(p_pedido_id uuid)
 returns void
 language plpgsql
 set search_path = ''
 as $$
 declare
-  r       record;
-  v_cupom text;
+  r record;
 begin
   for r in
     select i.produto_id, sum(i.quantidade)::int as quantidade
@@ -410,12 +396,7 @@ begin
 
   update public.pedidos
      set estoque_baixado = false
-   where id = p_pedido_id
-  returning cupom_codigo into v_cupom;
-
-  if v_cupom is not null then
-    update public.cupons set usos = greatest(0, usos - 1) where codigo = v_cupom;
-  end if;
+   where id = p_pedido_id;
 end;
 $$;
 
@@ -437,8 +418,8 @@ as $$
 $$;
 
 
--- 5.2 Cotação do carrinho: preços, estoque e cupom recalculados no banco.
--- Entrada: { "itens": [{ "produto_id": uuid, "quantidade": int }], "cupom": "CODIGO" | null }
+-- 5.2 Cotação do carrinho: preços e estoque recalculados no banco.
+-- Entrada: { "itens": [{ "produto_id": uuid, "quantidade": int }] }
 create or replace function public.cotar_carrinho(p jsonb)
 returns jsonb
 language plpgsql
@@ -450,11 +431,6 @@ declare
   v_entrada      jsonb := coalesce(p, '{}'::jsonb);
   v_itens        jsonb := '[]'::jsonb;
   v_subtotal     bigint := 0;
-  v_desconto     bigint := 0;
-  v_frete_gratis boolean := false;
-  v_codigo       text;
-  v_cupom        public.cupons%rowtype;
-  v_cupom_json   jsonb;
   v_preco        bigint;
   v_motivo       text;
   v_disponivel   boolean;
@@ -511,7 +487,7 @@ begin
   loop
     v_preco := coalesce(r.preco_promocional_centavos, r.preco_centavos);
 
-    -- sem_preco: produto ativo (aparece na vitrine como "R$ 00,00", "Em breve"), ainda sem preço.
+    -- sem_preco: produto ativo (aparece na vitrine como "R$ 00,00"), ainda sem preço.
     v_motivo := case
       when r.id is null then 'inexistente'
       when not r.ativo then 'inativo'
@@ -563,65 +539,16 @@ begin
     end if;
   end loop;
 
-  -- Cupom (o código é comparado em maiúsculas).
-  if jsonb_typeof(v_entrada -> 'cupom') = 'string' then
-    v_codigo := nullif(upper(btrim(v_entrada ->> 'cupom')), '');
-  end if;
-
-  if v_codigo is not null then
-    v_codigo := left(v_codigo, 60);
-
-    select c.* into v_cupom
-      from public.cupons c
-     where c.codigo = v_codigo
-       and c.ativo;
-
-    if not found then
-      v_cupom_json := jsonb_build_object('codigo', v_codigo, 'valido', false, 'tipo', null,
-                                         'mensagem', 'Cupom não encontrado');
-    elsif v_cupom.inicio is not null and v_cupom.inicio > now() then
-      v_cupom_json := jsonb_build_object('codigo', v_codigo, 'valido', false, 'tipo', v_cupom.tipo,
-                                         'mensagem', 'Cupom ainda não disponível');
-    elsif v_cupom.fim is not null and v_cupom.fim <= now() then
-      v_cupom_json := jsonb_build_object('codigo', v_codigo, 'valido', false, 'tipo', v_cupom.tipo,
-                                         'mensagem', 'Cupom expirado');
-    elsif v_cupom.usos_max is not null and v_cupom.usos >= v_cupom.usos_max then
-      v_cupom_json := jsonb_build_object('codigo', v_codigo, 'valido', false, 'tipo', v_cupom.tipo,
-                                         'mensagem', 'Cupom esgotado');
-    elsif v_subtotal < v_cupom.minimo_centavos then
-      v_cupom_json := jsonb_build_object('codigo', v_codigo, 'valido', false, 'tipo', v_cupom.tipo,
-                                         'mensagem', 'Valor mínimo para este cupom: '
-                                                     || public._formatar_reais(v_cupom.minimo_centavos));
-    elsif v_cupom.tipo = 'percentual' then
-      -- Arredonda para baixo: nunca dá mais desconto que o anunciado.
-      v_desconto := floor(v_subtotal * v_cupom.valor / 100.0)::bigint;
-      v_cupom_json := jsonb_build_object('codigo', v_codigo, 'valido', true, 'tipo', v_cupom.tipo,
-                                         'mensagem', 'Cupom aplicado: ' || v_cupom.valor || '% de desconto');
-    elsif v_cupom.tipo = 'fixo' then
-      v_desconto := least(v_cupom.valor::bigint, v_subtotal);
-      v_cupom_json := jsonb_build_object('codigo', v_codigo, 'valido', true, 'tipo', v_cupom.tipo,
-                                         'mensagem', 'Cupom aplicado: '
-                                                     || public._formatar_reais(v_cupom.valor) || ' de desconto');
-    else
-      v_frete_gratis := true;
-      v_cupom_json := jsonb_build_object('codigo', v_codigo, 'valido', true, 'tipo', v_cupom.tipo,
-                                         'mensagem', 'Cupom aplicado: frete grátis');
-    end if;
-  end if;
-
   return jsonb_build_object(
-    'itens',              v_itens,
-    'subtotal_centavos',  v_subtotal,
-    'desconto_centavos',  v_desconto,
-    'cupom',              v_cupom_json,
-    'frete_gratis_cupom', v_frete_gratis
+    'itens',             v_itens,
+    'subtotal_centavos', v_subtotal
   );
 end;
 $$;
 
 
 -- 5.3 Cria o pedido a partir do carrinho (preços recalculados aqui).
--- Erros (message do PostgREST): carrinho_vazio, item_indisponivel, cupom_invalido,
+-- Erros (message do PostgREST): carrinho_vazio, item_indisponivel,
 -- dados_invalidos (detail = campo), total_invalido.
 create or replace function public.criar_pedido(p jsonb)
 returns jsonb
@@ -655,10 +582,8 @@ declare
   v_endereco  jsonb := '{}'::jsonb;
   v_entrega   jsonb;
   v_obs       text;
-  v_cupom_inf text;
   v_cotacao   jsonb;
   v_subtotal  bigint;
-  v_desconto  bigint;
   v_total     bigint;
   v_pedido    public.pedidos%rowtype;
   v_indisp    jsonb;
@@ -705,7 +630,7 @@ begin
   end if;
 
   v_tipo := case when jsonb_typeof(v_ent -> 'tipo') = 'string' then v_ent ->> 'tipo' end;
-  if v_tipo is null or v_tipo not in ('melhor_envio', 'fixo', 'retirada') then
+  if v_tipo is null or v_tipo not in ('melhor_envio', 'fixo') then
     raise exception 'dados_invalidos' using detail = 'entrega.tipo';
   end if;
 
@@ -767,57 +692,55 @@ begin
     'tipo', v_tipo, 'id', v_ent_id, 'nome', v_ent_nome, 'empresa', v_empresa,
     'prazo_dias', v_prazo, 'preco_centavos', v_frete, 'servico_id', v_servico);
 
-  -- Endereço (não se aplica à retirada) --------------------------------------
-  if v_tipo <> 'retirada' then
-    v_end := p -> 'endereco';
-    if jsonb_typeof(v_end) is distinct from 'object' then
-      raise exception 'dados_invalidos' using detail = 'endereco';
-    end if;
+  -- Endereço (sempre obrigatório) -------------------------------------------------
+  v_end := p -> 'endereco';
+  if jsonb_typeof(v_end) is distinct from 'object' then
+    raise exception 'dados_invalidos' using detail = 'endereco';
+  end if;
 
-    v_cep := case when jsonb_typeof(v_end -> 'cep') = 'string'
-                  then regexp_replace(v_end ->> 'cep', '[^0-9]', '', 'g') end;
-    if v_cep is null or length(v_cep) <> 8 then
-      raise exception 'dados_invalidos' using detail = 'endereco.cep';
-    end if;
+  v_cep := case when jsonb_typeof(v_end -> 'cep') = 'string'
+                then regexp_replace(v_end ->> 'cep', '[^0-9]', '', 'g') end;
+  if v_cep is null or length(v_cep) <> 8 then
+    raise exception 'dados_invalidos' using detail = 'endereco.cep';
+  end if;
 
-    v_logr := case when jsonb_typeof(v_end -> 'logradouro') = 'string' then btrim(v_end ->> 'logradouro') end;
-    if v_logr is null or length(v_logr) not between 1 and 200 then
-      raise exception 'dados_invalidos' using detail = 'endereco.logradouro';
-    end if;
+  v_logr := case when jsonb_typeof(v_end -> 'logradouro') = 'string' then btrim(v_end ->> 'logradouro') end;
+  if v_logr is null or length(v_logr) not between 1 and 200 then
+    raise exception 'dados_invalidos' using detail = 'endereco.logradouro';
+  end if;
 
-    v_num := case when jsonb_typeof(v_end -> 'numero') in ('string', 'number') then btrim(v_end ->> 'numero') end;
-    if v_num is null or length(v_num) not between 1 and 20 then
-      raise exception 'dados_invalidos' using detail = 'endereco.numero';
-    end if;
+  v_num := case when jsonb_typeof(v_end -> 'numero') in ('string', 'number') then btrim(v_end ->> 'numero') end;
+  if v_num is null or length(v_num) not between 1 and 20 then
+    raise exception 'dados_invalidos' using detail = 'endereco.numero';
+  end if;
 
-    if jsonb_typeof(v_end -> 'complemento') = 'string' then
-      v_compl := nullif(btrim(v_end ->> 'complemento'), '');
-      if length(v_compl) > 100 then
-        raise exception 'dados_invalidos' using detail = 'endereco.complemento';
-      end if;
-    elsif coalesce(jsonb_typeof(v_end -> 'complemento'), 'null') <> 'null' then
+  if jsonb_typeof(v_end -> 'complemento') = 'string' then
+    v_compl := nullif(btrim(v_end ->> 'complemento'), '');
+    if length(v_compl) > 100 then
       raise exception 'dados_invalidos' using detail = 'endereco.complemento';
     end if;
-
-    v_bairro := case when jsonb_typeof(v_end -> 'bairro') = 'string' then btrim(v_end ->> 'bairro') end;
-    if v_bairro is null or length(v_bairro) not between 1 and 100 then
-      raise exception 'dados_invalidos' using detail = 'endereco.bairro';
-    end if;
-
-    v_cidade := case when jsonb_typeof(v_end -> 'cidade') = 'string' then btrim(v_end ->> 'cidade') end;
-    if v_cidade is null or length(v_cidade) not between 1 and 100 then
-      raise exception 'dados_invalidos' using detail = 'endereco.cidade';
-    end if;
-
-    v_uf := case when jsonb_typeof(v_end -> 'uf') = 'string' then upper(btrim(v_end ->> 'uf')) end;
-    if v_uf is null or v_uf !~ '^[A-Z]{2}$' then
-      raise exception 'dados_invalidos' using detail = 'endereco.uf';
-    end if;
-
-    v_endereco := jsonb_build_object(
-      'cep', v_cep, 'logradouro', v_logr, 'numero', v_num, 'complemento', coalesce(v_compl, ''),
-      'bairro', v_bairro, 'cidade', v_cidade, 'uf', v_uf);
+  elsif coalesce(jsonb_typeof(v_end -> 'complemento'), 'null') <> 'null' then
+    raise exception 'dados_invalidos' using detail = 'endereco.complemento';
   end if;
+
+  v_bairro := case when jsonb_typeof(v_end -> 'bairro') = 'string' then btrim(v_end ->> 'bairro') end;
+  if v_bairro is null or length(v_bairro) not between 1 and 100 then
+    raise exception 'dados_invalidos' using detail = 'endereco.bairro';
+  end if;
+
+  v_cidade := case when jsonb_typeof(v_end -> 'cidade') = 'string' then btrim(v_end ->> 'cidade') end;
+  if v_cidade is null or length(v_cidade) not between 1 and 100 then
+    raise exception 'dados_invalidos' using detail = 'endereco.cidade';
+  end if;
+
+  v_uf := case when jsonb_typeof(v_end -> 'uf') = 'string' then upper(btrim(v_end ->> 'uf')) end;
+  if v_uf is null or v_uf !~ '^[A-Z]{2}$' then
+    raise exception 'dados_invalidos' using detail = 'endereco.uf';
+  end if;
+
+  v_endereco := jsonb_build_object(
+    'cep', v_cep, 'logradouro', v_logr, 'numero', v_num, 'complemento', coalesce(v_compl, ''),
+    'bairro', v_bairro, 'cidade', v_cidade, 'uf', v_uf);
 
   -- Observações do cliente ----------------------------------------------------
   if jsonb_typeof(p -> 'observacoes') = 'string' then
@@ -829,12 +752,8 @@ begin
     raise exception 'dados_invalidos' using detail = 'observacoes';
   end if;
 
-  -- Carrinho e cupom (recalculados) -------------------------------------------
-  if jsonb_typeof(p -> 'cupom') = 'string' then
-    v_cupom_inf := nullif(upper(btrim(p ->> 'cupom')), '');
-  end if;
-
-  v_cotacao := public.cotar_carrinho(jsonb_build_object('itens', p -> 'itens', 'cupom', p -> 'cupom'));
+  -- Carrinho (recalculado) ---------------------------------------------------
+  v_cotacao := public.cotar_carrinho(jsonb_build_object('itens', p -> 'itens'));
 
   if jsonb_array_length(v_cotacao -> 'itens') = 0 then
     raise exception 'carrinho_vazio';
@@ -848,13 +767,8 @@ begin
     raise exception 'item_indisponivel' using detail = v_indisp::text;
   end if;
 
-  if v_cupom_inf is not null and coalesce((v_cotacao -> 'cupom' ->> 'valido')::boolean, false) = false then
-    raise exception 'cupom_invalido' using detail = coalesce(v_cotacao -> 'cupom' ->> 'mensagem', '');
-  end if;
-
   v_subtotal := (v_cotacao ->> 'subtotal_centavos')::bigint;
-  v_desconto := (v_cotacao ->> 'desconto_centavos')::bigint;
-  v_total := v_subtotal - v_desconto + v_frete;
+  v_total := v_subtotal + v_frete;
 
   if v_total <= 0 or v_total > 2147483647 or v_subtotal > 2147483647 then
     raise exception 'total_invalido';
@@ -863,12 +777,10 @@ begin
   -- Gravação --------------------------------------------------------------------
   insert into public.pedidos (
     cliente_nome, cliente_email, cliente_telefone, cliente_cpf,
-    endereco, entrega, subtotal_centavos, desconto_centavos, frete_centavos, total_centavos,
-    cupom_codigo, observacoes)
+    endereco, entrega, subtotal_centavos, frete_centavos, total_centavos, observacoes)
   values (
     v_nome, v_email, v_telefone, v_cpf,
-    v_endereco, v_entrega, v_subtotal, v_desconto, v_frete, v_total,
-    case when v_cupom_inf is not null then v_cotacao -> 'cupom' ->> 'codigo' end, v_obs)
+    v_endereco, v_entrega, v_subtotal, v_frete, v_total, v_obs)
   returning * into v_pedido;
 
   insert into public.pedido_itens (pedido_id, produto_id, nome, imagem, preco_unitario_centavos, quantidade, total_centavos)
@@ -888,8 +800,7 @@ begin
     jsonb_build_object(
       'total_centavos', v_total,
       'itens', jsonb_array_length(v_cotacao -> 'itens'),
-      'entrega', v_tipo,
-      'cupom', v_pedido.cupom_codigo),
+      'entrega', v_tipo),
     'sistema');
 
   return jsonb_build_object(
@@ -897,10 +808,8 @@ begin
     'numero',            v_pedido.numero,
     'token_acesso',      v_pedido.token_acesso,
     'subtotal_centavos', v_pedido.subtotal_centavos,
-    'desconto_centavos', v_pedido.desconto_centavos,
     'frete_centavos',    v_pedido.frete_centavos,
     'total_centavos',    v_pedido.total_centavos,
-    'cupom_codigo',      v_pedido.cupom_codigo,
     'itens',             v_cotacao -> 'itens'
   );
 end;
@@ -1418,12 +1327,12 @@ grant execute on function public.alterar_status_pedido(uuid, text, text, text, b
 
 revoke all on table
   public.admins, public.conteudo_site, public.configuracoes, public.categorias, public.produtos,
-  public.cupons, public.pedidos, public.pedido_itens, public.pedido_eventos
+  public.pedidos, public.pedido_itens, public.pedido_eventos
   from anon, authenticated;
 
 grant select, insert, update, delete on table
   public.admins, public.conteudo_site, public.configuracoes, public.categorias, public.produtos,
-  public.cupons, public.pedidos, public.pedido_itens, public.pedido_eventos
+  public.pedidos, public.pedido_itens, public.pedido_eventos
   to anon, authenticated, service_role;
 
 grant usage, select on sequence
@@ -1443,7 +1352,6 @@ alter table public.conteudo_site  enable row level security;
 alter table public.configuracoes  enable row level security;
 alter table public.categorias     enable row level security;
 alter table public.produtos       enable row level security;
-alter table public.cupons         enable row level security;
 alter table public.pedidos        enable row level security;
 alter table public.pedido_itens   enable row level security;
 alter table public.pedido_eventos enable row level security;
@@ -1498,13 +1406,6 @@ create policy produtos_publico_select on public.produtos
 
 drop policy if exists produtos_admin_tudo on public.produtos;
 create policy produtos_admin_tudo on public.produtos
-  for all to authenticated
-  using ((select public.eh_admin()))
-  with check ((select public.eh_admin()));
-
--- cupons: só admin.
-drop policy if exists cupons_admin_tudo on public.cupons;
-create policy cupons_admin_tudo on public.cupons
   for all to authenticated
   using ((select public.eh_admin()))
   with check ((select public.eh_admin()));
@@ -1609,8 +1510,9 @@ create policy ama_midia_admin_delete on storage.objects
 -- -----------------------------------------------------------------------------
 -- 10. Dados iniciais
 --     Configurações padrão, categorias e o catálogo inicial (coleção Ama
---     Bioessência e biojoias), ativo e com preço 0: a AMA define preço e
---     estoque no painel. "on conflict do nothing" preserva o que já foi editado.
+--     Bioessência e biojoias), ativo e com preços e estoque de teste: a AMA
+--     define os valores reais no painel. "on conflict do nothing" preserva o
+--     que já foi editado.
 -- -----------------------------------------------------------------------------
 
 insert into public.configuracoes (chave, publico, valor) values
@@ -1641,12 +1543,6 @@ insert into public.configuracoes (chave, publico, valor) values
       "bairro": "",
       "cidade": "Ananindeua",
       "uf": "PA"
-    },
-    "retirada": {
-      "ativa": true,
-      "nome": "Retirar na sede da AMA",
-      "endereco": "Conjunto Uirapuru, Quadra 28, Casa 02, Icuí, Ananindeua - PA",
-      "prazo_texto": "Disponível após a confirmação do pagamento"
     },
     "fixo": {
       "ativo": false,
@@ -1679,9 +1575,10 @@ on conflict (chave) do nothing;
 update public.configuracoes
    set valor = jsonb_set(valor, '{titulo}', '"Cosméticos"')
  where chave = 'loja' and valor ->> 'titulo' = 'Loja AMA';
+-- A retirada na sede foi removida: tira a configuração antiga dela.
 update public.configuracoes
-   set valor = jsonb_set(valor, '{retirada,prazo_texto}', '"Disponível após a confirmação do pagamento"')
- where chave = 'frete' and valor #>> '{retirada,prazo_texto}' = 'Combine a retirada pelo WhatsApp';
+   set valor = valor - 'retirada'
+ where chave = 'frete' and valor ? 'retirada';
 update public.configuracoes
    set valor = jsonb_set(valor, '{subtitulo}', '"Cosméticos e biojoias feitos à mão por mulheres da Amazônia."')
  where chave = 'loja' and valor ->> 'subtitulo' = 'Biojoias e cosméticos feitos à mão por mulheres da Amazônia. Cada compra fortalece os projetos da AMA.';
@@ -1695,11 +1592,21 @@ insert into public.categorias (nome, slug, descricao, ordem) values
 on conflict (slug) do nothing;
 
 -- Coleção Ama Bioessência (apresentação institucional) e biojoias do ateliê.
--- Preço 0 = "R$ 00,00" na loja: o produto aparece na vitrine, mas só pode ser
--- comprado depois que a AMA definir o preço no painel.
-insert into public.produtos (nome, slug, descricao, preco_centavos, ativo, categoria_id, imagens, ordem,
+-- Preços e estoque são de TESTE (placeholder), para os testes de funcionamento da loja:
+-- body splash R$ 59,90, cremes R$ 69,90, sabonete líquido R$ 49,90, sabonete sólido
+-- R$ 24,90, biojoias R$ 89,90 e 10 unidades de cada. A AMA troca pelos valores reais
+-- no painel (Produtos).
+insert into public.produtos (nome, slug, descricao, preco_centavos, estoque, ativo, categoria_id, imagens, ordem,
                              peso_gramas, altura_cm, largura_cm, comprimento_cm)
-select v.nome, v.slug, v.descricao, 0, true,
+select v.nome, v.slug, v.descricao,
+       case v.categoria
+         when 'body-splash'             then 5990
+         when 'cremes-hidratantes'      then 6990
+         when 'sabonete-liquido-intimo' then 4990
+         when 'sabonete-solido'         then 2490
+         else                                8990  -- biojoias
+       end,
+       10, true,
        (select c.id from public.categorias c where c.slug = v.categoria),
        jsonb_build_array(jsonb_build_object('src', v.imagem, 'alt', v.alt)),
        v.ordem, v.peso, v.altura, v.largura, v.comprimento
@@ -1760,3 +1667,22 @@ select v.nome, v.slug, v.descricao, 0, true,
      'Brinco em formato de gota em resina verde, estilo boho', 'Descrição em Produção', 16, 100, 4.0, 12.0, 16.0)
   ) as v (nome, slug, categoria, imagem, alt, descricao, ordem, peso, altura, largura, comprimento)
 on conflict (slug) do nothing;
+
+-- Projetos criados quando o catálogo inicial vinha com preço 0 e estoque 0: aplica os mesmos
+-- valores de teste só nos 16 produtos iniciais que continuam com preço 0 E estoque 0 (o que a
+-- AMA já editou no painel não muda).
+update public.produtos p
+   set preco_centavos = v.preco,
+       estoque = 10
+  from (values
+    ('body-splash-raiz', 5990), ('body-splash-bruma', 5990), ('body-splash-orvalho', 5990), ('body-splash-ambar', 5990),
+    ('creme-hidratante-ameixa-negra', 6990), ('creme-hidratante-cupuacu', 6990), ('creme-hidratante-cumaru', 6990),
+    ('creme-hidratante-capim-limao', 6990),
+    ('sabonete-liquido-intimo-barbatimao-andiroba', 4990),
+    ('sabonete-solido-manteiga-cupuacu', 2490),
+    ('biojoia-01', 8990), ('biojoia-02', 8990), ('biojoia-03', 8990), ('biojoia-04', 8990), ('biojoia-05', 8990),
+    ('biojoia-06', 8990)
+  ) as v (slug, preco)
+ where p.slug = v.slug
+   and p.preco_centavos = 0
+   and p.estoque = 0;

@@ -3,7 +3,7 @@
 // e o bucket "midia". Exige "supabase start" e a migração aplicada ("supabase db reset").
 //
 // Re-executável sem "db reset": cada execução cria os próprios dados com um sufixo
-// aleatório (produtos, categorias, cupons, pedidos, usuários, arquivos) e apaga tudo no after().
+// aleatório (produtos, categorias, pedidos, usuários, arquivos) e apaga tudo no after().
 
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,7 +19,6 @@ const PUBLIC = fileURLToPath(new URL('../../public/', import.meta.url));
 const MIGRACAO = fileURLToPath(new URL('../../supabase/migrations/20261009120000_inicial.sql', import.meta.url));
 
 const SUF = randomBytes(4).toString('hex');
-const SUF_MAIUSC = SUF.toUpperCase();
 const SENHA = `Senha-${SUF}-123`;
 const EMAIL_ADMIN = `admin-${SUF}@teste.ama.local`;
 const EMAIL_COMUM = `comum-${SUF}@teste.ama.local`;
@@ -85,26 +84,20 @@ async function criarCategoria(campos = {}) {
   }).select().single(), 'criar categoria');
 }
 
-async function criarCupom(campos = {}) {
-  return semErro(servico.from('cupons').insert({
-    codigo: `T${SUF_MAIUSC}${seq()}`,
-    tipo: 'percentual',
-    valor: 10,
-    ...campos,
-  }).select().single(), 'criar cupom');
-}
-
 const ENTREGA_FIXO = {
   tipo: 'fixo', id: 'fixo-1', nome: 'Entrega local', empresa: null, prazo_dias: 3, preco_centavos: 1500, servico_id: null,
 };
-const RETIRADA = {
-  tipo: 'retirada', id: 'retirada', nome: 'Retirar na sede da AMA', empresa: null, prazo_dias: null, preco_centavos: 0, servico_id: null,
+// Frete fixo sem custo: deixa o total igual ao subtotal nos testes de pagamento.
+const ENTREGA_GRATIS = {
+  tipo: 'fixo', id: 'fixo-gratis', nome: 'Entrega grátis', empresa: null, prazo_dias: 3, preco_centavos: 0, servico_id: null,
+};
+const ENDERECO_DIRETO = {
+  cep: '66010000', logradouro: 'Avenida Presidente Vargas', numero: '100', complemento: '', bairro: 'Campina', cidade: 'Belém', uf: 'PA',
 };
 
 function dadosPedido(itens, extra = {}) {
   return {
     itens,
-    cupom: null,
     cliente: { nome: '  Maria   da Silva ', email: EMAIL_CLIENTE.toUpperCase(), telefone: '(91) 98105-6049', cpf: '529.982.247-25' },
     endereco: {
       cep: '66010-000', logradouro: 'Avenida Presidente Vargas', numero: '100', complemento: 'Apto 1',
@@ -127,12 +120,12 @@ async function erroRpc(cl, nome, args) {
   return error;
 }
 
-/** Produto + pedido (retirada, sem frete) prontos para os testes de pagamento. */
-async function cenario({ estoque = 10, quantidade = 2, preco = 2500, controlar = true, cupom = null, itensExtras = [] } = {}) {
+/** Produto + pedido (frete fixo sem custo) prontos para os testes de pagamento. */
+async function cenario({ estoque = 10, quantidade = 2, preco = 2500, controlar = true, itensExtras = [] } = {}) {
   const produto = await criarProduto({ preco_centavos: preco, estoque, controlar_estoque: controlar });
   const pedido = await criarPedido(dadosPedido(
     [{ produto_id: produto.id, quantidade }, ...itensExtras],
-    { entrega: { ...RETIRADA }, endereco: undefined, cupom },
+    { entrega: { ...ENTREGA_GRATIS } },
   ));
   return { produto, pedido };
 }
@@ -167,10 +160,6 @@ async function lerPedido(id) {
 
 async function lerEstoque(produtoId) {
   return Number(await sql(`select estoque from public.produtos where id = ${lit(produtoId)}`));
-}
-
-async function lerUsos(codigo) {
-  return Number(await sql(`select usos from public.cupons where codigo = ${lit(codigo)}`));
 }
 
 async function lerEventos(pedidoId, tipo) {
@@ -237,7 +226,6 @@ after(async () => {
     delete from public.pedidos where cliente_email = ${lit(EMAIL_CLIENTE)};
     delete from public.produtos where slug like ${lit(`teste-${SUF}-%`)};
     delete from public.categorias where slug like ${lit(`teste-${SUF}-%`)};
-    delete from public.cupons where codigo like ${lit(`T${SUF_MAIUSC}%`)};
     delete from public.configuracoes where chave like ${lit(`teste_${SUF}_%`)};
     delete from public.conteudo_site where chave like ${lit(`teste.${SUF}.%`)};
   `));
@@ -374,7 +362,7 @@ describe('RLS: matriz da tabela 4.3', () => {
   before(async () => {
     pedidoBase = await semErro(servico.from('pedidos').insert({
       cliente_nome: 'Cliente RLS', cliente_email: EMAIL_CLIENTE, cliente_telefone: '91981056049',
-      cliente_cpf: '52998224725', entrega: RETIRADA, subtotal_centavos: 1000, total_centavos: 1000,
+      cliente_cpf: '52998224725', entrega: ENTREGA_GRATIS, endereco: ENDERECO_DIRETO, subtotal_centavos: 1000, total_centavos: 1000,
     }).select().single(), 'pedido base');
   });
 
@@ -463,27 +451,12 @@ describe('RLS: matriz da tabela 4.3', () => {
         admin: { select: 'todas', insert: true, update: true, delete: true },
       },
     },
-    cupons: {
-      busca: 'id',
-      criar: async () => {
-        const a = await criarCupom();
-        const b = await criarCupom({ ativo: false });
-        return { todas: [a.id, b.id], publicas: [], alvoUpdate: a.id, alvoDelete: b.id };
-      },
-      nova: () => ({ id: randomUUID(), codigo: `T${SUF_MAIUSC}${seq()}`, tipo: 'fixo', valor: 500 }),
-      patch: { descricao: 'alterado', valor: 99 },
-      esperado: {
-        anon: { select: 'nenhuma', insert: false, update: false, delete: false },
-        comum: { select: 'nenhuma', insert: false, update: false, delete: false },
-        admin: { select: 'todas', insert: true, update: true, delete: true },
-      },
-    },
     pedidos: {
       busca: 'id',
       criar: async () => {
         const linhas = [1, 2].map(() => ({
           id: randomUUID(), cliente_nome: 'Cliente RLS', cliente_email: EMAIL_CLIENTE, cliente_telefone: '91981056049',
-          cliente_cpf: '52998224725', entrega: RETIRADA, subtotal_centavos: 1000, total_centavos: 1000,
+          cliente_cpf: '52998224725', entrega: ENTREGA_GRATIS, endereco: ENDERECO_DIRETO, subtotal_centavos: 1000, total_centavos: 1000,
         }));
         await semErro(servico.from('pedidos').insert(linhas), 'pedidos');
         const ids = linhas.map((l) => l.id);
@@ -491,7 +464,7 @@ describe('RLS: matriz da tabela 4.3', () => {
       },
       nova: () => ({
         id: randomUUID(), cliente_nome: 'Intruso', cliente_email: EMAIL_CLIENTE, cliente_telefone: '91981056049',
-        cliente_cpf: '52998224725', entrega: RETIRADA, subtotal_centavos: 1000, total_centavos: 1000,
+        cliente_cpf: '52998224725', entrega: ENTREGA_GRATIS, endereco: ENDERECO_DIRETO, subtotal_centavos: 1000, total_centavos: 1000,
       }),
       patch: { notas_internas: 'alterado', status: 'cancelado' },
       esperado: {
@@ -605,7 +578,7 @@ describe('RLS: matriz da tabela 4.3', () => {
       assert.ok(chaves.includes('loja'));
       for (const privada of ['frete', 'checkout', 'notificacoes']) assert.ok(!chaves.includes(privada), privada);
       assert.ok(configuracoes.every((c) => c.publico === true));
-      for (const tabela of ['cupons', 'pedidos', 'pedido_itens', 'pedido_eventos', 'admins']) {
+      for (const tabela of ['pedidos', 'pedido_itens', 'pedido_eventos', 'admins']) {
         assert.deepEqual(await semErro(cl.from(tabela).select('*').limit(5), tabela), [], tabela);
       }
     }
@@ -616,7 +589,7 @@ describe('RLS: matriz da tabela 4.3', () => {
     }
   });
 
-  test('admin lê configurações privadas, produtos inativos, cupons e pedidos', async () => {
+  test('admin lê configurações privadas, produtos inativos e pedidos', async () => {
     const configuracoes = await semErro(admin.from('configuracoes').select('chave'), 'configurações');
     const chaves = configuracoes.map((c) => c.chave);
     for (const chave of ['loja', 'frete', 'checkout', 'notificacoes']) assert.ok(chaves.includes(chave), chave);
@@ -651,13 +624,13 @@ describe('RLS: matriz da tabela 4.3', () => {
     for (const cl of [anon, comum, admin]) {
       const { error } = await cl.from('pedidos').insert({
         cliente_nome: 'X', cliente_email: EMAIL_CLIENTE, cliente_telefone: '91981056049', cliente_cpf: '52998224725',
-        entrega: RETIRADA, subtotal_centavos: 1, total_centavos: 1,
+        entrega: ENTREGA_GRATIS, endereco: ENDERECO_DIRETO, subtotal_centavos: 1, total_centavos: 1,
       });
       assert.equal(error?.code, '42501');
     }
     const direto = await semErro(servico.from('pedidos').insert({
       cliente_nome: 'Serviço', cliente_email: EMAIL_CLIENTE, cliente_telefone: '91981056049', cliente_cpf: '52998224725',
-      entrega: RETIRADA, subtotal_centavos: 1, total_centavos: 1,
+      entrega: ENTREGA_GRATIS, endereco: ENDERECO_DIRETO, subtotal_centavos: 1, total_centavos: 1,
     }).select('numero, token_acesso').single(), 'pedido pelo serviço');
     assert.ok(direto.numero >= 1001);
     assert.match(direto.token_acesso, /^[0-9a-f]{64}$/);
@@ -794,6 +767,7 @@ describe('catálogo inicial (seção 10 da migração, rodada isolada numa trans
     const migracao = readFileSync(MIGRACAO, 'utf8');
     const categorias = trecho(migracao, /insert into public\.categorias \(nome, slug, descricao, ordem\) values[\s\S]*?on conflict \(slug\) do nothing;/, 'categorias');
     const produtos = trecho(migracao, /insert into public\.produtos \(nome, slug, descricao, preco_centavos[\s\S]*?on conflict \(slug\) do nothing;/, 'produtos');
+    const precosTeste = trecho(migracao, /update public\.produtos p\s+set preco_centavos = v\.preco,[\s\S]*?and p\.estoque = 0;/, 'preços de teste');
     const seed = trecho(readFileSync(SEED, 'utf8'), /update public\.produtos p[\s\S]*?where p\.slug = v\.slug;/, 'seed');
     // Tudo numa transação desfeita no fim: não depende do seed já aplicado nem do que o painel ou os E2E editaram.
     fotos = await sqlJson(`
@@ -811,22 +785,34 @@ describe('catálogo inicial (seção 10 da migração, rodada isolada numa trans
       update public.categorias set nome = 'Biojoias da AMA', ativo = false where slug = 'biojoias';
       ${categorias}
       ${produtos}
+      ${precosTeste}
       insert into _foto select 'reexecucao', ${FOTO};
+      -- Projeto criado com a versão antiga (preço 0 e estoque 0): o update preenche só o que continua zerado.
+      update public.produtos set preco_centavos = 0, preco_promocional_centavos = null, estoque = 0 where slug in (${SLUGS_SQL});
+      update public.produtos set estoque = 5 where slug = 'biojoia-02';
+      update public.produtos set preco_centavos = 1000 where slug = 'biojoia-03';
+      ${precosTeste}
+      insert into _foto select 'projeto_antigo', ${FOTO};
       select json_object_agg(etapa, dados) from _foto;
       rollback;
     `);
   });
 
-  test('a migração cria as 5 categorias e os 16 produtos ATIVOS, com preço 0, nas categorias certas', () => {
+  // Preços de teste (placeholder) por categoria, em centavos.
+  const PRECO_TESTE = {
+    'body-splash': 5990, 'cremes-hidratantes': 6990, 'sabonete-liquido-intimo': 4990, 'sabonete-solido': 2490, biojoias: 8990,
+  };
+
+  test('a migração cria as 5 categorias e os 16 produtos ATIVOS, com preços e estoque de teste, nas categorias certas', () => {
     const { categorias, produtos, cotacao } = fotos.migracao;
     assert.deepEqual(categorias, CATEGORIAS.map(([slug, nome], i) => ({ slug, nome, ativo: true, ordem: i + 1 })));
     assert.deepEqual(produtos.map((p) => p.slug), SLUGS);
     assert.deepEqual(produtos.map((p) => p.ordem), SLUGS.map((_, i) => i + 1));
     for (const p of produtos) {
       assert.equal(p.ativo, true, `${p.slug} ativo`);
-      assert.equal(p.preco, 0, `${p.slug} preço`);
+      assert.equal(p.preco, PRECO_TESTE[p.categoria], `${p.slug} preço`);
       assert.equal(p.promocional, null, `${p.slug} promocional`);
-      assert.equal(p.estoque, 0, `${p.slug} estoque`);
+      assert.equal(p.estoque, 10, `${p.slug} estoque`);
       assert.equal(p.controlar, true, `${p.slug} controlar_estoque`);
       assert.equal(p.destaque, false, `${p.slug} destaque`);
       assert.ok(p.peso > 0, `${p.slug} peso`);
@@ -844,16 +830,25 @@ describe('catálogo inicial (seção 10 da migração, rodada isolada numa trans
       assert.equal(p.descricao, 'Descrição em Produção', slug);
       assert.equal(p.categoria, 'biojoias', slug);
     }
-    // Ativo com preço 0 = "Em breve": aparece com os dados da vitrine, mas não soma nem pode ser comprado.
+    // Todos podem ser comprados nos testes de funcionamento.
     assert.equal(cotacao.itens.length, 16);
     for (const item of cotacao.itens) {
       const p = produtos.find((x) => x.id === item.produto_id);
-      assert.equal(item.disponivel, false, p.slug);
-      assert.equal(item.motivo, 'sem_preco', p.slug);
+      assert.equal(item.disponivel, true, p.slug);
+      assert.equal(item.motivo, null, p.slug);
       assert.equal(item.nome, p.nome, p.slug);
-      assert.equal(item.preco_unitario_centavos, 0, p.slug);
+      assert.equal(item.preco_unitario_centavos, PRECO_TESTE[p.categoria], p.slug);
     }
-    assert.equal(cotacao.subtotal_centavos, 0);
+    assert.equal(cotacao.subtotal_centavos, 4 * 5990 + 4 * 6990 + 4990 + 2490 + 6 * 8990);
+  });
+
+  test('projeto antigo (catálogo com preço 0 e estoque 0): o update preenche só o que continua zerado', () => {
+    const { produtos } = fotos.projeto_antigo;
+    for (const p of produtos) {
+      if (p.slug === 'biojoia-02') assert.deepEqual([p.preco, p.estoque], [0, 5], 'estoque editado: não muda');
+      else if (p.slug === 'biojoia-03') assert.deepEqual([p.preco, p.estoque], [1000, 0], 'preço editado: não muda');
+      else assert.deepEqual([p.preco, p.estoque], [PRECO_TESTE[p.categoria], 10], p.slug);
+    }
   });
 
   test('cada produto tem uma foto com texto alternativo e o arquivo existe em public/', () => {
@@ -873,7 +868,7 @@ describe('catálogo inicial (seção 10 da migração, rodada isolada numa trans
     }
   });
 
-  test('seed (dev): preços e estoque na coleção Ama Bioessência, 1 promoção, 2–3 destaques; biojoias seguem "Em breve"', () => {
+  test('seed (dev): 1 promoção e 2–3 destaques na coleção Ama Bioessência; biojoias com os preços de teste', () => {
     const { produtos, cotacao } = fotos.seed;
     const ama = produtos.filter((p) => !BIOJOIAS.includes(p.slug));
     for (const p of ama) {
@@ -887,16 +882,12 @@ describe('catálogo inicial (seção 10 da migração, rodada isolada numa trans
     const destaques = ama.filter((p) => p.destaque).length;
     assert.ok(destaques >= 2 && destaques <= 3, `destaques: ${destaques}`);
     for (const p of produtos.filter((x) => BIOJOIAS.includes(x.slug))) {
-      assert.deepEqual([p.preco, p.ativo, p.nome], [0, true, 'Nome em Produção'], p.slug);
+      assert.deepEqual([p.preco, p.estoque, p.ativo, p.nome], [8990, 10, true, 'Nome em Produção'], p.slug);
     }
     for (const item of cotacao.itens) {
       const p = produtos.find((x) => x.id === item.produto_id);
-      if (BIOJOIAS.includes(p.slug)) {
-        assert.equal(item.motivo, 'sem_preco', p.slug);
-      } else {
-        assert.equal(item.disponivel, true, p.slug);
-        assert.equal(item.preco_unitario_centavos, p.promocional ?? p.preco, p.slug);
-      }
+      assert.equal(item.disponivel, true, p.slug);
+      assert.equal(item.preco_unitario_centavos, p.promocional ?? p.preco, p.slug);
     }
   });
 
@@ -919,8 +910,16 @@ describe('catálogo inicial (seção 10 da migração, rodada isolada numa trans
 // --------------------------------------------------------------------------------------
 
 describe('GRANTs e permissões de execução', () => {
-  const TABELAS = ['admins', 'conteudo_site', 'configuracoes', 'categorias', 'produtos', 'cupons', 'pedidos', 'pedido_itens', 'pedido_eventos'];
+  const TABELAS = ['admins', 'conteudo_site', 'configuracoes', 'categorias', 'produtos', 'pedidos', 'pedido_itens', 'pedido_eventos'];
   const RPCS_SERVICO = ['cotar_carrinho', 'criar_pedido', 'confirmar_pagamento', 'alterar_status_pedido'];
+
+  test('sistema de cupons removido: sem tabela cupons e sem colunas de cupom/desconto em pedidos', async () => {
+    assert.equal(await sql(`select to_regclass('public.cupons') is null`), 't');
+    const colunas = await sqlJson(`select coalesce(json_agg(column_name), '[]'::json) from information_schema.columns
+                                    where table_schema = 'public' and table_name = 'pedidos'
+                                      and column_name in ('cupom_codigo', 'desconto_centavos')`);
+    assert.deepEqual(colunas, []);
+  });
 
   test('RLS ativada em todas as tabelas de public', async () => {
     const semRls = await sqlJson(`select coalesce(json_agg(relname), '[]'::json) from pg_class
@@ -1032,7 +1031,6 @@ describe('GRANTs e permissões de execução', () => {
 
 describe('cotar_carrinho', () => {
   const p = {};
-  const c = {};
   const cotar = (entrada) => semErro(servico.rpc('cotar_carrinho', { p: entrada }), 'cotar_carrinho');
   const item = (produto, quantidade) => ({ produto_id: produto.id ?? produto, quantidade });
 
@@ -1051,20 +1049,6 @@ describe('cotar_carrinho', () => {
     p.inativoZero = await criarProduto({ preco_centavos: 0, estoque: 0, ativo: false });
     p.zeroSemEstoque = await criarProduto({ preco_centavos: 0, estoque: 0, imagens: [{ src: '/img/teste-zero.jpg', alt: 'Z' }] });
     p.quebrado = await criarProduto({ preco_centavos: 4999, estoque: 50 });
-
-    const ontem = new Date(Date.now() - 86_400_000).toISOString();
-    const amanha = new Date(Date.now() + 86_400_000).toISOString();
-    c.pct = await criarCupom({ tipo: 'percentual', valor: 10 });
-    c.fixo = await criarCupom({ tipo: 'fixo', valor: 1000 });
-    c.fixoGrande = await criarCupom({ tipo: 'fixo', valor: 50000 });
-    c.frete = await criarCupom({ tipo: 'frete_gratis', valor: 0 });
-    c.inativo = await criarCupom({ ativo: false });
-    c.expirado = await criarCupom({ inicio: new Date(Date.now() - 10 * 86_400_000).toISOString(), fim: ontem });
-    c.futuro = await criarCupom({ inicio: amanha });
-    c.esgotado = await criarCupom({ tipo: 'frete_gratis', valor: 0, usos_max: 2, usos: 2 });
-    c.minimo = await criarCupom({ minimo_centavos: 10000 });
-    c.minimoMil = await criarCupom({ tipo: 'fixo', valor: 100, minimo_centavos: 123456 });
-    c.vigente = await criarCupom({ inicio: ontem, fim: amanha, usos_max: 3, usos: 2 });
   });
 
   test('item disponível: formato completo da saída', async () => {
@@ -1076,9 +1060,6 @@ describe('cotar_carrinho', () => {
         disponivel: true, motivo: null, peso_gramas: 250, altura_cm: 5, largura_cm: 11.5, comprimento_cm: 17,
       }],
       subtotal_centavos: 9000,
-      desconto_centavos: 0,
-      cupom: null,
-      frete_gratis_cupom: false,
     });
   });
 
@@ -1185,83 +1166,16 @@ describe('cotar_carrinho', () => {
     assert.equal(r.subtotal_centavos, 14980 + 5000);
   });
 
-  test('cupom percentual arredonda para baixo', async () => {
-    const r = await cotar({ itens: [item(p.quebrado, 1)], cupom: c.pct.codigo });
-    assert.equal(r.subtotal_centavos, 4999);
-    assert.equal(r.desconto_centavos, 499);
-    assert.deepEqual(r.cupom, { codigo: c.pct.codigo, valido: true, tipo: 'percentual', mensagem: 'Cupom aplicado: 10% de desconto' });
-    assert.equal(r.frete_gratis_cupom, false);
-  });
-
-  test('cupom fixo: valor cheio ou limitado ao subtotal', async () => {
-    const r1 = await cotar({ itens: [item(p.quebrado, 1)], cupom: c.fixo.codigo });
-    assert.equal(r1.desconto_centavos, 1000);
-    assert.deepEqual(r1.cupom, { codigo: c.fixo.codigo, valido: true, tipo: 'fixo', mensagem: 'Cupom aplicado: R$ 10,00 de desconto' });
-    const r2 = await cotar({ itens: [item(p.quebrado, 1)], cupom: c.fixoGrande.codigo });
-    assert.equal(r2.desconto_centavos, 4999);
-  });
-
-  test('cupom frete grátis: desconto 0 e frete_gratis_cupom true', async () => {
-    const r = await cotar({ itens: [item(p.quebrado, 1)], cupom: c.frete.codigo });
-    assert.equal(r.desconto_centavos, 0);
-    assert.equal(r.frete_gratis_cupom, true);
-    assert.equal(r.cupom.valido, true);
-    assert.equal(r.cupom.tipo, 'frete_gratis');
-  });
-
-  test('cupons inválidos: mensagem, valido false e sem desconto', async () => {
-    const casos = [
-      [`N${SUF_MAIUSC}EXISTE`, 'Cupom não encontrado'],
-      [c.inativo.codigo, 'Cupom não encontrado'],
-      [c.expirado.codigo, 'Cupom expirado'],
-      [c.futuro.codigo, 'Cupom ainda não disponível'],
-      [c.esgotado.codigo, 'Cupom esgotado'],
-      [c.minimo.codigo, 'Valor mínimo para este cupom: R$ 100,00'],
-      [c.minimoMil.codigo, 'Valor mínimo para este cupom: R$ 1.234,56'],
-    ];
-    for (const [codigo, mensagem] of casos) {
-      const r = await cotar({ itens: [item(p.quebrado, 1)], cupom: codigo });
-      assert.equal(r.cupom.valido, false, codigo);
-      assert.equal(r.cupom.codigo, codigo);
-      assert.equal(r.cupom.mensagem, mensagem, codigo);
-      assert.equal(r.desconto_centavos, 0);
-      assert.equal(r.frete_gratis_cupom, false);
+  test('campo cupom (removido) é ignorado: sem desconto e saída só com itens e subtotal', async () => {
+    for (const cupom of ['AMA10', '  ama10 ', 123, {}, ['AMA10']]) {
+      const r = await cotar({ itens: [item(p.quebrado, 1)], cupom });
+      assert.deepEqual(Object.keys(r).sort(), ['itens', 'subtotal_centavos'], JSON.stringify(cupom));
       assert.equal(r.subtotal_centavos, 4999);
     }
   });
 
-  test('cupom dentro do período e com usos sobrando é válido', async () => {
-    const r = await cotar({ itens: [item(p.quebrado, 1)], cupom: c.vigente.codigo });
-    assert.equal(r.cupom.valido, true);
-    assert.equal(r.desconto_centavos, 499);
-  });
-
-  test('valor mínimo considera só os itens disponíveis', async () => {
-    const r1 = await cotar({ itens: [item(p.quebrado, 2), item(p.inativo, 50)], cupom: c.minimo.codigo });
-    assert.equal(r1.subtotal_centavos, 9998);
-    assert.equal(r1.cupom.valido, false);
-    const r2 = await cotar({ itens: [item(p.quebrado, 3)], cupom: c.minimo.codigo });
-    assert.equal(r2.cupom.valido, true);
-    assert.equal(r2.desconto_centavos, 1499);
-  });
-
-  test('código em minúsculas e com espaços é aceito', async () => {
-    const r = await cotar({ itens: [item(p.a, 1)], cupom: `  ${c.pct.codigo.toLowerCase()} ` });
-    assert.equal(r.cupom.valido, true);
-    assert.equal(r.cupom.codigo, c.pct.codigo);
-    assert.equal(r.desconto_centavos, 450);
-  });
-
-  test('cupom ausente, vazio ou que não é texto → cupom null', async () => {
-    for (const cupom of [undefined, null, '', '   ', 123, {}, ['AMA10']]) {
-      const r = await cotar({ itens: [item(p.a, 1)], cupom });
-      assert.equal(r.cupom, null, JSON.stringify(cupom));
-      assert.equal(r.desconto_centavos, 0);
-    }
-  });
-
   test('entradas malformadas não quebram', async () => {
-    const vazio = { itens: [], subtotal_centavos: 0, desconto_centavos: 0, cupom: null, frete_gratis_cupom: false };
+    const vazio = { itens: [], subtotal_centavos: 0 };
     for (const entrada of [null, [], 'texto', 42, true, {}, { itens: 'abc' }, { itens: {} }, { itens: null, cupom: [] }, { itens: [[]] }]) {
       assert.deepEqual(await cotar(entrada), vazio, JSON.stringify(entrada));
     }
@@ -1276,15 +1190,11 @@ describe('criar_pedido', () => {
   let pB;
   let pB2;
   let pInd;
-  let cPct;
-  let cFixoTotal;
 
   before(async () => {
     pB = await criarProduto({ preco_centavos: 3000, estoque: 10, imagens: [{ src: '/img/b.jpg', alt: 'B' }] });
     pB2 = await criarProduto({ preco_centavos: 1990, estoque: 10 });
     pInd = await criarProduto({ preco_centavos: 1000, ativo: false });
-    cPct = await criarCupom({ tipo: 'percentual', valor: 10 });
-    cFixoTotal = await criarCupom({ tipo: 'fixo', valor: 100000 });
   });
 
   const erroCriar = (entrada) => erroRpc(servico, 'criar_pedido', { p: entrada });
@@ -1294,9 +1204,10 @@ describe('criar_pedido', () => {
     assert.ok(Number.isInteger(r.numero) && r.numero >= 1001, `numero ${r.numero}`);
     assert.match(r.token_acesso, /^[0-9a-f]{64}$/);
     assert.equal(r.subtotal_centavos, 7990);
-    assert.equal(r.desconto_centavos, 0);
     assert.equal(r.frete_centavos, 1500);
     assert.equal(r.total_centavos, 9490);
+    assert.equal('desconto_centavos' in r, false);
+    assert.equal('cupom_codigo' in r, false);
     assert.deepEqual(r.itens.map((i) => [i.produto_id, i.quantidade, i.total_centavos]), [[pB.id, 2, 6000], [pB2.id, 1, 1990]]);
 
     const pedido = await lerPedido(r.id);
@@ -1314,7 +1225,8 @@ describe('criar_pedido', () => {
     assert.deepEqual(pedido.entrega, ENTREGA_FIXO);
     assert.equal(pedido.subtotal_centavos, 7990);
     assert.equal(pedido.total_centavos, 9490);
-    assert.equal(pedido.cupom_codigo, null);
+    assert.equal('cupom_codigo' in pedido, false);
+    assert.equal('desconto_centavos' in pedido, false);
     assert.equal(pedido.observacoes, 'Entregar à tarde');
     assert.equal(pedido.estoque_baixado, false);
     assert.equal(pedido.pago_em, null);
@@ -1339,23 +1251,16 @@ describe('criar_pedido', () => {
     assert.notEqual(outro.token_acesso, r.token_acesso);
   });
 
-  test('total = subtotal − desconto + frete; cupom gravado em maiúsculas', async () => {
+  test('total = subtotal + frete; campo cupom (removido) é ignorado', async () => {
     const r = await criarPedido(dadosPedido(
       [{ produto_id: pB.id, quantidade: 2 }, { produto_id: pB2.id, quantidade: 1 }],
-      { cupom: ` ${cPct.codigo.toLowerCase()} ` },
+      { cupom: 'AMA10' },
     ));
     assert.equal(r.subtotal_centavos, 7990);
-    assert.equal(r.desconto_centavos, 799);
     assert.equal(r.frete_centavos, 1500);
-    assert.equal(r.total_centavos, 7990 - 799 + 1500);
-    const pedido = await lerPedido(r.id);
-    assert.equal(pedido.cupom_codigo, cPct.codigo);
-    assert.equal(pedido.desconto_centavos, 799);
-    assert.equal(pedido.total_centavos, 8691);
+    assert.equal(r.total_centavos, 7990 + 1500);
     const [criado] = await lerEventos(r.id, 'criado');
-    assert.equal(criado.dados.cupom, cPct.codigo);
-    // O uso do cupom só conta quando o pagamento é confirmado.
-    assert.equal(await lerUsos(cPct.codigo), 0);
+    assert.equal('cupom' in criado.dados, false);
   });
 
   test('carrinho_vazio', async () => {
@@ -1386,15 +1291,6 @@ describe('criar_pedido', () => {
     assert.equal(erro.message, 'item_indisponivel');
     assert.deepEqual(JSON.parse(erro.details), [{ produto_id: emBreve.id, motivo: 'sem_preco' }]);
     assert.equal(await contarPedidosDoCliente(), antes);
-  });
-
-  test('cupom_invalido só quando um cupom foi informado', async () => {
-    const erro = await erroCriar(dadosPedido([{ produto_id: pB.id, quantidade: 1 }], { cupom: `N${SUF_MAIUSC}EXISTE` }));
-    assert.equal(erro.message, 'cupom_invalido');
-    assert.equal(erro.details, 'Cupom não encontrado');
-    const semCupom = await criarPedido(dadosPedido([{ produto_id: pB.id, quantidade: 1 }], { cupom: '   ' }));
-    assert.equal(semCupom.desconto_centavos, 0);
-    assert.equal((await lerPedido(semCupom.id)).cupom_codigo, null);
   });
 
   test('dados_invalidos com o campo no detail; nenhum pedido é criado', async () => {
@@ -1450,29 +1346,33 @@ describe('criar_pedido', () => {
     assert.equal(await contarPedidosDoCliente(), antes);
   });
 
-  test('total_invalido quando o total não é positivo', async () => {
+  test('total_invalido quando o total passa do limite do int', async () => {
     const antes = await contarPedidosDoCliente();
     const erro = await erroCriar(dadosPedido(
       [{ produto_id: pB2.id, quantidade: 1 }],
-      { cupom: cFixoTotal.codigo, entrega: { ...RETIRADA } },
+      { entrega: { ...ENTREGA_FIXO, preco_centavos: 2147483647 } },
     ));
     assert.equal(erro.message, 'total_invalido');
     assert.equal(await contarPedidosDoCliente(), antes);
-    // Com frete, o mesmo carrinho tem total positivo.
-    const r = await criarPedido(dadosPedido([{ produto_id: pB2.id, quantidade: 1 }], { cupom: cFixoTotal.codigo }));
-    assert.equal(r.desconto_centavos, 1990);
-    assert.equal(r.total_centavos, 1500);
   });
 
-  test('retirada dispensa endereço (gravado vazio)', async () => {
-    for (const endereco of [undefined, 'lixo', { cep: '1' }]) {
-      const r = await criarPedido(dadosPedido([{ produto_id: pB.id, quantidade: 1 }], { entrega: { ...RETIRADA }, endereco }));
-      assert.equal(r.frete_centavos, 0);
-      assert.equal(r.total_centavos, 3000);
-      const pedido = await lerPedido(r.id);
-      assert.deepEqual(pedido.endereco, {});
-      assert.equal(pedido.entrega.tipo, 'retirada');
+  test('retirada na sede não existe mais: tipo recusado e endereço sempre obrigatório', async () => {
+    const antes = await contarPedidosDoCliente();
+    const retirada = { tipo: 'retirada', id: 'retirada', nome: 'Retirar na sede da AMA', empresa: null, prazo_dias: null, preco_centavos: 0, servico_id: null };
+    const erro = await erroCriar(dadosPedido([{ produto_id: pB.id, quantidade: 1 }], { entrega: retirada, endereco: undefined }));
+    assert.equal(erro.message, 'dados_invalidos');
+    assert.equal(erro.details, 'entrega.tipo');
+    for (const endereco of [undefined, 'lixo']) {
+      const semEndereco = await erroCriar(dadosPedido([{ produto_id: pB.id, quantidade: 1 }], { entrega: { ...ENTREGA_GRATIS }, endereco }));
+      assert.equal(semEndereco.details, 'endereco');
     }
+    assert.equal(await contarPedidosDoCliente(), antes);
+    // Gravação direta com tipo retirada também é recusada pelo check da tabela.
+    const { error } = await servico.from('pedidos').insert({
+      cliente_nome: 'Cliente', cliente_email: EMAIL_CLIENTE, cliente_telefone: '91981056049', cliente_cpf: '52998224725',
+      entrega: retirada, endereco: {}, subtotal_centavos: 1000, total_centavos: 1000,
+    });
+    assert.equal(error?.code, '23514');
   });
 
   test('melhor_envio exige servico_id', async () => {
@@ -1517,9 +1417,8 @@ describe('confirmar_pagamento', () => {
     assert.deepEqual(await lerEventos(pedido.id, 'alerta'), []);
   });
 
-  test('chamadas repetidas são idempotentes (status, estoque, usos do cupom e evento)', async () => {
-    const cupom = await criarCupom({ tipo: 'percentual', valor: 10 });
-    const { produto, pedido } = await cenario({ estoque: 10, quantidade: 3, cupom: cupom.codigo });
+  test('chamadas repetidas são idempotentes (status, estoque e evento)', async () => {
+    const { produto, pedido } = await cenario({ estoque: 10, quantidade: 3 });
     const pag = pagamento(pedido);
     const primeira = await confirmar(pedido.id, pag);
     const pagoEm = (await lerPedido(pedido.id)).pago_em;
@@ -1534,13 +1433,11 @@ describe('confirmar_pagamento', () => {
     assert.equal(p.status, 'pago');
     assert.equal(p.pago_em, pagoEm);
     assert.equal(await lerEstoque(produto.id), 7);
-    assert.equal(await lerUsos(cupom.codigo), 1);
     assert.equal((await lerEventos(pedido.id, 'pagamento')).length, 1);
   });
 
-  test('PARALELO: 10 chamadas simultâneas baixam o estoque e contam o cupom uma única vez', async () => {
-    const cupom = await criarCupom({ tipo: 'percentual', valor: 10 });
-    const { produto, pedido } = await cenario({ estoque: 10, quantidade: 3, cupom: cupom.codigo });
+  test('PARALELO: 10 chamadas simultâneas baixam o estoque uma única vez', async () => {
+    const { produto, pedido } = await cenario({ estoque: 10, quantidade: 3 });
     const pag = pagamento(pedido);
     const { serviceKey } = ambienteLocal();
     const clientes = Array.from({ length: 10 }, () => cliente(serviceKey));
@@ -1551,7 +1448,6 @@ describe('confirmar_pagamento', () => {
     assert.equal(resultados.filter((r) => r.data.virou_pago).length, 1);
     assert.ok(resultados.every((r) => r.data.status_novo === 'pago'));
     assert.equal(await lerEstoque(produto.id), 7);
-    assert.equal(await lerUsos(cupom.codigo), 1);
     assert.equal((await lerEventos(pedido.id, 'pagamento')).length, 1);
     assert.equal((await lerPedido(pedido.id)).estoque_baixado, true);
   });
@@ -1642,9 +1538,8 @@ describe('confirmar_pagamento', () => {
     assert.equal(alerta.dados.total_centavos, 3333);
   });
 
-  test('authorized → pago, com baixa de estoque e uso do cupom', async () => {
-    const cupom = await criarCupom({ tipo: 'percentual', valor: 10 });
-    const { produto, pedido } = await cenario({ estoque: 10, quantidade: 3, cupom: cupom.codigo });
+  test('authorized → pago, com baixa de estoque', async () => {
+    const { produto, pedido } = await cenario({ estoque: 10, quantidade: 3 });
     const r = await confirmar(pedido.id, pagamento(pedido, { status: 'authorized', status_detail: 'pending_capture' }));
     assert.equal(r.status_novo, 'pago');
     assert.equal(r.virou_pago, true);
@@ -1653,7 +1548,6 @@ describe('confirmar_pagamento', () => {
     assert.equal(p.estoque_baixado, true);
     recente(p.pago_em);
     assert.equal(await lerEstoque(produto.id), 7);
-    assert.equal(await lerUsos(cupom.codigo), 1);
     // O approved do mesmo pagamento (captura) não baixa de novo.
     const pagoEm = p.pago_em;
     const r2 = await confirmar(pedido.id, pagamento(pedido, { id: Number(p.mp_payment_id), status: 'approved' }));
@@ -1784,8 +1678,7 @@ describe('confirmar_pagamento', () => {
 
   test('estorno de pagamento em dobro mantém o pedido pago e grava alerta', async () => {
     for (const estorno of ['refunded', 'charged_back']) {
-      const cupom = await criarCupom({ tipo: 'fixo', valor: 100 });
-      const { produto, pedido } = await cenario({ estoque: 10, quantidade: 2, cupom: cupom.codigo });
+      const { produto, pedido } = await cenario({ estoque: 10, quantidade: 2 });
       const a = pagamento(pedido);
       const b = pagamento(pedido, { payment_type_id: 'bank_transfer', payment_method_id: 'pix' });
       await confirmar(pedido.id, a);
@@ -1804,7 +1697,6 @@ describe('confirmar_pagamento', () => {
       assert.equal(p.status_pagamento_detalhe, 'accredited');
       assert.equal(p.metodo_pagamento, 'credit_card');
       assert.equal(await lerEstoque(produto.id), 8);
-      assert.equal(await lerUsos(cupom.codigo), 1);
       const alertas = await lerEventos(pedido.id, 'alerta');
       assert.equal(alertas.length, 1);
       assert.match(alertas[0].descricao, /pagamento duplicado estornado/i);
@@ -1822,7 +1714,6 @@ describe('confirmar_pagamento', () => {
       assert.equal(p.mp_payment_id, String(a.id));
       assert.equal(p.status_pagamento, estorno);
       assert.equal(await lerEstoque(produto.id), 10);
-      assert.equal(await lerUsos(cupom.codigo), 0);
     }
   });
 
@@ -1926,19 +1817,16 @@ describe('confirmar_pagamento', () => {
 
   test('refunded/charged_back → reembolsado e devolvem o estoque', async () => {
     for (const status of ['refunded', 'charged_back']) {
-      const cupom = await criarCupom({ tipo: 'fixo', valor: 100 });
-      const { produto, pedido } = await cenario({ estoque: 10, quantidade: 2, cupom: cupom.codigo });
+      const { produto, pedido } = await cenario({ estoque: 10, quantidade: 2 });
       const pag = pagamento(pedido);
       await confirmar(pedido.id, pag);
       assert.equal(await lerEstoque(produto.id), 8);
-      assert.equal(await lerUsos(cupom.codigo), 1);
       const r = await confirmar(pedido.id, { ...pag, status });
       assert.equal(r.status_novo, 'reembolsado', status);
       const p = await lerPedido(pedido.id);
       assert.equal(p.status, 'reembolsado');
       assert.equal(p.estoque_baixado, false);
       assert.equal(await lerEstoque(produto.id), 10);
-      assert.equal(await lerUsos(cupom.codigo), 0);
       // Repetir o estorno não devolve de novo.
       await confirmar(pedido.id, { ...pag, status });
       assert.equal(await lerEstoque(produto.id), 10);
@@ -2044,8 +1932,7 @@ describe('alterar_status_pedido', () => {
   const CODIGOS_RASTREIO_INVALIDOS = ['<b>AA</b>', 'AA"123', "AA'123", 'AA`123`', 'AA>1', 'AA\n1', 'A'.repeat(201)];
 
   test('marcar manualmente como pago baixa o estoque; evento "status" com autor', async () => {
-    const cupom = await criarCupom({ tipo: 'percentual', valor: 5 });
-    const { produto, pedido } = await cenario({ estoque: 10, quantidade: 2, cupom: cupom.codigo });
+    const { produto, pedido } = await cenario({ estoque: 10, quantidade: 2 });
     const r = await alterarStatus(pedido.id, 'pago', { p_nota: 'Pagou em dinheiro na sede' });
     assert.equal(r.status_anterior, 'aguardando_pagamento');
     assert.equal(r.status_novo, 'pago');
@@ -2054,7 +1941,6 @@ describe('alterar_status_pedido', () => {
     recente(p.pago_em);
     assert.equal(p.estoque_baixado, true);
     assert.equal(await lerEstoque(produto.id), 8);
-    assert.equal(await lerUsos(cupom.codigo), 1);
     const [evento] = await lerEventos(pedido.id, 'status');
     assert.equal(evento.autor, AUTOR);
     assert.equal(evento.dados.status_anterior, 'aguardando_pagamento');

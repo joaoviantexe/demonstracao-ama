@@ -6,7 +6,6 @@ const DESCRICOES = {
   produtos: 'Cadastro de produtos, preços, estoque e fotos.',
   categorias: 'Organização dos produtos da loja.',
   pedidos: 'Pedidos da loja, pagamentos e envios.',
-  cupons: 'Cupons de desconto e de frete grátis.',
   configuracoes: 'Dados da loja, frete, pagamento e avisos.',
 };
 

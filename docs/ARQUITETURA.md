@@ -12,7 +12,7 @@ encaixem sem retrabalho.
 | Hospedagem | Vercel (preset "Other", sem build) | Estático em `public/`, funções Node em `api/` |
 | Banco, login, arquivos | Supabase (Postgres + Auth + Storage) | RLS em todas as tabelas |
 | Pagamento | Mercado Pago Checkout Pro (API REST, sem SDK) | Pix, cartão, boleto |
-| Frete | Melhor Envio (API REST, token pessoal) + frete fixo + retirada | Melhor Envio é opcional |
+| Frete | Melhor Envio (API REST, token pessoal) + frete fixo | Sem Melhor Envio, o frete fixo precisa estar ligado (não há retirada na sede) |
 | E-mail (opcional) | Resend (API REST) | Sem chave, os e-mails são simplesmente pulados |
 
 Princípios:
@@ -27,7 +27,7 @@ Princípios:
   padrão do template; a loja mostra "loja em configuração".
 - **Dinheiro sempre em centavos (inteiro)** no banco, nas APIs e no JS. Só o
   Mercado Pago recebe reais com 2 casas (`centavos / 100`).
-- **Preço, estoque, cupom e frete são sempre recalculados no servidor.** O navegador
+- **Preço, estoque e frete são sempre recalculados no servidor.** O navegador
   nunca define valores cobrados.
 - Nomes em **português**, sem acentos em identificadores (`preco_centavos`, `aplicarConteudo`).
   Indentação de 2 espaços. Comentários curtos em português, só quando agregam.
@@ -147,7 +147,6 @@ Chaves usadas (criadas pela migração com valores padrão):
   `{ "titulo": "Cosméticos", "subtitulo": "…", "whatsapp": "5591981056049", "instagram": "oscdemulheres", "email_contato": "", "aviso_topo": "", "frete_gratis_acima_centavos": null }`
 - `frete` (privado):
   `{ "origem": { "cep": "", "nome": "AMA - Associação de Mulheres na Amazônia", "telefone": "", "email": "", "documento": "", "endereco": "", "numero": "", "complemento": "", "bairro": "", "cidade": "Ananindeua", "uf": "PA" },
-     "retirada": { "ativa": true, "nome": "Retirar na sede da AMA", "endereco": "Conjunto Uirapuru, Quadra 28, Casa 02, Icuí, Ananindeua - PA", "prazo_texto": "Disponível após a confirmação do pagamento" },
      "fixo": { "ativo": false, "opcoes": [ { "id": "fixo-1", "nome": "Entrega local", "preco_centavos": 1500, "prazo_dias": 3, "ufs": ["PA"] } ] },
      "melhor_envio": { "ativo": true, "servicos": [1, 2], "seguro": true, "prazo_extra_dias": 2, "taxa_extra_centavos": 0 },
      "embalagem_padrao": { "peso_gramas": 300, "altura_cm": 4, "largura_cm": 12, "comprimento_cm": 16 } }`
@@ -172,11 +171,8 @@ Chaves usadas (criadas pela migração com valores padrão):
 Preço efetivo = `coalesce(preco_promocional_centavos, preco_centavos)`.
 Produto só é vendável se `ativo` e preço efetivo > 0.
 
-**`cupons`** — `id uuid pk`, `codigo text unique not null` (check `codigo = upper(codigo)` e `^[A-Z0-9_-]{3,30}$`),
-`descricao text default ''`, `tipo text not null check in ('percentual','fixo','frete_gratis')`,
-`valor int not null default 0` (percentual: 1–100; fixo: centavos), `minimo_centavos int not null default 0`,
-`inicio timestamptz null`, `fim timestamptz null`, `usos_max int null`, `usos int not null default 0`,
-`ativo boolean not null default true`, `criado_em`.
+Não existe sistema de cupons: a migração apaga a tabela `cupons` e as colunas `pedidos.desconto_centavos` e
+`pedidos.cupom_codigo` em projetos criados antes da remoção (`drop … if exists`).
 
 **`pedidos`** — `id uuid pk default gen_random_uuid()`,
 `numero bigint generated always as identity unique` (exibido como `#1001`… começar em 1001),
@@ -186,10 +182,12 @@ Produto só é vendável se `ativo` e preço efetivo > 0.
 `status_pagamento text`, `status_pagamento_detalhe text`, `metodo_pagamento text`,
 `mp_preference_id text`, `mp_init_point text`, `mp_payment_id text`,
 `cliente_nome text not null`, `cliente_email text not null`, `cliente_telefone text not null`, `cliente_cpf text not null` (só dígitos),
-`endereco jsonb not null default '{}'` (`{cep, logradouro, numero, complemento, bairro, cidade, uf}` — vazio na retirada),
-`entrega jsonb not null` (`{tipo, id, nome, empresa, prazo_dias, preco_centavos, servico_id}`; `tipo` ∈ `melhor_envio|fixo|retirada`),
-`subtotal_centavos int not null`, `desconto_centavos int not null default 0`, `frete_centavos int not null default 0`,
-`total_centavos int not null check (> 0)`, `cupom_codigo text`,
+`endereco jsonb not null default '{}'` (`{cep, logradouro, numero, complemento, bairro, cidade, uf}`, sempre preenchido),
+`entrega jsonb not null` (`{tipo, id, nome, empresa, prazo_dias, preco_centavos, servico_id}`; `tipo` ∈ `melhor_envio|fixo`).
+Não existe retirada na sede: em projetos criados antes, a migração troca o check de `entrega` por um `not valid` (pedidos
+antigos de retirada continuam lá, os novos são recusados) e apaga `frete.retirada` da configuração.
+`subtotal_centavos int not null`, `frete_centavos int not null default 0`,
+`total_centavos int not null check (> 0)`,
 `codigo_rastreio text`, `url_rastreio text`, `me_ordens jsonb not null default '[]'` (ids das etiquetas no Melhor Envio), `etiqueta_url text`,
 `observacoes text` (do cliente), `notas_internas text` (do admin). Checks: `url_rastreio` null ou `https://` com host
 (até 500 caracteres, sem espaços, aspas, `<`, `>`, crase ou barra invertida); `codigo_rastreio` null ou até 200 caracteres
@@ -216,16 +214,14 @@ Todas `security definer`, `set search_path = ''` (nomes totalmente qualificados)
   `execute` liberado para `anon, authenticated`.
 
 - `public.cotar_carrinho(p jsonb) returns jsonb` — **somente `service_role`** (revogar de `public, anon, authenticated`).
-  Entrada: `{ "itens": [{ "produto_id": uuid, "quantidade": int }], "cupom": "CODIGO" | null }`.
+  Entrada: `{ "itens": [{ "produto_id": uuid, "quantidade": int }] }` (outros campos são ignorados).
   Junta linhas repetidas do mesmo produto; ignora quantidades ≤ 0; limita a 30 linhas e 99 unidades por linha.
   Saída:
   ```json
   { "itens": [{ "produto_id": "…", "nome": "…", "slug": "…", "imagem": "/img/…", "preco_unitario_centavos": 4500,
                 "quantidade": 2, "total_centavos": 9000, "estoque_disponivel": 3, "disponivel": true,
                 "motivo": null, "peso_gramas": 300, "altura_cm": 4, "largura_cm": 12, "comprimento_cm": 16 }],
-    "subtotal_centavos": 9000, "desconto_centavos": 900,
-    "cupom": { "codigo": "AMA10", "valido": true, "tipo": "percentual", "mensagem": "Cupom aplicado: 10% de desconto" } | null,
-    "frete_gratis_cupom": false }
+    "subtotal_centavos": 9000 }
   ```
   `motivo` ∈ `null | 'inexistente' | 'inativo' | 'sem_preco' | 'sem_estoque' | 'estoque_insuficiente'`.
   `sem_preco` = produto ativo (visível na vitrine) com preço efetivo 0: a loja mostra "R$ 00,00" e a compra é recusada.
@@ -233,16 +229,13 @@ Todas `security definer`, `set search_path = ''` (nomes totalmente qualificados)
   Para `inexistente` e `inativo` (produto despublicado) a função **não expõe** dados do produto:
   `nome`, `slug`, `imagem` e `estoque_disponivel` vêm `null` e `preco_unitario_centavos` 0.
   `estoque_disponivel` é `null` quando `controlar_estoque = false`.
-  Cupom inválido → `valido: false` + mensagem (`Cupom não encontrado`, `Cupom expirado`, `Cupom esgotado`,
-  `Valor mínimo para este cupom: R$ X`), desconto 0. Desconto: percentual = `floor(subtotal * valor / 100)`;
-  fixo = `least(valor, subtotal)`; frete_gratis = 0 e `frete_gratis_cupom: true`.
 
 - `public.criar_pedido(p jsonb) returns jsonb` — **somente `service_role`**.
-  Entrada: `{ itens, cupom, cliente: {nome, email, telefone, cpf}, endereco: {...}, entrega: {tipo, id, nome, empresa, prazo_dias, preco_centavos, servico_id}, observacoes }`.
+  Entrada: `{ itens, cliente: {nome, email, telefone, cpf}, endereco: {...}, entrega: {tipo, id, nome, empresa, prazo_dias, preco_centavos, servico_id}, observacoes }`.
   Reusa `cotar_carrinho`. Erros com `raise exception '<codigo>'` (PostgREST devolve HTTP 400 com `message` = código):
-  `carrinho_vazio`, `item_indisponivel`, `cupom_invalido` (só se um cupom foi informado e é inválido), `dados_invalidos`, `total_invalido`.
-  Total = subtotal − desconto + `entrega.preco_centavos` (o servidor já calculou o frete). Total precisa ser > 0.
-  Insere pedido + itens + evento `criado`. Saída: `{ "id", "numero", "token_acesso", "subtotal_centavos", "desconto_centavos", "frete_centavos", "total_centavos", "itens": [...] }`.
+  `carrinho_vazio`, `item_indisponivel`, `dados_invalidos`, `total_invalido`.
+  Total = subtotal + `entrega.preco_centavos` (o servidor já calculou o frete). Total precisa ser > 0 e caber num `int`.
+  Insere pedido + itens + evento `criado`. Saída: `{ "id", "numero", "token_acesso", "subtotal_centavos", "frete_centavos", "total_centavos", "itens": [...] }`.
 
 - `public.confirmar_pagamento(p_pedido_id uuid, p_pagamento jsonb) returns jsonb` — **somente `service_role`**.
   `p_pagamento` = `{ id, status, status_detail, transaction_amount, payment_type_id, payment_method_id, date_approved }`
@@ -251,7 +244,7 @@ Todas `security definer`, `set search_path = ''` (nomes totalmente qualificados)
     `pagamento_em_analise` + evento `alerta` ("valor divergente"). Senão, se o pedido está em
     `aguardando_pagamento|pagamento_em_analise|cancelado` → `pago`, `pago_em = now()`; na primeira vez
     (`estoque_baixado = false`) baixa estoque (`greatest(0, estoque − qtd)` só onde `controlar_estoque`),
-    registra `alerta` se faltou estoque, marca `estoque_baixado = true` e soma 1 em `cupons.usos`.
+    registra `alerta` se faltou estoque e marca `estoque_baixado = true`.
   - `pending`/`in_process`/`in_mediation`: só muda para `pagamento_em_analise` se estava `aguardando_pagamento`.
   - `rejected`/`cancelled`: não muda o status do pedido (cliente pode tentar de novo); só registra. Exceção: se o
     pedido está em `pagamento_em_analise` por causa **deste mesmo** pagamento (mesmo `mp_payment_id`, que estava
@@ -280,7 +273,6 @@ Todas `security definer`, `set search_path = ''` (nomes totalmente qualificados)
 | `configuracoes` | select onde `publico` | select onde `publico` | tudo |
 | `categorias` | select onde `ativo` | idem | tudo |
 | `produtos` | select onde `ativo` | idem | tudo |
-| `cupons` | — | — | tudo |
 | `pedidos`, `pedido_itens` | — | — | select, update, delete |
 | `pedido_eventos` | — | — | select e delete; insert e update só com `tipo = 'nota'` |
 
@@ -297,16 +289,17 @@ Pastas: `site/` (CMS), `produtos/`, `videos/`. Nome de arquivo: `<pasta>/<aaaa-m
 
 A própria migração cria: as 4 linhas de `configuracoes`; as categorias da coleção **Ama Bioessência**
 (`body-splash`, `cremes-hidratantes`, `sabonete-liquido-intimo`, `sabonete-solido`) e `biojoias`; e o catálogo
-inicial, **ativo e com preço 0** (aparece na vitrine com "R$ 00,00" e só pode ser comprado depois que a AMA
-definir o preço no painel):
+inicial, **ativo, com preços e estoque de teste** (placeholder para os testes de funcionamento; a AMA troca pelos
+valores reais no painel): body splash R$ 59,90, cremes R$ 69,90, sabonete líquido R$ 49,90, sabonete sólido R$ 24,90,
+biojoias R$ 89,90 e 10 unidades de cada. Em projetos criados quando o catálogo vinha com preço 0, a seção 10 tem um
+`update` que aplica esses valores só nos 16 produtos iniciais que continuam com `preco_centavos = 0 and estoque = 0`:
 - 10 produtos Ama Bioessência com nome e descrição da apresentação institucional e fotos em `/img/produtos/…`:
   Body Splash Raiz, Bruma, Orvalho e Âmbar (200 mL); Creme Hidratante Ameixa Negra, Cupuaçu, Cumaru e
   Capim-Limão (200 mL); Sabonete Líquido Íntimo Barbatimão & Andiroba (250 mL); Sabonete Sólido Manteiga de Cupuaçu (90 g).
 - 6 biojoias (`biojoia-01` … `biojoia-06`) com nome "Nome em Produção", descrição "Descrição em Produção" e as fotos do ateliê.
 
-`supabase/seed.sql` (só desenvolvimento) cria um admin `admin@ama.local` / `admin123456`, dá preços e estoque de
-exemplo aos produtos Ama Bioessência (as biojoias ficam com preço 0 para testar produto sem preço), deixa um produto em
-promoção, cria os cupons `AMA10` e `FRETEGRATIS` e preenche a origem do frete com dados fictícios.
+`supabase/seed.sql` (só desenvolvimento) cria um admin `admin@ama.local` / `admin123456`, marca destaques e SKUs,
+deixa um produto em promoção e preenche a origem do frete com dados fictícios.
 
 ## 5. CMS — conteúdo editável da home
 
@@ -444,12 +437,12 @@ export async function usuarioDoToken(jwt)  // { id, email } | null
 export async function exigirAdmin(req, res) // { id, email } | null (já respondeu 401/403)
 
 // lib/loja.js
-export async function cotar({ itens, cep, cupom })   // saída de /api/loja/cotacao (sem "ok"); lança ErroHttp
+export async function cotar({ itens, cep })          // saída de /api/loja/cotacao (sem "ok"); lança ErroHttp
 export async function lerConfiguracoes()             // { loja, frete, checkout, notificacoes } com padrões
 export async function sincronizarPagamento(pagamento) // confirmar_pagamento + e-mails; devolve o retorno da RPC
 
 // lib/frete.js
-export async function cotarFrete({ itens, cep, subtotalCentavos, freteGratisCupom, config }) // → { opcoes, erro, uf }
+export async function cotarFrete({ itens, cep, subtotalCentavos, config }) // → { opcoes, erro, uf }
 // lib/mercadopago.js
 export async function criarPreferencia({ pedido, itens, cliente, entrega, config, siteUrl })  // → { id, init_point }
 export async function obterPagamento(id)            // objeto do MP | null (404)
@@ -466,7 +459,7 @@ export async function removerDoCarrinho(id) ; obterEtiqueta(id)
 export async function enviarEmail({ para, assunto, html })  // no-op (false) sem RESEND_API_KEY; nunca lança
 export function emailPedidoPago(pedido, opcoes) ; emailPedidoEnviado(pedido, opcoes) ; emailNovoPedidoAdmin(pedido, opcoes)
 export function emailStatusPedido(pedido, opcoes) // → { assunto, html } | null
-// opcoes = { siteUrl, whatsapp: configuracoes.loja.whatsapp, retirada: configuracoes.frete.retirada }
+// opcoes = { siteUrl, whatsapp: configuracoes.loja.whatsapp }
 ```
 
 Servidores falsos para testes (`tests/apoio/`): `mercadopago-falso.js` e `melhorenvio-falso.js` exportam
@@ -481,44 +474,42 @@ e redireciona para a `back_urls.success|pending|failure` com `payment_id`, `stat
 `Cache-Control: public, max-age=300`. Sem Supabase: `configurado:false` e strings vazias.
 
 ### 6.2 `POST /api/loja/cotacao`
-Entrada `{ "itens": [{ "produto_id", "quantidade" }], "cep": "66000-000"?, "cupom": "AMA10"? }`.
+Entrada `{ "itens": [{ "produto_id", "quantidade" }], "cep": "66000-000"? }`.
 Saída:
 ```json
-{ "ok": true, "itens": [ …como cotar_carrinho… ], "subtotal_centavos": 9000, "desconto_centavos": 900,
-  "cupom": { … } | null,
+{ "ok": true, "itens": [ …como cotar_carrinho… ], "subtotal_centavos": 9000,
   "frete": { "opcoes": [Opcao], "erro": "mensagem" | null } | null,
   "frete_gratis_acima_centavos": 20000 | null }
 ```
-`Opcao = { "id": "me-1" | "fixo-1" | "retirada", "tipo": "melhor_envio"|"fixo"|"retirada", "nome": "PAC", "empresa": "Correios",
+`Opcao = { "id": "me-1" | "fixo-1", "tipo": "melhor_envio"|"fixo", "nome": "PAC", "empresa": "Correios",
  "prazo_dias": 7 | null, "prazo_texto": "até 7 dias úteis", "preco_centavos": 2350, "preco_original_centavos": 2350, "gratis": false, "servico_id": 1 | null }`.
 `frete` é `null` quando não veio CEP. Regras de frete (`lib/frete.js`):
 - Melhor Envio (se configurado e `melhor_envio.ativo`): cota os serviços configurados com origem `frete.origem.cep`,
   produtos com peso/dimensões (mínimos dos Correios garantidos), seguro = valor dos itens se `seguro`.
   Soma `prazo_extra_dias` e `taxa_extra_centavos`. Ignora serviços com `error`. Usa `custom_price`/`custom_delivery_time` quando existirem.
 - Fixo (se `fixo.ativo`): opções cuja lista `ufs` contém a UF do CEP (a UF sai da tabela de faixas de CEP em `lib/cep.js`, sem rede; lista vazia = todas).
-- Retirada (se `retirada.ativa`): sempre disponível, preço 0.
-- Frete grátis: se cupom `frete_gratis` ou subtotal (após desconto) ≥ `loja.frete_gratis_acima_centavos`,
+- Frete grátis: se o subtotal ≥ `loja.frete_gratis_acima_centavos`,
   a opção paga **mais barata** fica com preço 0 e `gratis: true`.
-- Ordenação: retirada por último; as demais por preço.
+- Ordenação: por preço, depois prazo e nome. CEP inválido ou sem nenhuma forma de entrega: `opcoes: []` e `erro`.
 - Erro do Melhor Envio não derruba a cotação: devolve as outras opções e `frete.erro`.
 
 ### 6.3 `POST /api/loja/checkout`
 Entrada:
 ```json
-{ "itens": [...], "cupom": "AMA10"?, "frete_id": "me-1",
+{ "itens": [...], "frete_id": "me-1",
   "cliente": { "nome", "email", "telefone", "cpf" },
   "endereco": { "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "uf" },
   "observacoes": "…"? }
 ```
-Valida (nome ≥ 2 palavras, e-mail, telefone 10–11 dígitos, CPF com dígitos verificadores, endereço completo exceto na
-retirada), recota no servidor, acha a opção `frete_id` (senão 409 `frete_indisponivel`), chama `criar_pedido`,
+Valida (nome ≥ 2 palavras, e-mail, telefone 10–11 dígitos, CPF com dígitos verificadores, endereço sempre completo),
+recota no servidor, acha a opção `frete_id` (senão 409 `frete_indisponivel`), chama `criar_pedido`,
 cria a preferência no Mercado Pago, grava `mp_preference_id` e `mp_init_point`, devolve
 `{ "ok": true, "pedido": { "id", "numero", "token" }, "redirecionar": "<init_point>" }`.
 Sem Mercado Pago configurado → 503 `pagamento_indisponivel` **antes** de criar o pedido.
 Item indisponível → 409 `item_indisponivel` com `itens` atualizados.
 
-Preferência (`lib/mercadopago.js`): itens com `unit_price` em reais; se houver desconto, um único item
-"Pedido #N — AMA" com o valor dos produtos já descontado; frete como item separado "Frete — <nome>" quando > 0;
+Preferência (`lib/mercadopago.js`): itens com `unit_price` em reais (se os itens não fecharem com o total, um único
+item "Pedido #N — AMA" com o valor dos produtos); frete como item separado "Frete — <nome>" quando > 0;
 `payer` (nome, sobrenome, e-mail, telefone, CPF); `external_reference = pedido.id`;
 `notification_url = <SITE_URL>/api/webhooks/mercadopago`;
 `back_urls` = `<SITE_URL>/loja/pedido?id=<id>&token=<token>` (as três); `auto_return: "approved"`;
@@ -532,7 +523,7 @@ e recusa `localhost`: se `SITE_URL` não for https, omitir `auto_return` e `noti
 Compara o token em tempo constante (senão 404). Se veio `payment_id` e o MP está configurado: busca o pagamento,
 confere `external_reference === id` e chama `confirmar_pagamento` (sincroniza mesmo sem webhook).
 Saída `{ "ok": true, "pedido": { numero, status, status_pagamento, criado_em, pago_em, enviado_em, itens:[{nome, imagem,
-quantidade, preco_unitario_centavos, total_centavos}], subtotal_centavos, desconto_centavos, frete_centavos, total_centavos,
+quantidade, preco_unitario_centavos, total_centavos}], subtotal_centavos, frete_centavos, total_centavos,
 entrega:{tipo, nome, empresa, prazo_dias}, codigo_rastreio, url_rastreio, primeiro_nome, pode_pagar, link_pagamento } }`.
 `pode_pagar` = status `aguardando_pagamento` e há `mp_init_point`. `Cache-Control: no-store`.
 
@@ -601,7 +592,7 @@ O rodapé das páginas da loja é o mesmo da página inicial (grupo `rodape` do 
 
 Funcionalidades: busca, filtro por categoria (na URL `?categoria=`), ordenação, selo de promoção e "esgotado",
 página de produto com galeria e miniaturas, quantidade limitada ao estoque, "Adicionar ao carrinho" e "Comprar agora",
-cálculo de frete por CEP na página do produto e do carrinho, cupom, checkout com autopreenchimento de endereço pelo
+cálculo de frete por CEP na página do produto e do carrinho, checkout com autopreenchimento de endereço pelo
 ViaCEP (`https://viacep.com.br/ws/<cep>/json/`), página do pedido com linha do
 tempo, rastreio e "Pagar agora". "Meus pedidos neste aparelho": a página do pedido guarda `{id, token, numero, criado_em}`
 em `localStorage` `ama_pedidos_v1` e `/loja/pedido` sem parâmetros lista esses pedidos.
@@ -616,7 +607,7 @@ Ao voltar do pagamento aprovado o carrinho é limpo.
   verificação de admin (`rpc('eh_admin')`; não admin → mensagem e sair), layout (menu lateral, topo com e-mail, "Ver site", "Sair"),
   roteador por hash e aviso de alterações não salvas.
 - Rotas: `#/` visão geral · `#/conteudo` e `#/conteudo/<grupo>` · `#/midia` · `#/produtos`, `#/produtos/novo`, `#/produtos/<id>` ·
-  `#/categorias` · `#/pedidos`, `#/pedidos/<id>` · `#/cupons` · `#/configuracoes`.
+  `#/categorias` · `#/pedidos`, `#/pedidos/<id>` · `#/configuracoes`.
 - Contrato das páginas: cada arquivo em `admin/js/paginas/` exporta
   `export async function renderizar(ctx)` e pode devolver uma função de limpeza.
   `ctx = { raiz, supabase, usuario, params, navegar(hash), marcarAlterado(bool), ui, api }`.
@@ -627,7 +618,7 @@ Ao voltar do pagamento aprovado o carrinho é limpo.
 - `admin/js/api.js`: `chamarApi(caminho, {metodo, corpo})` com o JWT da sessão.
 - `admin/js/midia.js`: `enviarArquivo(arquivo, pasta) → { url, caminho }` (bucket `midia`, nome seguro, aviso de tamanho),
   `listarArquivos(pasta)`, `apagarArquivo(caminho)`, `seletorDeMidia({ tipo: 'imagem'|'video' }) → Promise<url|null>` (modal com biblioteca + upload).
-- Páginas: `visao-geral.js`, `conteudo.js`, `midia.js`, `produtos.js`, `categorias.js`, `pedidos.js`, `cupons.js`, `configuracoes.js`.
+- Páginas: `visao-geral.js`, `conteudo.js`, `midia.js`, `produtos.js`, `categorias.js`, `pedidos.js`, `configuracoes.js`.
 - Estilos: `admin/admin.css` é o sistema de design do painel (botões, campos, cartões, tabelas, selos de status,
   modais, abas, listas, área de upload, grade responsiva). Estilos específicos de uma página ficam em
   `admin/css/<pagina>.css`, carregados pela própria página com `ui.carregarCss('<pagina>')`.
@@ -640,10 +631,41 @@ duplicar/subir/descer), "Restaurar padrão" por campo (apaga a linha), "Salvar" 
 "Pré-visualizar" (abre nova aba com o template + `<base href="/">` + rascunho aplicado) e "Ver no site".
 Aviso: as mudanças aparecem no site em até ~15 segundos.
 
+Pedidos: lista com busca (nome, e-mail, telefone, CPF ou número), filtro por situação (guardado na URL) e páginas
+de 20; detalhe com a próxima ação sugerida, itens, cliente (link do WhatsApp), entrega, pagamento ("Conferir no
+Mercado Pago" → `/api/admin/pagamento`), linha do tempo com notas internas (`pedido_eventos` tipo `nota`),
+"Mudar situação" (`/api/admin/pedido-status`, com rastreio, repor estoque e aviso por e-mail) e o assistente de
+envio do Melhor Envio (`/api/admin/envio`: carrinho com NF-e opcional → pagar com o saldo → gerar → imprimir →
+buscar rastreio → marcar como enviado). Pedido aguardando pagamento pode ser apagado.
+
+Configurações (`?aba=` na URL): Loja (nome, descrição, WhatsApp, e-mail de contato, aviso do topo), Frete
+(Melhor Envio com prazo e valor a mais e seguro; frete fixo com nome, valor, prazo e estados; remetente; frete
+grátis a partir de um valor; sem retirada), Pagamento (parcelas, boleto, prazo para pagar), Avisos por e-mail
+(e-mails da equipe) e Integrações (situação das chaves na Vercel, sem mostrar valores). Cada aba tem o próprio
+"Salvar" e grava só a sua linha em `configuracoes` (a aba Frete também grava o frete grátis em `loja`).
+
 ## 9. Testes
 
 - `npm test` — unitários (`node --test`), sem rede: CMS (linkedom), sanitização, URLs, Instagram, validações,
   assinatura do webhook, regras de frete, montagem da preferência, handlers com `fetch` simulado.
 - `npm run test:integracao` — exige o Supabase local (`supabase start`) e `supabase db reset`: RLS, RPCs,
   idempotência do pagamento e do estoque, APIs completas contra servidores falsos do MP e do Melhor Envio.
-- `tests/e2e/` — Playwright: admin edita conteúdo e produto; cliente compra; webhook confirma; admin vê o pedido.
+- `npm run test:e2e` — Playwright (`tests/e2e/`), exige o Supabase local com o seed: admin edita o site; cliente
+  compra; pagamento aprovado no MP falso (webhook assinado); estoque baixa; admin envia pelo Melhor Envio falso
+  (carrinho → pagar → gerar → imprimir → rastreio → enviado); cliente vê o rastreio.
+
+## 10. Segurança (revisão final)
+
+- **Segredos:** só a URL e a chave pública do Supabase chegam ao navegador (`/api/config`, que recusa uma chave
+  secreta colada no lugar da pública). Tokens do Mercado Pago, do Melhor Envio, do Resend e a chave de serviço
+  ficam só nas funções da Vercel; o painel mostra apenas se cada uma está configurada.
+- **RLS:** ligada em todas as tabelas; visitante e usuário comum leem só o que é público; escrita só para admin
+  (`eh_admin()`); as RPCs de pedido e pagamento só rodam com a chave de serviço (testado em `banco.test.js`).
+- **Rotas de admin:** todas exigem o JWT de um admin (`exigirAdmin`).
+- **Webhook:** com `MP_WEBHOOK_SECRET`, assinatura inválida → 401; em qualquer caso o pagamento é consultado no
+  próprio Mercado Pago, e valor pago menor que o total deixa o pedido "em análise" em vez de "pago".
+- **Pedido do cliente:** token de 256 bits, comparado em tempo constante; id ou token errado → o mesmo 404; a
+  resposta não traz CPF, e-mail, telefone, endereço nem notas internas.
+- **XSS:** loja e painel criam elementos com `textContent` (sem `innerHTML` com dados); o HTML do editor rico é
+  limpo no painel e de novo no servidor ao montar a página (tags e atributos permitidos, links só http/https/
+  mailto/tel); os e-mails escapam todo texto. Conferido com conteúdo malicioso gravado direto no banco.
