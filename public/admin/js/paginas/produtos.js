@@ -732,7 +732,6 @@ async function renderizarFormulario(ctx) {
   });
   const categoria = ui.campo({
     rotulo: 'Categoria', nome: 'categoria_id', tipo: 'select', valor: '', opcoes: [{ valor: '', rotulo: 'Sem categoria' }],
-    ajuda: 'Ajuda a cliente a encontrar o produto no filtro da loja.',
   });
   const novaCategoria = ui.botao({ texto: 'Nova categoria', tamanho: 'pequeno', icone: 'mais', classe: 'produto-categoria__nova' });
   const ordem = ui.campo({
@@ -781,9 +780,7 @@ async function renderizarFormulario(ctx) {
           destaque.elemento,
           el('div', { class: 'produto-categoria' }, categoria.elemento, novaCategoria),
           ordem.elemento),
-        novo ? null : cartao('pf-acoes', 'Mais ações', null,
-          el('p', { class: 'texto-pequeno texto-suave' }, 'Apagar tira o produto da loja e do painel. Os pedidos antigos continuam com o nome e o preço dele.'),
-          botaoApagar))),
+        novo ? null : el('section', { class: 'cartao', 'aria-label': 'Apagar produto' }, el('div', { class: 'cartao__corpo' }, botaoApagar)))),
     el('div', { class: 'barra-acoes' },
       infoBarra,
       ui.botao({ texto: 'Cancelar', href: '#/produtos' }),
