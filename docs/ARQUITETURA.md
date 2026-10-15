@@ -631,6 +631,19 @@ duplicar/subir/descer), "Restaurar padrão" por campo (apaga a linha), "Salvar" 
 "Pré-visualizar" (abre nova aba com o template + `<base href="/">` + rascunho aplicado) e "Ver no site".
 Aviso: as mudanças aparecem no site em até ~15 segundos.
 
+Pedidos: lista com busca (nome, e-mail, telefone, CPF ou número), filtro por situação (guardado na URL) e páginas
+de 20; detalhe com a próxima ação sugerida, itens, cliente (link do WhatsApp), entrega, pagamento ("Conferir no
+Mercado Pago" → `/api/admin/pagamento`), linha do tempo com notas internas (`pedido_eventos` tipo `nota`),
+"Mudar situação" (`/api/admin/pedido-status`, com rastreio, repor estoque e aviso por e-mail) e o assistente de
+envio do Melhor Envio (`/api/admin/envio`: carrinho com NF-e opcional → pagar com o saldo → gerar → imprimir →
+buscar rastreio → marcar como enviado). Pedido aguardando pagamento pode ser apagado.
+
+Configurações (`?aba=` na URL): Loja (nome, descrição, WhatsApp, e-mail de contato, aviso do topo), Frete
+(Melhor Envio com prazo e valor a mais e seguro; frete fixo com nome, valor, prazo e estados; remetente; frete
+grátis a partir de um valor; sem retirada), Pagamento (parcelas, boleto, prazo para pagar), Avisos por e-mail
+(e-mails da equipe) e Integrações (situação das chaves na Vercel, sem mostrar valores). Cada aba tem o próprio
+"Salvar" e grava só a sua linha em `configuracoes` (a aba Frete também grava o frete grátis em `loja`).
+
 ## 9. Testes
 
 - `npm test` — unitários (`node --test`), sem rede: CMS (linkedom), sanitização, URLs, Instagram, validações,
@@ -640,3 +653,19 @@ Aviso: as mudanças aparecem no site em até ~15 segundos.
 - `npm run test:e2e` — Playwright (`tests/e2e/`), exige o Supabase local com o seed: admin edita o site; cliente
   compra; pagamento aprovado no MP falso (webhook assinado); estoque baixa; admin envia pelo Melhor Envio falso
   (carrinho → pagar → gerar → imprimir → rastreio → enviado); cliente vê o rastreio.
+
+## 10. Segurança (revisão final)
+
+- **Segredos:** só a URL e a chave pública do Supabase chegam ao navegador (`/api/config`, que recusa uma chave
+  secreta colada no lugar da pública). Tokens do Mercado Pago, do Melhor Envio, do Resend e a chave de serviço
+  ficam só nas funções da Vercel; o painel mostra apenas se cada uma está configurada.
+- **RLS:** ligada em todas as tabelas; visitante e usuário comum leem só o que é público; escrita só para admin
+  (`eh_admin()`); as RPCs de pedido e pagamento só rodam com a chave de serviço (testado em `banco.test.js`).
+- **Rotas de admin:** todas exigem o JWT de um admin (`exigirAdmin`).
+- **Webhook:** com `MP_WEBHOOK_SECRET`, assinatura inválida → 401; em qualquer caso o pagamento é consultado no
+  próprio Mercado Pago, e valor pago menor que o total deixa o pedido "em análise" em vez de "pago".
+- **Pedido do cliente:** token de 256 bits, comparado em tempo constante; id ou token errado → o mesmo 404; a
+  resposta não traz CPF, e-mail, telefone, endereço nem notas internas.
+- **XSS:** loja e painel criam elementos com `textContent` (sem `innerHTML` com dados); o HTML do editor rico é
+  limpo no painel e de novo no servidor ao montar a página (tags e atributos permitidos, links só http/https/
+  mailto/tel); os e-mails escapam todo texto. Conferido com conteúdo malicioso gravado direto no banco.

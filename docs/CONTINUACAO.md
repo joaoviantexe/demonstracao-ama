@@ -111,7 +111,7 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
    - estoque baixa;
    - admin envia pelo Melhor Envio falso;
    - cliente vê o rastreio.
-4. **Revisão final de segurança:** XSS, RLS, assinatura do webhook, token do pedido e segredos fora do front.
+4. **(Feito, ver §10 do `ARQUITETURA.md`)** **Revisão final de segurança:** XSS, RLS, assinatura do webhook, token do pedido e segredos fora do front.
 5. Completar a **Parte 2 do `docs/CONFIGURACAO.md`** para produção, atualizar o **PR** e perguntar ao dono antes de
    marcar como pronto.
 
