@@ -168,7 +168,8 @@ Chaves usadas (criadas pela migração com valores padrão):
 `peso_gramas int not null default 300 check (> 0)`, `altura_cm numeric(6,1) not null default 4`,
 `largura_cm numeric(6,1) not null default 12`, `comprimento_cm numeric(6,1) not null default 16`,
 `sku text`, `ordem int not null default 0`, `criado_em`, `atualizado_em` (trigger de atualização).
-Preço efetivo = `coalesce(preco_promocional_centavos, preco_centavos)`.
+Preço efetivo = `coalesce(preco_promocional_centavos, preco_centavos)`. O painel não edita promoção, SKU, medidas,
+controle de estoque nem endereço (slug): o slug sai do nome na criação e não muda; a migração zera promoções antigas.
 Produto só é vendável se `ativo` e preço efetivo > 0.
 
 Não existe sistema de cupons: a migração apaga a tabela `cupons` e as colunas `pedidos.desconto_centavos` e
@@ -602,11 +603,11 @@ Ao voltar do pagamento aprovado o carrinho é limpo.
 
 `public/admin/index.html` carrega `/api/config`, `/vendor/supabase-2.116.0.js`, `admin/admin.css` e o módulo `admin/js/app.js`.
 
-- `app.js`: cria o cliente (`window.supabase.createClient(url, anonKey)`), tela de login (e-mail e senha), "esqueci minha senha"
-  (`resetPasswordForEmail` com `redirectTo = <origem>/admin/`), tratamento do evento `PASSWORD_RECOVERY` (tela de nova senha),
+- `app.js`: cria o cliente (`window.supabase.createClient(url, anonKey)`), tela de login (e-mail e senha; não há "esqueci minha senha": a senha é trocada pelo Supabase),
+  tratamento do evento `PASSWORD_RECOVERY` e de convites (tela de nova senha),
   verificação de admin (`rpc('eh_admin')`; não admin → mensagem e sair), layout (menu lateral, topo com e-mail, "Ver site", "Sair"),
   roteador por hash e aviso de alterações não salvas.
-- Rotas: `#/` visão geral · `#/conteudo` e `#/conteudo/<grupo>` · `#/midia` · `#/produtos`, `#/produtos/novo`, `#/produtos/<id>` ·
+- Rotas: `#/` visão geral · `#/conteudo` e `#/conteudo/<grupo>` (o menu lateral lista cada grupo da página inicial; não há página de mídia) · `#/produtos`, `#/produtos/novo`, `#/produtos/<id>` ·
   `#/categorias` · `#/pedidos`, `#/pedidos/<id>` · `#/configuracoes`.
 - Contrato das páginas: cada arquivo em `admin/js/paginas/` exporta
   `export async function renderizar(ctx)` e pode devolver uma função de limpeza.
@@ -618,7 +619,7 @@ Ao voltar do pagamento aprovado o carrinho é limpo.
 - `admin/js/api.js`: `chamarApi(caminho, {metodo, corpo})` com o JWT da sessão.
 - `admin/js/midia.js`: `enviarArquivo(arquivo, pasta) → { url, caminho }` (bucket `midia`, nome seguro, aviso de tamanho),
   `listarArquivos(pasta)`, `apagarArquivo(caminho)`, `seletorDeMidia({ tipo: 'imagem'|'video' }) → Promise<url|null>` (modal com biblioteca + upload).
-- Páginas: `visao-geral.js`, `conteudo.js`, `midia.js`, `produtos.js`, `categorias.js`, `pedidos.js`, `configuracoes.js`.
+- Páginas: `visao-geral.js`, `conteudo.js`, `produtos.js`, `categorias.js`, `pedidos.js`, `configuracoes.js`.
 - Estilos: `admin/admin.css` é o sistema de design do painel (botões, campos, cartões, tabelas, selos de status,
   modais, abas, listas, área de upload, grade responsiva). Estilos específicos de uma página ficam em
   `admin/css/<pagina>.css`, carregados pela própria página com `ui.carregarCss('<pagina>')`.
@@ -638,10 +639,10 @@ Mercado Pago" → `/api/admin/pagamento`), linha do tempo com notas internas (`p
 envio do Melhor Envio (`/api/admin/envio`: carrinho com NF-e opcional → pagar com o saldo → gerar → imprimir →
 buscar rastreio → marcar como enviado). Pedido aguardando pagamento pode ser apagado.
 
-Configurações (`?aba=` na URL): Loja (nome, descrição, WhatsApp, e-mail de contato, aviso do topo), Frete
+Configurações (`?aba=` na URL): Loja (nome, descrição, WhatsApp, e-mail de contato), Frete
 (Melhor Envio com prazo e valor a mais e seguro; frete fixo com nome, valor, prazo e estados; remetente; frete
 grátis a partir de um valor; sem retirada), Pagamento (parcelas, boleto, prazo para pagar), Avisos por e-mail
-(e-mails da equipe) e Integrações (situação das chaves na Vercel, sem mostrar valores). Cada aba tem o próprio
+(e-mails da equipe); não há tela de integrações (o painel mostra o mínimo). Cada aba tem o próprio
 "Salvar" e grava só a sua linha em `configuracoes` (a aba Frete também grava o frete grátis em `loja`).
 
 ## 9. Testes

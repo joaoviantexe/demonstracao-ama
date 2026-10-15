@@ -12,7 +12,7 @@ import { normalizarConfigFrete, opcoesFixas } from '../../lib/frete.js';
 
 const {
   PRAZOS_PAGAMENTO_DIAS, SERVICOS_MELHOR_ENVIO, UFS, diagnosticoEntrega, diasDoPrazo, documentoValido, formatarDecimal,
-  formatarWhatsapp, idOpcaoFixa, itensIntegracoes, lerDecimal, lerEmails, lerInteiro, lerUfs, normalizarWhatsapp,
+  formatarWhatsapp, idOpcaoFixa, lerDecimal, lerEmails, lerInteiro, lerUfs, normalizarWhatsapp,
   validarCheckout, validarFrete, validarLoja, validarNotificacoes,
 } = config;
 
@@ -86,14 +86,14 @@ describe('números, documentos e textos', () => {
 
 describe('aba Loja', () => {
   test('válida: normaliza WhatsApp, e-mail e espaços', () => {
-    const r = validarLoja({ titulo: '  Produtos  AMA ', subtitulo: '', whatsapp: '(91) 98105-6049', email_contato: ' Loja@AMA.org.br ', aviso_topo: ' Frete grátis ' });
+    const r = validarLoja({ titulo: '  Produtos  AMA ', subtitulo: '', whatsapp: '(91) 98105-6049', email_contato: ' Loja@AMA.org.br ' });
     assert.deepEqual(r.erros, {});
-    assert.deepEqual(r.valor, { titulo: 'Produtos AMA', subtitulo: '', whatsapp: '5591981056049', email_contato: 'loja@ama.org.br', aviso_topo: 'Frete grátis' });
+    assert.deepEqual(r.valor, { titulo: 'Produtos AMA', subtitulo: '', whatsapp: '5591981056049', email_contato: 'loja@ama.org.br' });
   });
 
   test('erros por campo', () => {
-    const r = validarLoja({ titulo: '', subtitulo: 'x'.repeat(401), whatsapp: '123', email_contato: 'sem-arroba', aviso_topo: 'x'.repeat(301) });
-    assert.deepEqual(Object.keys(r.erros).sort(), ['aviso_topo', 'email_contato', 'subtitulo', 'titulo', 'whatsapp']);
+    const r = validarLoja({ titulo: '', subtitulo: 'x'.repeat(401), whatsapp: '123', email_contato: 'sem-arroba' });
+    assert.deepEqual(Object.keys(r.erros).sort(), ['email_contato', 'subtitulo', 'titulo', 'whatsapp']);
     assert.ok(validarLoja({ titulo: 'A', whatsapp: '' }).erros.whatsapp, 'WhatsApp é obrigatório');
   });
 });
@@ -211,34 +211,6 @@ describe('abas Pagamento e Avisos', () => {
     assert.deepEqual(validarNotificacoes({ email_admin: '' }), { erros: {}, valor: { email_admin: '' } });
     assert.ok(validarNotificacoes({ email_admin: 'a@b.com, x' }).erros.email_admin);
     assert.ok(validarNotificacoes({ email_admin: Array.from({ length: 6 }, (_, i) => `e${i}@x.com`).join(',') }).erros.email_admin);
-  });
-});
-
-describe('aba Integrações', () => {
-  test('textos e ações conforme a /api/admin/status', () => {
-    const tudoCerto = itensIntegracoes({
-      supabase: { configurado: true }, mercadopago: { configurado: true, modo: 'producao' }, webhook_assinatura: true,
-      melhor_envio: { configurado: true, ambiente: 'producao', saldo_centavos: 50000, erro: null }, email: { configurado: true }, site_url: 'https://ama.org.br',
-    });
-    assert.deepEqual(tudoCerto.map((i) => i.id), ['supabase', 'mercadopago', 'webhook', 'melhor_envio', 'email', 'site']);
-    assert.ok(tudoCerto.every((i) => i.cor === 'verde'), JSON.stringify(tudoCerto.map((i) => i.cor)));
-    assert.ok(tudoCerto.every((i) => !i.acao));
-
-    const nada = itensIntegracoes({ supabase: { configurado: false }, mercadopago: { configurado: false }, melhor_envio: { configurado: false }, email: { configurado: false }, site_url: 'http://localhost:3000' });
-    const porId = Object.fromEntries(nada.map((i) => [i.id, i]));
-    assert.equal(porId.webhook, undefined, 'sem Mercado Pago não fala de webhook');
-    assert.equal(porId.supabase.cor, 'vermelho');
-    assert.match(porId.mercadopago.acao, /MP_ACCESS_TOKEN/);
-    assert.match(porId.melhor_envio.acao, /MELHOR_ENVIO_TOKEN/);
-    assert.match(porId.email.acao, /RESEND_API_KEY/);
-    assert.match(porId.site.acao, /SITE_URL/);
-
-    const teste = itensIntegracoes({ mercadopago: { configurado: true, modo: 'teste' }, webhook_assinatura: false, melhor_envio: { configurado: true, erro: 'Unauthenticated.' } });
-    assert.equal(teste.find((i) => i.id === 'mercadopago').estado, 'Modo teste');
-    assert.match(teste.find((i) => i.id === 'webhook').acao, /MP_WEBHOOK_SECRET/);
-    assert.equal(teste.find((i) => i.id === 'melhor_envio').cor, 'vermelho');
-    assert.equal(itensIntegracoes({ melhor_envio: { configurado: true, saldo_centavos: 1000 } }).find((i) => i.id === 'melhor_envio').estado, 'Saldo baixo');
-    assert.ok(Array.isArray(itensIntegracoes(null)));
   });
 });
 

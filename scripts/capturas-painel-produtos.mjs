@@ -9,9 +9,9 @@
 // - produto novo: erros por campo, endereço gerado do nome, categoria criada pelo atalho,
 //   2 fotos PNG (geradas aqui) enviadas ao bucket, descrição e ordem das fotos, preço R$ 49,90 e
 //   estoque 3; confere no banco e na loja (/loja/produto?slug=) que aparece com o preço;
-// - promoção (validação e R$ 39,90 na loja), endereço repetido (erro 23505 com sugestão),
-//   aviso de alterações não salvas, "à venda" desligado pela lista (some da loja), duplicar e
-//   apagar a cópia;
+// - sem campos de endereço, promoção, SKU, medidas nem "Controlar estoque"; edição do estoque,
+//   aviso de alterações não salvas, "à venda" desligado pela lista (some da loja) e
+//   apagar o produto; fotos idênticas reaproveitadas;
 // - barra "Cancelar / Salvar" visível no meio do formulário (presa no rodapé da tela);
 // - categorias: quantidade de produtos, editar no modal, criar e apagar outra pela página, subir/descer,
 //   apagar (produto fica sem categoria); por fim apaga o produto pelo formulário.
@@ -330,8 +330,6 @@ async function rodarLargura(navegador, base, largura) {
     const semPrecoNaLista = linhas.find((l) => l.selos.includes('Sem preço'));
     conferir(semPrecoNaLista && semPrecoNaLista.preco === 'R$ 00,00' && semPrecoNaLista.nome === `Sem Preço Teste ${sufixo}`,
       'produto sem preço mostra "R$ 00,00" e o selo "Sem preço"', `produto sem preço: ${JSON.stringify(semPrecoNaLista)}`);
-    const promocao = linhas.find((l) => l.selos.includes('Promoção'));
-    conferir(promocao && /R\$ 69,90.*R\$ 59,90/.test(promocao.preco), `promoção riscada na lista (${promocao && promocao.preco})`, `promoção na lista: ${JSON.stringify(promocao)}`);
     const avisoSemPreco = await pagina.locator('.produtos-avisos .aviso').count();
     conferir(avisoSemPreco === 1, 'aviso de produtos à venda sem preço', 'aviso de produtos sem preço não apareceu');
     await capturar(pagina, `lista-${largura}`);
@@ -368,11 +366,9 @@ async function rodarLargura(navegador, base, largura) {
     await fecharToasts(pagina);
 
     await pagina.locator('.produto-form input[name="nome"]').fill(nomeProduto);
-    const slugGerado = await pagina.locator('.produto-form input[name="slug"]').inputValue();
-    conferir(slugGerado === slugProduto, `endereço gerado do nome: ${slugGerado}`, `endereço gerado: ${slugGerado} (esperado ${slugProduto})`);
+    conferir(await pagina.locator('.produto-form input[name="slug"]').count() === 0, 'formulário sem campo de endereço (ele sai do nome)', 'o formulário ainda tem o campo de endereço');
     await pagina.locator('.produto-form textarea[name="descricao"]').fill('Sabonete de teste criado pelo script de capturas.\n\nPode apagar.');
     await pagina.locator('.produto-form input[name="preco"]').fill('49,90');
-    await pagina.locator('.produto-form input[name="preco_promocional"]').fill('59,90');
     await pagina.locator('.produto-form input[name="estoque"]').fill('3');
 
     // Categoria pelo atalho.
@@ -380,12 +376,12 @@ async function rodarLargura(navegador, base, largura) {
     const modalCategoria = pagina.locator('dialog.modal--categoria[open]');
     await modalCategoria.waitFor();
     await modalCategoria.locator('input[name="nome"]').fill(nomeCategoria);
-    const slugCategoria = await modalCategoria.locator('input[name="slug"]').inputValue();
+    conferir(await modalCategoria.locator('input[name="slug"]').count() === 0, 'categoria sem campo de endereço', 'o modal de categoria ainda tem o campo de endereço');
     if (largura === 390) await capturar(pagina, `categoria-atalho-${largura}`, { inteira: false });
     await modalCategoria.getByRole('button', { name: 'Criar categoria' }).click();
     await pagina.waitForSelector('dialog.modal--categoria', { state: 'detached' });
     const escolhida = await pagina.locator('.produto-form select[name="categoria_id"] option:checked').textContent();
-    conferir(escolhida === nomeCategoria && slugCategoria === `categoria-teste-${sufixo}`, `atalho "Nova categoria" criou e escolheu "${escolhida}"`, `categoria escolhida: ${escolhida} (${slugCategoria})`);
+    conferir(escolhida === nomeCategoria, `atalho "Nova categoria" criou e escolheu "${escolhida}"`, `categoria escolhida: ${escolhida}`);
     await fecharToasts(pagina);
 
     // Duas fotos enviadas de uma vez.
@@ -395,6 +391,22 @@ async function rodarLargura(navegador, base, largura) {
     await pagina.waitForFunction(() => document.querySelectorAll('.produto-foto').length === 2, null, { timeout: 30_000 });
     await pagina.waitForFunction(() => !document.querySelector('.produto-form .area-upload--desativada'), null, { timeout: 30_000 });
     ok('2 fotos enviadas ao bucket (pasta produtos/)');
+    // As mesmas fotos de novo: o arquivo idêntico é reaproveitado, sem gastar armazenamento.
+    const arquivosDasFotos = async () => {
+      const mes = new Date().toISOString().slice(0, 7);
+      const { data } = await servico().storage.from('midia').list(`produtos/${mes}`, { limit: 1000, search: `foto-teste-${sufixo}` });
+      return (data || []).length;
+    };
+    const antesRepetir = await arquivosDasFotos();
+    const escolhaRepetida = pagina.waitForEvent('filechooser');
+    await pagina.locator('.produto-form .area-upload .botao').click();
+    await (await escolhaRepetida).setFiles(fotos);
+    await pagina.waitForFunction(() => !document.querySelector('.produto-form .area-upload--desativada'), null, { timeout: 30_000 });
+    await pagina.waitForTimeout(500);
+    const depoisRepetir = await arquivosDasFotos();
+    conferir(antesRepetir === 2 && depoisRepetir === 2 && await pagina.locator('.produto-foto').count() === 2,
+      'mesmas fotos enviadas de novo: reaproveitadas, nenhum arquivo novo no bucket', `arquivos antes ${antesRepetir}, depois ${depoisRepetir}`);
+    await fecharToasts(pagina);
     const srcAntes = await pagina.locator('.produto-foto img').evaluateAll((imgs) => imgs.map((i) => i.getAttribute('src')));
     await pagina.locator('.produto-foto').nth(0).locator('input.produto-foto__alt').fill('Foto verde com círculo dourado');
     await pagina.locator('.produto-foto').nth(1).locator('input.produto-foto__alt').fill('Foto creme com círculo verde');
@@ -407,14 +419,8 @@ async function rodarLargura(navegador, base, largura) {
     const srcCapa = await pagina.locator('.produto-foto img').first().getAttribute('src');
     conferir(srcCapa === srcAntes[0], '"Usar como capa" levou a foto para o primeiro lugar', 'capa não mudou');
 
-    // Promoção maior que o preço → erro no campo.
-    await pagina.getByRole('button', { name: 'Criar produto' }).click();
-    await pagina.waitForSelector('.campo--erro');
-    const erroPromo = await pagina.locator('.campo--erro').evaluateAll((cs) => cs.map((c) => c.querySelector('.campo__erro').textContent));
-    conferir(erroPromo.length === 1 && /menor que o preço/.test(erroPromo[0]), `promoção maior que o preço: "${erroPromo[0]}"`, `erros: ${erroPromo.join(' | ')}`);
     await capturar(pagina, `produto-preenchido-${largura}`);
     await semRolagemHorizontal(pagina, 'formulário preenchido');
-    await pagina.locator('.produto-form input[name="preco_promocional"]').fill('');
     await fecharToasts(pagina);
 
     await pagina.getByRole('button', { name: 'Criar produto' }).click();
@@ -426,10 +432,10 @@ async function rodarLargura(navegador, base, largura) {
     const salvo = await produtoPorSlug(slugProduto);
     for (const img of (salvo && salvo.imagens) || []) if (caminhoNoBucket(img.src)) arquivosEnviados.add(caminhoNoBucket(img.src));
     const { data: categoriaSalva } = await servico().from('categorias').select('id, nome').eq('slug', `categoria-teste-${sufixo}`).maybeSingle();
-    conferir(salvo && salvo.preco_centavos === 4990 && salvo.estoque === 3 && salvo.ativo === true && salvo.preco_promocional_centavos === null
+    conferir(salvo && salvo.preco_centavos === 4990 && salvo.estoque === 3 && salvo.ativo === true && salvo.slug === slugProduto
       && salvo.imagens.length === 2 && salvo.imagens[0].alt === 'Foto verde com círculo dourado' && caminhoNoBucket(salvo.imagens[0].src)?.startsWith('produtos/')
-      && salvo.categoria_id === categoriaSalva?.id && salvo.peso_gramas === 300 && Number(salvo.altura_cm) === 4,
-    'no banco: R$ 49,90, estoque 3, à venda, 2 fotos com descrição, categoria e medidas padrão',
+      && salvo.categoria_id === categoriaSalva?.id && salvo.controlar_estoque === true,
+    'no banco: R$ 49,90, estoque 3, à venda, endereço gerado do nome, 2 fotos com descrição e categoria',
     `registro salvo: ${JSON.stringify(salvo)}`);
     await fecharToasts(pagina);
     await capturar(pagina, `produto-salvo-${largura}`);
@@ -449,29 +455,13 @@ async function rodarLargura(navegador, base, largura) {
     const href = await verNaLoja(pagina, contexto, base, 'R$ 49,90', `loja-produto-${largura}`);
     ok(`"Ver na loja" (${href}) mostra o produto com R$ 49,90`);
 
-    // --- Edição: promoção -----------------------------------------------------------
-    await pagina.locator('.produto-form input[name="preco_promocional"]').fill('39,90');
-    const dica = (await pagina.locator('.produto-dica').textContent()).replace(/\s+/g, ' ');
-    conferir(/de R\$ 49,90 por R\$ 39,90/.test(dica), `dica da promoção: "${dica.trim()}"`, `dica da promoção: ${dica}`);
+    // --- Edição: estoque -------------------------------------------------------------
+    await pagina.locator('.produto-form input[name="estoque"]').fill('4');
     if (!(await pagina.isVisible('.topo__alterado'))) falhar('aviso "Alterações não salvas" não apareceu');
     await pagina.getByRole('button', { name: 'Salvar alterações' }).click();
     await esperarToast(pagina, 'Alterações salvas.');
-    const comPromo = await produtoPorSlug(slugProduto);
-    conferir(comPromo.preco_promocional_centavos === 3990, 'promoção R$ 39,90 salva', `promoção salva: ${comPromo.preco_promocional_centavos}`);
-    await verNaLoja(pagina, contexto, base, 'R$ 39,90', null);
-    ok('loja mostra a promoção (R$ 39,90)');
-    await fecharToasts(pagina);
-
-    // Endereço repetido (23505) → erro no campo com sugestão.
-    await pagina.locator('.produto-form input[name="slug"]').fill('body-splash-raiz');
-    permitidos.add('409');
-    await pagina.getByRole('button', { name: 'Salvar alterações' }).click();
-    await pagina.waitForSelector('.campo--erro');
-    permitidos.delete('409');
-    const erroSlug = (await pagina.locator('.campo--erro .campo__erro').first().textContent()).trim();
-    conferir(/Já existe outro produto com o endereço "body-splash-raiz".*body-splash-raiz-2/.test(erroSlug), `endereço repetido: "${erroSlug}"`, `erro do endereço repetido: ${erroSlug}`);
-    await capturar(pagina, `produto-endereco-repetido-${largura}`, { inteira: false });
-    await pagina.locator('.produto-form input[name="slug"]').fill(slugProduto);
+    const comEstoque = await produtoPorSlug(slugProduto);
+    conferir(comEstoque.estoque === 4 && comEstoque.slug === slugProduto, 'estoque 4 salvo; o endereço não mudou', `depois de editar: ${comEstoque.estoque} ${comEstoque.slug}`);
     await fecharToasts(pagina);
 
     // Alterações não salvas → confirmação ao sair.
@@ -508,25 +498,6 @@ async function rodarLargura(navegador, base, largura) {
     await lojaFora.waitForFunction(() => /não encontrado/i.test(document.body.innerText), null, { timeout: 20_000 });
     await lojaFora.close();
     ok('fora da loja: a página do produto na loja diz "não encontrado"');
-    await fecharToasts(pagina);
-
-    // --- Duplicar e apagar a cópia ---------------------------------------------------------
-    await linha.locator('.produto-celula__nome').click();
-    await pagina.waitForSelector('.produto-form [name="nome"]');
-    await pagina.getByRole('button', { name: 'Duplicar produto' }).click();
-    await confirmarModal(pagina, 'Criar cópia');
-    await pagina.waitForFunction((original) => /^#\/produtos\/[0-9a-f-]{36}$/.test(window.location.hash) && !window.location.hash.includes(original)
-      && /\(cópia\)/.test(document.querySelector('h1')?.textContent || ''), id, { timeout: 20_000 });
-    const copia = await produtoPorSlug(`${slugProduto}-copia`);
-    conferir(copia && copia.ativo === false && copia.nome === `${nomeProduto} (cópia)` && copia.imagens.length === 2 && copia.preco_promocional_centavos === 3990,
-      'duplicar: cópia fora da loja, com "(cópia)", fotos e preços', `cópia: ${JSON.stringify(copia)}`);
-    await fecharToasts(pagina);
-    if (largura === 1440) await capturar(pagina, `produto-copia-${largura}`, { inteira: false });
-    await pagina.getByRole('button', { name: 'Apagar produto' }).click();
-    const msgApagarCopia = await confirmarModal(pagina, 'Apagar produto');
-    await esperarListaCarregada(pagina);
-    conferir(/pedidos antigos continuam/.test(msgApagarCopia) && !(await produtoPorSlug(`${slugProduto}-copia`)),
-      'apagar a cópia: confirmação explica os pedidos antigos e o produto sumiu do banco', `apagar cópia: ${msgApagarCopia}`);
     await fecharToasts(pagina);
 
     // --- Categorias ------------------------------------------------------------------------

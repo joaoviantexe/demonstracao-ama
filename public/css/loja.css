@@ -300,7 +300,6 @@
 .frete-calculo-rotulo svg{width:22px;height:22px;color:var(--verde-600)}
 .frete-calculo-linha{display:flex;gap:8px}
 .frete-calculo-linha input{flex:1;min-width:0}
-.frete-calculo-ajuda{font-size:.85rem;color:var(--verde-600);text-decoration:underline;text-underline-offset:3px;align-self:flex-start}
 .frete-opcoes-lista{display:flex;flex-direction:column;border-top:1px solid var(--linha);margin-top:4px}
 .frete-opcao-linha{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--linha)}
 .frete-opcao-linha:last-child{border-bottom:none}

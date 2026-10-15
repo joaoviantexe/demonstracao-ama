@@ -356,7 +356,6 @@ export async function renderizar(ctx) {
 | `#/` | `visao-geral.js` | `{}` | Visão geral | inicio |
 | `#/conteudo` | `conteudo.js` | `{}` | Conteúdo do site | conteudo |
 | `#/conteudo/<grupo>` | `conteudo.js` | `{ grupo }` (`[a-z0-9][a-z0-9_-]*`) | Conteúdo do site | conteudo |
-| `#/midia` | `midia.js` | `{}` | Mídia | midia |
 | `#/produtos` | `produtos.js` | `{}` | Produtos | produtos |
 | `#/produtos/novo` | `produtos.js` | `{ id: 'novo' }` | Produto | produtos |
 | `#/produtos/<uuid>` | `produtos.js` | `{ id }` (uuid em minúsculas) | Produto | produtos |
@@ -369,13 +368,13 @@ export async function renderizar(ctx) {
 - Barra no fim é ignorada (`#/produtos/` = `#/produtos`). Uuid em maiúsculas é aceito e chega em minúsculas.
   Qualquer outra coisa (`#/produtos/abc`, `#/Produtos`) cai em "Página não encontrada".
 - Um id válido que não existe no banco é problema da página: mostre `ui.estadoVazio` com um botão de volta para a lista.
-- `paginas/midia.js` (página) e `js/midia.js` (módulo do núcleo) são arquivos diferentes, em pastas diferentes.
+- Não há página de mídia: enviar e escolher arquivos é feito pelo seletor (`ctx.midia.seletorDeMidia`) dentro das páginas de conteúdo e de produtos.
 - Hash que não começa com `#/` (âncora comum, como `#secao`) não é rota: o app devolve a URL para a rota atual.
   Não use âncoras para navegar dentro da página; use `elemento.scrollIntoView()`.
 
 ### 5.2 Menu lateral (`MENU` em `app.js`)
 
-Seções e itens, na ordem: *(sem título)* Visão geral · **Site**: Conteúdo do site, Mídia · **Loja**: Pedidos,
+Seções e itens, na ordem: *(sem título)* Visão geral · **Site**: um item por parte da página inicial (Cabeçalho e menu, Quem somos, Últimas postagens, Nossos projetos…) · **Loja**: Pedidos,
 Produtos, Categorias · **Ajustes**: Configurações. Cada link tem `data-menu="<id>"` e
 `aria-current="page"` quando ativo. Só o item "Pedidos" tem contador (pedidos `pago` + `em_separacao`).
 O rodapé do menu tem "Ver loja" (`/loja/`, nova aba) e, só na gaveta do celular, o e-mail, "Ver site" e "Sair".
@@ -1194,7 +1193,7 @@ Gerado por `ui.cabecalhoPagina`:
 <section class="cartao" aria-labelledby="t-fotos">
   <div class="cartao__cabecalho">
     <h2 class="cartao__titulo" id="t-fotos">Fotos</h2>
-    <a class="cartao__link" href="#/midia">Ver mídia <svg class="icone">…</svg></a>
+    <a class="cartao__link" href="#/categorias">Ver categorias <svg class="icone">…</svg></a>
     <p class="cartao__subtitulo">A primeira foto é a da vitrine.</p>
   </div>
   <div class="cartao__corpo">…</div>

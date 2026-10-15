@@ -488,67 +488,6 @@ async function rodarLargura(navegador, url, largura) {
     conferir(!visivel.size && site.documento.querySelector('#parcerias'), 'mostrar de novo apaga a linha e a seção volta',
       `parcerias: linha ${JSON.stringify([...visivel])}, seção ${Boolean(site.documento.querySelector('#parcerias'))}`);
 
-    // --- Mídia
-    await irPara(pagina, '#/midia', '.pagina[data-pagina="midia"] .midia-painel[data-pasta="site"]');
-    const painel = pagina.locator('.midia-painel[data-pasta="site"]');
-    await painel.locator('.midia-biblioteca, .estado-vazio').first().waitFor({ timeout: 20_000 });
-    await painel.locator('input[type="search"]').fill(sufixo);
-    await painel.locator('.midia-cartao').first().waitFor();
-    conferir(await painel.locator('.midia-cartao').count() === 1, 'busca pelo nome acha a foto enviada pelo seletor', 'busca não achou a foto enviada');
-    await painel.locator('.midia-cartao__apagar').first().click();
-    const msgEmUso = await responderConfirmacao(pagina, 'Cancelar', { capturaComo: `midia-apagar-em-uso-${largura}` });
-    conferir(/está em uso no site \("Depoimentos"\)/.test(msgEmUso), 'apagar arquivo em uso avisa onde ele aparece', `confirmação: ${msgEmUso}`);
-
-    // Envio de 2 fotos de uma vez.
-    await painel.locator('input[type="search"]').fill('');
-    const [escolha2] = await Promise.all([
-      pagina.waitForEvent('filechooser'),
-      painel.locator('.area-upload').getByRole('button', { name: 'Escolher arquivos' }).click(),
-    ]);
-    await limparToasts(pagina);
-    await escolha2.setFiles([
-      { name: `oficina-${sufixo}-a.png`, mimeType: 'image/png', buffer: gerarPng(240, [31, 79, 51], [201, 152, 43], [255, 255, 255]) },
-      { name: `oficina-${sufixo}-b.png`, mimeType: 'image/png', buffer: gerarPng(240, [11, 42, 28], [120, 160, 90], [201, 152, 43]) },
-    ]);
-    await esperarToast(pagina, '2 arquivos enviados.');
-    await painel.locator('input[type="search"]').fill(`oficina ${sufixo}`);
-    await pagina.waitForFunction(() => document.querySelectorAll('.midia-painel[data-pasta="site"] .midia-cartao').length === 2);
-    const contador = (await painel.locator('.midia-contador').textContent()).trim();
-    conferir(/^2 de \d+ arquivos$/.test(contador), `busca "oficina": ${contador}`, `contador da busca: ${contador}`);
-    const caminhos = await painel.locator('.midia-cartao').evaluateAll((cs) => cs.map((c) => c.dataset.caminho));
-    enviadosAqui.push(...caminhos);
-    await fecharToasts(pagina);
-    await capturar(pagina, `midia-site-${largura}`);
-    await semRolagemHorizontal(pagina, '#/midia');
-
-    // Copiar endereço.
-    await limparToasts(pagina);
-    await painel.locator('.midia-cartao__copiar').first().click();
-    await esperarToast(pagina, 'Endereço copiado');
-    const copiado = await pagina.evaluate(() => navigator.clipboard.readText()).catch(() => '');
-    conferir(/\/storage\/v1\/object\/public\/midia\/site\//.test(copiado), 'copiar endereço põe a URL pública na área de transferência', `copiado: ${copiado}`);
-
-    // Apagar (sem uso) com confirmação.
-    const antes = await painel.locator('.midia-cartao').count();
-    await painel.locator('.midia-cartao__apagar').first().click();
-    await limparToasts(pagina);
-    const msgSemUso = await responderConfirmacao(pagina, 'Apagar arquivo');
-    conferir(/não foi encontrada no conteúdo do site nem nos produtos/.test(msgSemUso) && /não pode ser desfeita/.test(msgSemUso),
-      'apagar arquivo sem uso: confirmação clara', `confirmação: ${msgSemUso}`);
-    await esperarToast(pagina, 'Arquivo apagado.');
-    conferir(await painel.locator('.midia-cartao').count() === antes - 1, 'o arquivo apagado saiu da grade', 'o arquivo apagado continuou na grade');
-
-    // Busca sem resultado e aba Vídeos.
-    await painel.locator('input[type="search"]').fill(`nada-${sufixo}-zzz`);
-    await painel.locator('.estado-vazio', { hasText: 'Nada encontrado' }).waitFor();
-    ok('busca sem resultado mostra "Nada encontrado" com "Limpar a busca"');
-    await pagina.getByRole('tab', { name: 'Vídeos' }).click();
-    await pagina.locator('.midia-painel[data-pasta="videos"]').locator('.midia-biblioteca, .estado-vazio').first().waitFor({ timeout: 20_000 });
-    const hash = await pagina.evaluate(() => window.location.hash);
-    conferir(hash === '#/midia?pasta=videos', 'aba guardada na URL (#/midia?pasta=videos)', `hash: ${hash}`);
-    await fecharToasts(pagina);
-    await capturar(pagina, `midia-videos-${largura}`);
-
     // --- Restaurar padrão (apaga as linhas) e conferir que GET / voltou
     await irPara(pagina, '#/conteudo/quem-somos', '[data-chave="quem-somos.titulo"] .cms-campo__restaurar');
     await limparToasts(pagina);

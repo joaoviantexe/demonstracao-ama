@@ -547,7 +547,6 @@ a.metrica:hover{border-color:var(--ouro-500);box-shadow:var(--sombra-2);color:va
 .area-upload__icone{width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--ouro-100);color:var(--ouro-700)}
 .area-upload__icone .icone{width:26px;height:26px}
 .area-upload__texto{font-weight:700}
-.area-upload__formatos{font-size:.82rem;color:var(--tinta-suave)}
 .area-upload--ativa{border-color:var(--ouro-500);background:var(--ouro-100)}
 .area-upload--enviando{border-style:solid;border-color:var(--verde-200)}
 .area-upload--desativada{opacity:.7}

@@ -1,6 +1,6 @@
 // #/produtos, #/produtos/novo e #/produtos/<id> — catálogo da loja (docs/ARQUITETURA.md §4.1 e §8).
 // Lista com busca, filtros, ordenação e "à venda" direto na linha; formulário do produto (fotos,
-// preço, estoque, frete, publicação), duplicar e apagar.
+// preço, estoque, publicação) e apagar.
 // As funções puras do começo do arquivo são testadas em tests/unit/painel-produtos.test.js.
 
 import { formatarPreco, lerPreco, moverItem, slugify } from '../ui.js';
@@ -160,8 +160,7 @@ export function adicionarImagens(imagens, novas, maximo = MAX_IMAGENS) {
 
 /**
  * Valores do formulário (textos como foram digitados) → { campo: mensagem } (vazio = tudo certo).
- * Campos: nome, slug, descricao, preco, preco_promocional, estoque, controlar_estoque, ativo, destaque,
- * categoria_id, imagens [{ src, alt }], peso_gramas, altura_cm, largura_cm, comprimento_cm, sku, ordem.
+ * Campos: nome, descricao, preco, estoque, ativo, destaque, categoria_id, imagens [{ src, alt }], ordem.
  * As chaves do resultado são as colunas da tabela produtos.
  */
 export function validarProduto(v) {
@@ -169,10 +168,6 @@ export function validarProduto(v) {
   const nome = String(v.nome ?? '').trim();
   if (!nome) erros.nome = 'Informe o nome do produto.';
   else if (nome.length > MAX_NOME) erros.nome = `Use no máximo ${MAX_NOME} caracteres (agora tem ${nome.length}).`;
-
-  // Sem nome e sem endereço, o erro do nome basta (o endereço sai do nome).
-  const slug = !nome && !String(v.slug ?? '').trim() ? null : erroSlug(v.slug);
-  if (slug) erros.slug = slug;
 
   if (String(v.descricao ?? '').trim().length > MAX_DESCRICAO) {
     erros.descricao = 'A descrição passou de 10.000 caracteres. Encurte um pouco.';
@@ -183,41 +178,11 @@ export function validarProduto(v) {
   if (!precoTexto) erros.preco_centavos = `Informe o preço. Se ainda não tiver, digite 0: o produto ${EXPLICACAO_SEM_PRECO}.`;
   else if (preco === null) erros.preco_centavos = 'Preço inválido. Digite só o valor, como 49,90.';
 
-  const promoTexto = String(v.preco_promocional ?? '').trim();
-  if (promoTexto) {
-    const promo = lerPreco(promoTexto);
-    if (promo === null) erros.preco_promocional_centavos = 'Preço promocional inválido. Digite só o valor, como 39,90, ou deixe vazio.';
-    else if (preco === 0) erros.preco_promocional_centavos = 'Defina o preço normal antes de criar uma promoção.';
-    else if (promo === 0) erros.preco_promocional_centavos = 'A promoção precisa ser maior que zero. Para tirar a promoção, deixe vazio.';
-    else if (preco !== null && promo >= preco) {
-      erros.preco_promocional_centavos = `A promoção precisa ser menor que o preço (${formatarPreco(preco)}). Para tirar a promoção, deixe vazio.`;
-    }
-  }
-
-  if (v.controlar_estoque !== false) {
-    const estoque = lerInteiro(v.estoque);
-    if (estoque.vazio) erros.estoque = 'Informe quantas unidades há para vender (pode ser 0).';
-    else if (estoque.valor === null) erros.estoque = 'Use um número inteiro, como 3.';
-    else if (estoque.valor < 0) erros.estoque = 'O estoque não pode ser negativo.';
-    else if (estoque.valor > MAIOR_INT) erros.estoque = 'Número grande demais.';
-  }
-
-  const peso = lerInteiro(v.peso_gramas);
-  if (!peso.vazio) {
-    if (peso.valor === null) erros.peso_gramas = 'Use o peso em gramas, só números (ex.: 300).';
-    else if (peso.valor <= 0) erros.peso_gramas = 'O peso precisa ser maior que zero.';
-    else if (peso.valor > MAIOR_INT) erros.peso_gramas = 'Peso grande demais.';
-  }
-  for (const campo of ['altura_cm', 'largura_cm', 'comprimento_cm']) {
-    const medida = lerDecimal(v[campo]);
-    if (medida.vazio) continue;
-    if (medida.valor === null) erros[campo] = 'Use só números, como 12 ou 4,5.';
-    else if (umaCasa(medida.valor) <= 0) erros[campo] = 'A medida precisa ser maior que zero.';
-    else if (umaCasa(medida.valor) > MAIOR_MEDIDA) erros[campo] = 'Medida grande demais (máximo 99.999,9 cm).';
-  }
-
-  const sku = String(v.sku ?? '').trim();
-  if (sku.length > MAX_SKU) erros.sku = `Use no máximo ${MAX_SKU} caracteres.`;
+  const estoque = lerInteiro(v.estoque);
+  if (estoque.vazio) erros.estoque = 'Informe quantas unidades há para vender (pode ser 0).';
+  else if (estoque.valor === null) erros.estoque = 'Use um número inteiro, como 3.';
+  else if (estoque.valor < 0) erros.estoque = 'O estoque não pode ser negativo.';
+  else if (estoque.valor > MAIOR_INT) erros.estoque = 'Número grande demais.';
 
   const ordem = lerInteiro(v.ordem);
   if (!ordem.vazio && (ordem.valor === null || Math.abs(ordem.valor) > MAIOR_INT)) {
@@ -240,26 +205,17 @@ export function validarProduto(v) {
 }
 
 /**
- * Valores já validados → registro para insert/update em produtos.
- * Campos de frete vazios usam o padrão; estoque vazio (sem controle) vira 0; SKU vazio vira null.
+ * Valores já validados → registro para insert/update em produtos. Endereço (slug), promoção, SKU, medidas e
+ * controle de estoque não são editados no painel: ficam como estão (padrões do banco num produto novo).
  */
 export function montarRegistro(v) {
-  const promoTexto = String(v.preco_promocional ?? '').trim();
   const estoque = lerInteiro(v.estoque).valor;
-  const peso = lerInteiro(v.peso_gramas).valor;
-  const medida = (campo) => {
-    const lido = lerDecimal(v[campo]).valor;
-    return lido === null ? MEDIDAS_PADRAO[campo] : umaCasa(lido);
-  };
   const ordem = lerInteiro(v.ordem).valor;
   return {
     nome: String(v.nome ?? '').trim(),
-    slug: String(v.slug ?? '').trim(),
     descricao: String(v.descricao ?? '').trim(),
     preco_centavos: lerPreco(String(v.preco ?? '').trim()) ?? 0,
-    preco_promocional_centavos: promoTexto ? lerPreco(promoTexto) : null,
     estoque: estoque !== null && estoque >= 0 ? estoque : 0,
-    controlar_estoque: v.controlar_estoque !== false,
     ativo: v.ativo === true,
     destaque: v.destaque === true,
     categoria_id: v.categoria_id ? String(v.categoria_id) : null,
@@ -267,52 +223,15 @@ export function montarRegistro(v) {
       src: String(img.src).trim(),
       alt: String(img.alt ?? '').trim(),
     })),
-    peso_gramas: peso !== null && peso > 0 ? peso : MEDIDAS_PADRAO.peso_gramas,
-    altura_cm: medida('altura_cm'),
-    largura_cm: medida('largura_cm'),
-    comprimento_cm: medida('comprimento_cm'),
-    sku: String(v.sku ?? '').trim() || null,
     ordem: ordem ?? 0,
-  };
-}
-
-/** Registro da cópia de um produto: "(cópia)", endereço livre e fora da loja. */
-export function registroDaCopia(produto, slugsExistentes = []) {
-  const sufixo = ' (cópia)';
-  const nome = String(produto.nome || 'Produto').trim();
-  const base = `${String(produto.slug || gerarSlug(nome) || 'produto').slice(0, MAX_SLUG - 12)}-copia`;
-  return {
-    nome: `${nome.slice(0, MAX_NOME - sufixo.length).trim()}${sufixo}`,
-    slug: sugerirSlug(base, slugsExistentes),
-    descricao: produto.descricao || '',
-    preco_centavos: Number(produto.preco_centavos) || 0,
-    preco_promocional_centavos: produto.preco_promocional_centavos ?? null,
-    estoque: Number(produto.estoque) || 0,
-    controlar_estoque: produto.controlar_estoque !== false,
-    ativo: false,
-    destaque: produto.destaque === true,
-    categoria_id: produto.categoria_id || null,
-    imagens: normalizarImagens(produto.imagens),
-    peso_gramas: Number(produto.peso_gramas) || MEDIDAS_PADRAO.peso_gramas,
-    altura_cm: Number(produto.altura_cm) || MEDIDAS_PADRAO.altura_cm,
-    largura_cm: Number(produto.largura_cm) || MEDIDAS_PADRAO.largura_cm,
-    comprimento_cm: Number(produto.comprimento_cm) || MEDIDAS_PADRAO.comprimento_cm,
-    sku: produto.sku || null,
-    ordem: Number(produto.ordem) || 0,
   };
 }
 
 const RESTRICOES = {
   produtos_nome_check: 'nome',
-  produtos_slug_check: 'slug',
   produtos_preco_check: 'preco_centavos',
-  produtos_preco_promocional_check: 'preco_promocional_centavos',
   produtos_estoque_check: 'estoque',
   produtos_imagens_check: 'imagens',
-  produtos_peso_check: 'peso_gramas',
-  produtos_altura_check: 'altura_cm',
-  produtos_largura_check: 'largura_cm',
-  produtos_comprimento_check: 'comprimento_cm',
 };
 
 /** Nome do check do banco (erro 23514) → campo do formulário (ou null). */
@@ -324,22 +243,18 @@ export function campoDaRestricao(restricao) {
 // Lista: situação, selos, filtros e ordenação
 
 /**
- * Situação do produto como a loja enxerga (public/js/loja/produtos.js): preço efetivo = promoção ?? preço;
+ * Situação do produto como a loja enxerga (public/js/loja/produtos.js): não há promoção no painel;
  * preço efetivo 0 aparece com "R$ 00,00" e a compra é recusada; esgotado só quando há preço.
  */
 export function situacaoProduto(p) {
   const preco = Number(p.preco_centavos) || 0;
-  const bruta = p.preco_promocional_centavos;
-  const promo = bruta === null || bruta === undefined || bruta === '' ? null : Number(bruta);
-  const temPromo = promo !== null && Number.isFinite(promo) && promo < preco;
-  const efetivo = temPromo ? promo : preco;
+  const efetivo = preco;
   const controla = p.controlar_estoque !== false;
   const estoque = Number(p.estoque) || 0;
   return {
     aVenda: p.ativo === true,
     precoEfetivo: efetivo,
     semPreco: efetivo <= 0,
-    promocao: temPromo && efetivo > 0,
     destaque: p.destaque === true,
     controlaEstoque: controla,
     semEstoque: controla && estoque <= 0,
@@ -362,7 +277,6 @@ export function selosProduto(p) {
         : 'Aparece na loja como esgotado: ninguém consegue comprar até você repor o estoque.',
     });
   }
-  if (s.promocao) selos.push({ id: 'promocao', texto: 'Promoção', cor: 'ouro', dica: 'O preço normal aparece riscado na loja.' });
   if (s.destaque) selos.push({ id: 'destaque', texto: 'Destaque', cor: 'azul', dica: 'Aparece entre os primeiros da loja.' });
   return selos;
 }
@@ -375,7 +289,6 @@ export const SITUACOES = Object.freeze([
   { id: 'sem-preco', rotulo: 'Sem preço', teste: (s) => s.semPreco },
   { id: 'sem-estoque', rotulo: 'Sem estoque', teste: (s) => s.semEstoque },
   { id: 'estoque-baixo', rotulo: `Estoque baixo (até ${ESTOQUE_BAIXO})`, teste: (s) => s.estoqueBaixo },
-  { id: 'promocao', rotulo: 'Em promoção', teste: (s) => s.promocao },
   { id: 'destaque', rotulo: 'Destaques', teste: (s) => s.destaque },
 ]);
 
@@ -394,7 +307,7 @@ export function normalizarBusca(texto) {
   return String(texto ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
-/** Filtra por busca (nome, endereço ou SKU), categoria ('' todas, 'sem' sem categoria, id) e situação. */
+/** Filtra por busca (nome ou endereço), categoria ('' todas, 'sem' sem categoria, id) e situação. */
 export function filtrarProdutos(lista, { busca = '', categoria = '', situacao = '' } = {}) {
   const termos = normalizarBusca(busca).split(' ').filter(Boolean);
   const filtro = SITUACOES.find((s) => s.id === situacao) || SITUACOES[0];
@@ -402,7 +315,7 @@ export function filtrarProdutos(lista, { busca = '', categoria = '', situacao = 
     if (categoria === 'sem' ? p.categoria_id : categoria && p.categoria_id !== categoria) return false;
     if (!filtro.teste(situacaoProduto(p))) return false;
     if (!termos.length) return true;
-    const alvo = normalizarBusca(`${p.nome} ${p.slug} ${p.sku || ''}`);
+    const alvo = normalizarBusca(`${p.nome} ${p.slug}`);
     return termos.every((t) => alvo.includes(t));
   });
 }
@@ -454,7 +367,7 @@ export function mensagemAlternarAtivo(p, novo) {
 }
 
 /** Consulta da lista: só o necessário para a tabela e os filtros. */
-const COLUNAS_LISTA = 'id, nome, slug, preco_centavos, preco_promocional_centavos, estoque, controlar_estoque, ativo, destaque, categoria_id, imagens, ordem, sku, criado_em';
+const COLUNAS_LISTA = 'id, nome, slug, preco_centavos, preco_promocional_centavos, estoque, controlar_estoque, ativo, destaque, categoria_id, imagens, ordem, criado_em';
 const COLUNAS_CATEGORIAS = 'id, nome, ativo, ordem';
 
 // ---------------------------------------------------------------------------
@@ -581,21 +494,13 @@ async function renderizarLista(ctx) {
       el('div', { class: 'produto-celula__textos' },
         el('a', { class: 'produto-celula__nome', href: `#/produtos/${p.id}` }, p.nome),
         el('span', { class: 'produto-celula__detalhe' },
-          el('span', { class: 'so-celular' }, categoria || 'Sem categoria'),
-          p.sku ? el('span', { class: 'mono', title: 'Código interno (SKU)' }, p.sku) : null)));
+          el('span', { class: 'so-celular' }, categoria || 'Sem categoria'))));
   }
 
   function celulaPreco(p) {
     const s = situacaoProduto(p);
     if (s.semPreco) {
       return el('span', { class: 'produto-preco produto-preco--zero', title: `Sem preço: ${EXPLICACAO_SEM_PRECO}` }, 'R$\u00a000,00');
-    }
-    if (s.promocao) {
-      return el('span', { class: 'produto-preco' },
-        el('span', { class: 'sr-only' }, 'de '),
-        el('s', { class: 'produto-preco__antigo' }, formatarPreco(p.preco_centavos)),
-        el('span', { class: 'sr-only' }, ' por '),
-        el('strong', { class: 'produto-preco__atual' }, formatarPreco(p.preco_promocional_centavos)));
     }
     return el('span', { class: 'produto-preco' }, formatarPreco(p.preco_centavos));
   }
@@ -788,7 +693,6 @@ async function renderizarFormulario(ctx) {
   let produto = rp.dados; // versão salva (null enquanto o produto novo não foi salvo)
   let categorias = rc.ok ? rc.dados || [] : [];
   let imagens = produto ? normalizarImagens(produto.imagens) : [];
-  let slugManual = !novo;
   let alterado = false;
   let enviando = false;
   let modalCategoria = null;
@@ -802,21 +706,10 @@ async function renderizarFormulario(ctx) {
   const p = produto || {};
   const nome = ui.campo({
     rotulo: 'Nome do produto', nome: 'nome', obrigatorio: true, valor: p.nome ?? '',
-    ajuda: 'Aparece na loja, no carrinho e nos pedidos.', attrs: { maxlength: String(MAX_NOME), autocomplete: 'off' },
+    attrs: { maxlength: String(MAX_NOME), autocomplete: 'off' },
   });
-  const slug = ui.campo({
-    rotulo: 'Endereço na loja', nome: 'slug', obrigatorio: true, valor: p.slug ?? '',
-    ajuda: novo
-      ? 'Criado sozinho a partir do nome. Só letras minúsculas sem acento, números e hífens.'
-      : 'Só letras minúsculas sem acento, números e hífens. Mudar o endereço faz links antigos (já compartilhados) pararem de funcionar.',
-    attrs: { maxlength: String(MAX_SLUG), autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false' },
-  });
-  const previaEndereco = el('span', { class: 'mono' });
-  const gerarDoNome = novo ? null : el('button', { type: 'button', class: 'botao-link produto-endereco__gerar' }, ui.icone('atualizar'), 'Criar a partir do nome');
-  const blocoEndereco = el('p', { class: 'produto-endereco' }, 'Link: ', previaEndereco, gerarDoNome);
   const descricao = ui.campo({
     rotulo: 'Descrição', nome: 'descricao', tipo: 'textarea', linhas: 7, valor: p.descricao ?? '',
-    ajuda: 'Conte o que é, o tamanho (ex.: 200 mL), os ingredientes e o modo de usar. Deixe uma linha em branco para começar outro parágrafo.',
     attrs: { maxlength: String(MAX_DESCRICAO) },
   });
 
@@ -824,40 +717,14 @@ async function renderizarFormulario(ctx) {
     rotulo: 'Preço', nome: 'preco', tipo: 'preco', obrigatorio: true, valor: produto ? produto.preco_centavos : null,
     ajuda: `Digite 0 se ainda não tiver preço: o produto ${EXPLICACAO_SEM_PRECO}.`,
   });
-  const promo = ui.campo({
-    rotulo: 'Preço promocional', nome: 'preco_promocional', tipo: 'preco', valor: produto ? produto.preco_promocional_centavos : null,
-    placeholder: 'Sem promoção',
-    ajuda: 'Opcional. Precisa ser menor que o preço; na loja o preço normal aparece riscado. Deixe vazio para não ter promoção.',
-  });
   const dicaPreco = el('div', { class: 'produto-dica', 'aria-live': 'polite' });
   const estoque = ui.campo({
     rotulo: 'Estoque', nome: 'estoque', valor: produto ? String(produto.estoque ?? 0) : '', sufixo: 'unidades', placeholder: 'Ex.: 10',
     ajuda: 'Quantas unidades há para vender. A cada venda paga, a loja desconta sozinha.',
     attrs: { inputmode: 'numeric', autocomplete: 'off', maxlength: '10' },
   });
-  const controlar = ui.campo({
-    rotulo: 'Controlar estoque', nome: 'controlar_estoque', tipo: 'checkbox', valor: produto ? produto.controlar_estoque !== false : true,
-    ajuda: 'Desmarque para vender sem limite de unidades (por exemplo, produto feito sob encomenda).',
-  });
-  const sku = ui.campo({
-    rotulo: 'Código interno (SKU)', nome: 'sku', valor: p.sku ?? '', placeholder: 'Ex.: AMA-BS-RAIZ',
-    ajuda: 'Opcional, para o seu controle. Não aparece na loja.', attrs: { maxlength: String(MAX_SKU), autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false' },
-  });
-
-  const medida = (campo, rotulo, sufixo, inteiro) => ui.campo({
-    rotulo, nome: campo, sufixo, valor: produto ? formatarDecimal(produto[campo]) : String(MEDIDAS_PADRAO[campo]),
-    attrs: { inputmode: inteiro ? 'numeric' : 'decimal', autocomplete: 'off', maxlength: '9' },
-  });
-  const peso = medida('peso_gramas', 'Peso', 'g', true);
-  const altura = medida('altura_cm', 'Altura', 'cm', false);
-  const largura = medida('largura_cm', 'Largura', 'cm', false);
-  const comprimento = medida('comprimento_cm', 'Comprimento', 'cm', false);
-  const usarPadrao = el('button', { type: 'button', class: 'botao-link' }, ui.icone('atualizar'),
-    `Usar os valores padrão (${MEDIDAS_PADRAO.peso_gramas} g, ${MEDIDAS_PADRAO.altura_cm} × ${MEDIDAS_PADRAO.largura_cm} × ${MEDIDAS_PADRAO.comprimento_cm} cm)`);
-
   const ativo = ui.campo({
     rotulo: 'À venda na loja', nome: 'ativo', tipo: 'interruptor', valor: produto ? produto.ativo === true : true,
-    ajuda: 'Desligado, o produto fica guardado só aqui no painel (rascunho) e não aparece na loja.',
   });
   const destaque = ui.campo({
     rotulo: 'Mostrar entre os destaques', nome: 'destaque', tipo: 'checkbox', valor: p.destaque === true,
@@ -879,7 +746,6 @@ async function renderizarFormulario(ctx) {
   const contadorFotos = el('p', { class: 'texto-pequeno texto-suave', 'aria-live': 'polite' });
   const erroFotos = el('p', { class: 'campo__erro', hidden: true, role: 'alert' });
   const area = midia.criarAreaUpload({ tipo: 'imagem', multiplo: true, texto: 'Arraste as fotos para cá', aoEscolher: enviarFotos });
-  const daBiblioteca = ui.botao({ texto: 'Escolher da biblioteca', icone: 'midia', aoClicar: escolherDaBiblioteca });
 
   // --- Montagem -----------------------------------------------------------
   const cartao = (idTitulo, tituloTexto, subtitulo, ...conteudo) => el('section', { class: 'cartao', 'aria-labelledby': idTitulo },
@@ -889,30 +755,26 @@ async function renderizarFormulario(ctx) {
     el('div', { class: 'cartao__corpo' }, ...conteudo));
 
   // Erros de validação aparecem aqui, ao lado do botão (um toast cobriria o próprio "Salvar").
-  const INFO_BARRA = 'As mudanças aparecem na loja assim que você salvar.';
+  const INFO_BARRA = '';
   const infoBarra = el('p', { class: 'barra-acoes__info', 'aria-live': 'polite' }, INFO_BARRA);
   const avisarNaBarra = (texto) => {
     infoBarra.textContent = texto || INFO_BARRA;
     infoBarra.classList.toggle('produto-barra__erro', Boolean(texto));
   };
   const botaoSalvar = ui.botao({ texto: novo ? 'Criar produto' : 'Salvar alterações', tipo: 'primario', icone: 'check', tipoHtml: 'submit' });
-  const botaoDuplicar = novo ? null : ui.botao({ texto: 'Duplicar produto', icone: 'duplicar', bloco: true, aoClicar: duplicar });
   const botaoApagar = novo ? null : ui.botao({ texto: 'Apagar produto', tipo: 'perigo-suave', icone: 'lixeira', bloco: true, aoClicar: apagar });
 
   const form = el('form', { class: 'pilha produto-form', novalidate: true, 'aria-label': novo ? 'Novo produto' : 'Editar produto' },
     el('div', { class: 'grade grade--painel' },
       el('div', { class: 'pilha' },
-        cartao('pf-dados', 'Informações', null, nome.elemento, el('div', { class: 'campo' }, slug.elemento, blocoEndereco), descricao.elemento),
+        cartao('pf-dados', 'Informações', null, nome.elemento, descricao.elemento),
         cartao('pf-fotos', 'Fotos', 'A primeira foto é a capa, que aparece na vitrine. Use fotos quadradas e bem iluminadas.',
           listaFotos, semFotos, contadorFotos, erroFotos,
-          el('div', { class: 'produto-fotos__envio' }, area.elemento, el('div', { class: 'produto-fotos__biblioteca' }, el('span', { class: 'texto-suave texto-pequeno' }, 'Ou use uma foto que já está no site:'), daBiblioteca))),
+          el('div', { class: 'produto-fotos__envio' }, area.elemento)),
         cartao('pf-preco', 'Preço e estoque', null,
-          el('div', { class: 'formulario__linha' }, preco.elemento, promo.elemento),
-          el('div', { class: 'formulario__linha' }, el('div', { class: 'pilha pilha--estreita' }, estoque.elemento, controlar.elemento), sku.elemento),
-          dicaPreco),
-        cartao('pf-frete', 'Tamanho e peso (frete)', 'Usados para calcular o frete. Meça o produto já embalado. Se não souber, deixe os valores padrão.',
-          el('div', { class: 'produto-medidas' }, peso.elemento, altura.elemento, largura.elemento, comprimento.elemento),
-          el('p', { class: 'produto-medidas__padrao' }, usarPadrao))),
+          preco.elemento,
+          estoque.elemento,
+          dicaPreco)),
       el('div', { class: 'pilha' },
         cartao('pf-loja', 'Na loja', null,
           ativo.elemento,
@@ -920,9 +782,6 @@ async function renderizarFormulario(ctx) {
           el('div', { class: 'produto-categoria' }, categoria.elemento, novaCategoria),
           ordem.elemento),
         novo ? null : cartao('pf-acoes', 'Mais ações', null,
-          el('p', { class: 'texto-pequeno texto-suave' }, 'A cópia começa fora da loja, com as mesmas fotos e preços, para você só ajustar o que muda.'),
-          botaoDuplicar,
-          el('hr', { class: 'divisor' }),
           el('p', { class: 'texto-pequeno texto-suave' }, 'Apagar tira o produto da loja e do painel. Os pedidos antigos continuam com o nome e o preço dele.'),
           botaoApagar))),
     el('div', { class: 'barra-acoes' },
@@ -940,34 +799,18 @@ async function renderizarFormulario(ctx) {
     categoria.entrada.value = selecionada || '';
   }
 
-  function atualizarEndereco() {
-    const valor = slug.entrada.value.trim() || '…';
-    previaEndereco.textContent = `/loja/produto?slug=${valor}`;
-  }
-
   function atualizarDicaPreco() {
     const precoTexto = preco.entrada.value.trim();
     const valorPreco = precoTexto ? lerPreco(precoTexto) : null;
-    const promoTexto = promo.entrada.value.trim();
-    const valorPromo = promoTexto ? lerPreco(promoTexto) : null;
     const avisos = [];
     if (valorPreco === 0) {
       avisos.push(ui.aviso(`Com preço 0, o produto ${EXPLICACAO_SEM_PRECO}.`, 'alerta', { titulo: 'Sem preço' }));
-    } else if (valorPreco > 0 && valorPromo > 0 && valorPromo < valorPreco) {
-      const desconto = Math.round((1 - valorPromo / valorPreco) * 100);
-      avisos.push(ui.aviso(`Na loja aparece "de ${formatarPreco(valorPreco)} por ${formatarPreco(valorPromo)}" (${desconto}% de desconto).`, 'info', { titulo: 'Promoção' }));
     }
     const lidoEstoque = lerInteiro(estoque.entrada.value);
-    if (valorPreco > 0 && controlar.ler() && lidoEstoque.valor === 0) {
+    if (valorPreco > 0 && lidoEstoque.valor === 0) {
       avisos.push(ui.aviso('Com estoque 0, o produto aparece na loja como esgotado e ninguém consegue comprar. Informe quantas unidades há para vender.', 'alerta', { titulo: 'Sem estoque' }));
     }
     dicaPreco.replaceChildren(...avisos);
-  }
-
-  function atualizarEstoque() {
-    const controla = controlar.ler();
-    estoque.entrada.disabled = !controla;
-    if (!controla) estoque.definirErro(null);
   }
 
   function atualizarCabecalho() {
@@ -1073,7 +916,6 @@ async function renderizarFormulario(ctx) {
   function travarEnvio(sim) {
     enviando = sim;
     area.desativar(sim);
-    daBiblioteca.disabled = sim;
   }
 
   async function enviarFotos(arquivos) {
@@ -1116,16 +958,6 @@ async function renderizarFormulario(ctx) {
     }
   }
 
-  async function escolherDaBiblioteca() {
-    if (imagens.length >= MAX_IMAGENS) {
-      ui.toast(`Este produto já tem ${MAX_IMAGENS} fotos, o máximo. Tire alguma antes de adicionar outra.`, 'aviso');
-      return;
-    }
-    const url = await midia.seletorDeMidia({ tipo: 'imagem', pasta: 'produtos', titulo: 'Foto do produto' });
-    if (!url || !ctx.ativo()) return;
-    juntarFotos([{ src: url, alt: '' }]);
-  }
-
   async function criarCategoria() {
     let modulo;
     try {
@@ -1150,28 +982,19 @@ async function renderizarFormulario(ctx) {
   function lerValores() {
     return {
       nome: nome.entrada.value,
-      slug: slug.entrada.value,
       descricao: descricao.entrada.value,
       preco: preco.entrada.value,
-      preco_promocional: promo.entrada.value,
       estoque: estoque.entrada.value,
-      controlar_estoque: controlar.ler(),
       ativo: ativo.ler(),
       destaque: destaque.ler(),
       categoria_id: categoria.entrada.value,
       imagens,
-      peso_gramas: peso.entrada.value,
-      altura_cm: altura.entrada.value,
-      largura_cm: largura.entrada.value,
-      comprimento_cm: comprimento.entrada.value,
-      sku: sku.entrada.value,
       ordem: ordem.entrada.value,
     };
   }
 
   const CAMPOS = {
-    nome, slug, descricao, preco_centavos: preco, preco_promocional_centavos: promo, estoque, sku, ordem,
-    peso_gramas: peso, altura_cm: altura, largura_cm: largura, comprimento_cm: comprimento, categoria_id: categoria,
+    nome, descricao, preco_centavos: preco, estoque, ordem, categoria_id: categoria,
   };
 
   function limparErros() {
@@ -1208,16 +1031,7 @@ async function renderizarFormulario(ctx) {
     return r.ok ? (r.dados || []).map((l) => l.slug) : [];
   }
 
-  async function tratarErroAoSalvar(r, registro) {
-    if (r.erro === 'duplicado' && (!r.campo || r.campo === 'slug')) {
-      const usados = await slugsParecidos(registro.slug);
-      if (!ctx.ativo()) return;
-      const sugestao = sugerirSlug(registro.slug, [...usados, registro.slug]);
-      slug.definirErro(`Já existe outro produto com o endereço "${registro.slug}". Use outro, por exemplo "${sugestao}".`);
-      avisarNaBarra('Confira o campo marcado em vermelho.');
-      focarPrimeiroErro();
-      return;
-    }
+  async function tratarErroAoSalvar(r) {
     if (r.erro === 'dados_invalidos' && campoDaRestricao(r.restricao)) {
       mostrarErros({ [campoDaRestricao(r.restricao)]: 'Este valor não foi aceito. Confira e tente de novo.' });
       return;
@@ -1255,13 +1069,23 @@ async function renderizarFormulario(ctx) {
     }
     const registro = montarRegistro(valores);
     await ui.ocupado(botaoSalvar, async () => {
-      const consulta = produto
-        ? supabase.from('produtos').update(registro).eq('id', produto.id)
-        : supabase.from('produtos').insert(registro);
-      const r = await api.consultar(consulta.select('*').single());
+      let r;
+      if (produto) {
+        r = await api.consultar(supabase.from('produtos').update(registro).eq('id', produto.id).select('*').single());
+      } else {
+        // O endereço (slug) da loja sai do nome e nunca é pedido: escolhe o primeiro livre. Se outro
+        // produto pegar o mesmo endereço no meio do caminho, tenta de novo com a lista atualizada.
+        const base = gerarSlug(registro.nome) || 'produto';
+        for (let tentativa = 0; tentativa < 3; tentativa += 1) {
+          const usados = await slugsParecidos(base);
+          if (!ctx.ativo()) return;
+          r = await api.consultar(supabase.from('produtos').insert({ ...registro, slug: sugerirSlug(base, usados) }).select('*').single());
+          if (r.ok || r.erro !== 'duplicado') break;
+        }
+      }
       if (!ctx.ativo()) return;
       if (!r.ok) {
-        await tratarErroAoSalvar(r, registro);
+        await tratarErroAoSalvar(r);
         return;
       }
       const eraNovo = !produto;
@@ -1277,31 +1101,6 @@ async function renderizarFormulario(ctx) {
       desenharFotos();
       atualizarCabecalho();
       montarAcoesTopo();
-    });
-  }
-
-  async function duplicar() {
-    if (!produto) return;
-    if (alterado) {
-      ui.toast('Salve (ou desfaça) as alterações antes de duplicar.', 'aviso');
-      return;
-    }
-    const sim = await ui.confirmar(`Criar uma cópia de "${produto.nome}"? A cópia fica fora da loja até você revisar e colocar à venda.`, {
-      titulo: 'Duplicar produto?', textoConfirmar: 'Criar cópia',
-    });
-    if (!sim || !ctx.ativo()) return;
-    await ui.ocupado(botaoDuplicar, async () => {
-      const usados = await slugsParecidos(`${produto.slug}-copia`);
-      if (!ctx.ativo()) return;
-      const registro = registroDaCopia(produto, usados);
-      const r = await api.consultar(supabase.from('produtos').insert(registro).select('id').single());
-      if (!ctx.ativo()) return;
-      if (!r.ok) {
-        ui.toast(r.erro === 'duplicado' ? 'Não foi possível criar a cópia agora (endereço repetido). Tente de novo.' : r.mensagem, 'erro');
-        return;
-      }
-      ui.toast('Cópia criada. Revise os dados e coloque à venda quando estiver pronta.', 'sucesso');
-      ctx.navegar(`#/produtos/${r.dados.id}`);
     });
   }
 
@@ -1326,54 +1125,8 @@ async function renderizarFormulario(ctx) {
   }
 
   // Eventos
-  nome.entrada.addEventListener('input', () => {
-    if (!slugManual) {
-      slug.entrada.value = gerarSlug(nome.entrada.value);
-      slug.definirErro(null);
-      atualizarEndereco();
-    }
-  });
-  slug.entrada.addEventListener('input', () => {
-    slugManual = slug.entrada.value.trim() !== '';
-    atualizarEndereco();
-  });
-  slug.entrada.addEventListener('change', () => {
-    // Corrige o que dá para corrigir sozinho: "Creme Novo" → "creme-novo".
-    const corrigido = gerarSlugLongo(slug.entrada.value);
-    if (corrigido && corrigido !== slug.entrada.value) {
-      slug.entrada.value = corrigido;
-      atualizarEndereco();
-    }
-  });
-  if (gerarDoNome) {
-    gerarDoNome.addEventListener('click', () => {
-      const gerado = gerarSlug(nome.entrada.value);
-      if (!gerado) {
-        nome.definirErro('Escreva o nome primeiro.');
-        nome.entrada.focus();
-        return;
-      }
-      slug.entrada.value = gerado;
-      slug.definirErro(null);
-      atualizarEndereco();
-      marcar(true);
-    });
-  }
   preco.entrada.addEventListener('input', atualizarDicaPreco);
-  promo.entrada.addEventListener('input', atualizarDicaPreco);
   estoque.entrada.addEventListener('input', atualizarDicaPreco);
-  controlar.entrada.addEventListener('change', () => {
-    atualizarEstoque();
-    atualizarDicaPreco();
-  });
-  usarPadrao.addEventListener('click', () => {
-    peso.entrada.value = String(MEDIDAS_PADRAO.peso_gramas);
-    altura.entrada.value = String(MEDIDAS_PADRAO.altura_cm);
-    largura.entrada.value = String(MEDIDAS_PADRAO.largura_cm);
-    comprimento.entrada.value = String(MEDIDAS_PADRAO.comprimento_cm);
-    for (const c of [peso, altura, largura, comprimento]) c.definirErro(null);
-    marcar(true);
-  });
   novaCategoria.addEventListener('click', criarCategoria);
   // Corrigiu tudo o que estava em vermelho: a barra volta ao texto normal.
   const conferirErrosRestantes = () => {
@@ -1393,9 +1146,7 @@ async function renderizarFormulario(ctx) {
   });
 
   preencherCategorias(p.categoria_id || '');
-  atualizarEndereco();
   atualizarDicaPreco();
-  atualizarEstoque();
   desenharFotos();
   if (produto) {
     atualizarCabecalho();

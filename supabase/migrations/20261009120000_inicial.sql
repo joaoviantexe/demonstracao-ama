@@ -1686,3 +1686,7 @@ update public.produtos p
  where p.slug = v.slug
    and p.preco_centavos = 0
    and p.estoque = 0;
+
+-- O painel não tem mais preço promocional: tira as promoções que ainda existirem
+-- (o preço normal vale). A coluna continua na tabela, sem uso.
+update public.produtos set preco_promocional_centavos = null where preco_promocional_centavos is not null;

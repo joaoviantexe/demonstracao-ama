@@ -9,7 +9,6 @@ import { parseHTML } from 'linkedom';
 
 import { aplicarConteudo, extrairEsquema, lerValor } from '../../public/js/cms/aplicar.js';
 import * as conteudo from '../../public/admin/js/paginas/conteudo.js';
-import * as midia from '../../public/admin/js/paginas/midia.js';
 
 const {
   LIMITE_ITENS, adicionarItem, chaveVisibilidade, clonarValor, duplicarItem, ehMetaDeImagem, enderecoDeTeste,
@@ -513,98 +512,5 @@ describe('visão geral dos grupos', () => {
     const doc = analisar(html);
     assert.equal(doc.querySelector('[data-previa-painel]'), null);
     assert.equal(doc.querySelector('head > base').getAttribute('href'), '/');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Página de mídia
-
-describe('mídia: nomes, busca e ordem', () => {
-  const arquivos = [
-    { nome: 'foto-do-creme-a1b2c3.jpg', tamanho: 300, criado_em: '2026-10-10T10:00:00Z' },
-    { nome: 'logo-parceiro-ff00aa.png', tamanho: 900, criado_em: '2026-10-12T10:00:00Z' },
-    { nome: 'video-institucional-0a0b0c.mp4', tamanho: 5000, criado_em: '2026-09-01T10:00:00Z' },
-    { nome: 'Açaí-colheita-123abc.webp', tamanho: 100, criado_em: null },
-  ];
-
-  test('nomeAmigavel tira o sufixo aleatório do bucket', () => {
-    assert.equal(midia.nomeAmigavel('foto-do-creme-a1b2c3.jpg'), 'foto-do-creme.jpg');
-    assert.equal(midia.nomeAmigavel('sem-sufixo.png'), 'sem-sufixo.png');
-    assert.equal(midia.nomeAmigavel(''), '');
-  });
-
-  test('chaveDeBusca: minúsculas, sem acento e sem pontuação', () => {
-    assert.equal(midia.chaveDeBusca('  Açaí-Colheita.WEBP '), 'acai colheita webp');
-  });
-
-  test('filtrarArquivos: todas as palavras, em qualquer ordem, sem acento', () => {
-    assert.deepEqual(midia.filtrarArquivos(arquivos, 'creme').map((a) => a.nome), ['foto-do-creme-a1b2c3.jpg']);
-    assert.deepEqual(midia.filtrarArquivos(arquivos, 'colheita acai').map((a) => a.nome), ['Açaí-colheita-123abc.webp']);
-    assert.equal(midia.filtrarArquivos(arquivos, '  ').length, 4);
-    assert.equal(midia.filtrarArquivos(arquivos, 'nada disso').length, 0);
-    assert.deepEqual(midia.filtrarArquivos(null, 'x'), []);
-  });
-
-  test('ordenarArquivos não muda a lista original', () => {
-    const nomes = (lista) => lista.map((a) => a.nome.slice(0, 4));
-    assert.deepEqual(nomes(midia.ordenarArquivos(arquivos)), ['logo', 'foto', 'vide', 'Açaí']);
-    assert.deepEqual(nomes(midia.ordenarArquivos(arquivos, 'antigos')), ['Açaí', 'vide', 'foto', 'logo']);
-    assert.deepEqual(nomes(midia.ordenarArquivos(arquivos, 'nome')), ['Açaí', 'foto', 'logo', 'vide']);
-    assert.deepEqual(nomes(midia.ordenarArquivos(arquivos, 'maiores')), ['vide', 'logo', 'foto', 'Açaí']);
-    assert.equal(arquivos[0].nome, 'foto-do-creme-a1b2c3.jpg');
-  });
-
-  test('resumoDosArquivos soma quantidade e bytes', () => {
-    assert.deepEqual(midia.resumoDosArquivos(arquivos), { quantidade: 4, bytes: 6300 });
-    assert.deepEqual(midia.resumoDosArquivos(undefined), { quantidade: 0, bytes: 0 });
-  });
-
-  test('abas: site, produtos e vídeos', () => {
-    assert.deepEqual(midia.PASTAS_DA_BIBLIOTECA.map((p) => [p.id, p.tipo]), [['site', 'imagem'], ['produtos', 'imagem'], ['videos', 'video']]);
-  });
-});
-
-describe('mídia: onde o arquivo está em uso', () => {
-  const url = 'http://127.0.0.1:54321/storage/v1/object/public/midia/site/2026-10/foto-a1b2c3.jpg';
-  const arquivo = { nome: 'foto-a1b2c3.jpg', caminho: 'site/2026-10/foto-a1b2c3.jpg', url, categoria: 'imagem' };
-  const rotulos = new Map([['quem-somos', 'Quem somos'], ['depoimentos', 'Depoimentos']]);
-
-  test('acha no conteúdo do site (por grupo, sem repetir) e nos produtos', () => {
-    const usos = midia.usosDoArquivo(arquivo, {
-      rotulos,
-      conteudo: [
-        { chave: 'depoimentos.itens', valor: [{ foto: { src: url, alt: 'x' } }] },
-        { chave: 'depoimentos.titulo', valor: url },
-        { chave: 'quem-somos.video', valor: { src: '/v.mp4', poster: url } },
-        { chave: 'grupo.depoimentos.visivel', valor: false },
-        { chave: 'loja.imagem-1', valor: { src: '/img/outra.jpg', alt: '' } },
-      ],
-      produtos: [{ id: 'p1', nome: 'Creme', imagens: [{ src: url, alt: '' }] }, { id: 'p2', nome: 'Sabonete', imagens: [] }],
-    });
-    assert.deepEqual(usos, [
-      { tipo: 'site', id: 'depoimentos', rotulo: 'Depoimentos' },
-      { tipo: 'site', id: 'quem-somos', rotulo: 'Quem somos' },
-      { tipo: 'produto', id: 'p1', rotulo: 'Creme' },
-    ]);
-  });
-
-  test('sem uso → lista vazia; rótulo de grupo desconhecido é derivado do id', () => {
-    assert.deepEqual(midia.usosDoArquivo(arquivo, { conteudo: [], produtos: [] }), []);
-    assert.equal(midia.rotuloDoGrupo('nova-secao', new Map()), 'Nova secao');
-    assert.equal(midia.listaPorExtenso(['a', 'b', 'c']), 'a, b e c');
-    assert.equal(midia.listaPorExtenso(['a']), 'a');
-  });
-
-  test('mensagemApagar avisa onde está em uso, ou que não deu para conferir', () => {
-    const emUso = midia.mensagemApagar(arquivo, [
-      { tipo: 'site', id: 'depoimentos', rotulo: 'Depoimentos' },
-      { tipo: 'produto', id: 'p1', rotulo: 'Creme' },
-    ]);
-    assert.match(emUso, /^Apagar "foto\.jpg"\?/);
-    assert.match(emUso, /está em uso no site \("Depoimentos"\) e no produto "Creme"/);
-    assert.match(emUso, /não pode ser desfeita/);
-    assert.match(midia.mensagemApagar(arquivo, []), /não foi encontrada no conteúdo do site nem nos produtos/);
-    assert.match(midia.mensagemApagar(arquivo, null), /Não foi possível conferir/);
-    assert.match(midia.mensagemApagar({ ...arquivo, categoria: 'video' }, []), /O vídeo não foi encontrado/);
   });
 });
