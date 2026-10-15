@@ -2,9 +2,9 @@
 
 import { adicionarAoCarrinho } from './carrinho.js';
 import { formatarPreco } from './formatos.js';
-import { analisarProduto, imagemPrincipal, mensagemWhatsappProduto } from './produtos.js';
+import { analisarProduto, imagemPrincipal } from './produtos.js';
 import {
-  ajustarFoto, el, icone, linkWhatsappLoja, toast,
+  ajustarFoto, el, icone, toast,
 } from './comum.js';
 
 export const urlProduto = (slug) => `/loja/produto?slug=${encodeURIComponent(slug)}`;
@@ -78,12 +78,7 @@ export function cartaoProduto(produto, { nivel = 'h3', carregamento = 'lazy' } =
 
   let acao;
   if (situacao.emBreve) {
-    const url = new URL(href, location.origin).href;
-    acao = el('a', {
-      class: 'botao botao--whatsapp-contorno botao--bloco botao--sm cartao-produto-botao',
-      href: linkWhatsappLoja(mensagemWhatsappProduto(produto, { url, motivo: 'encomenda' })),
-      target: '_blank', rel: 'noopener', 'aria-label': `Encomendar pelo WhatsApp: ${produto.nome}`,
-    }, icone('whatsapp'), el('span', { class: 'rotulo-longo', texto: 'Encomendar pelo WhatsApp' }), el('span', { class: 'rotulo-curto', texto: 'Encomendar' }));
+    acao = el('button', { type: 'button', class: 'botao botao--principal botao--bloco botao--sm cartao-produto-botao', disabled: true }, 'Em breve');
   } else if (situacao.esgotado) {
     acao = el('button', { type: 'button', class: 'botao botao--principal botao--bloco botao--sm cartao-produto-botao', disabled: true }, 'Esgotado');
   } else {

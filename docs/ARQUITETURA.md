@@ -144,10 +144,10 @@ Linha ausente = usar o padrão do template.
 Chaves usadas (criadas pela migração com valores padrão):
 
 - `loja` (**publico = true**):
-  `{ "titulo": "Loja AMA", "subtitulo": "…", "whatsapp": "5591981056049", "instagram": "oscdemulheres", "email_contato": "", "aviso_topo": "", "frete_gratis_acima_centavos": null }`
+  `{ "titulo": "Cosméticos", "subtitulo": "…", "whatsapp": "5591981056049", "instagram": "oscdemulheres", "email_contato": "", "aviso_topo": "", "frete_gratis_acima_centavos": null }`
 - `frete` (privado):
   `{ "origem": { "cep": "", "nome": "AMA - Associação de Mulheres na Amazônia", "telefone": "", "email": "", "documento": "", "endereco": "", "numero": "", "complemento": "", "bairro": "", "cidade": "Ananindeua", "uf": "PA" },
-     "retirada": { "ativa": true, "nome": "Retirar na sede da AMA", "endereco": "Conjunto Uirapuru, Quadra 28, Casa 02, Icuí, Ananindeua - PA", "prazo_texto": "Combine a retirada pelo WhatsApp" },
+     "retirada": { "ativa": true, "nome": "Retirar na sede da AMA", "endereco": "Conjunto Uirapuru, Quadra 28, Casa 02, Icuí, Ananindeua - PA", "prazo_texto": "Disponível após a confirmação do pagamento" },
      "fixo": { "ativo": false, "opcoes": [ { "id": "fixo-1", "nome": "Entrega local", "preco_centavos": 1500, "prazo_dias": 3, "ufs": ["PA"] } ] },
      "melhor_envio": { "ativo": true, "servicos": [1, 2], "seguro": true, "prazo_extra_dias": 2, "taxa_extra_centavos": 0 },
      "embalagem_padrao": { "peso_gramas": 300, "altura_cm": 4, "largura_cm": 12, "comprimento_cm": 16 } }`
@@ -593,13 +593,15 @@ Leitura de produtos pelo navegador (RLS garante só ativos):
 Categorias: `GET /rest/v1/categorias?select=id,nome,slug&ativo=eq.true&order=ordem.asc`.
 Configuração pública: `GET /rest/v1/configuracoes?select=valor&chave=eq.loja`.
 
-Produto com preço 0 (ativo): aparece com o preço "R$ 00,00", selo "Em breve", botões de compra desativados e
-"Encomendar pelo WhatsApp". O servidor recusa a venda (`motivo: 'sem_preco'`).
+Produto com preço 0 (ativo): aparece com o preço "R$ 00,00", selo "Em breve" e botões de compra desativados.
+O servidor recusa a venda (`motivo: 'sem_preco'`). **A loja não oferece pedido pelo WhatsApp** em nenhum ponto
+(nem para produtos "Em breve", nem no checkout sem pagamento configurado, nem para combinar a retirada); o
+WhatsApp aparece só como contato institucional (botão flutuante e rodapé) e como suporte na página do pedido.
 
 Funcionalidades: busca, filtro por categoria (na URL `?categoria=`), ordenação, selo de promoção e "esgotado",
 página de produto com galeria e miniaturas, quantidade limitada ao estoque, "Adicionar ao carrinho" e "Comprar agora",
 cálculo de frete por CEP na página do produto e do carrinho, cupom, checkout com autopreenchimento de endereço pelo
-ViaCEP (`https://viacep.com.br/ws/<cep>/json/`), botão "Tirar dúvidas no WhatsApp", página do pedido com linha do
+ViaCEP (`https://viacep.com.br/ws/<cep>/json/`), página do pedido com linha do
 tempo, rastreio e "Pagar agora". "Meus pedidos neste aparelho": a página do pedido guarda `{id, token, numero, criado_em}`
 em `localStorage` `ama_pedidos_v1` e `/loja/pedido` sem parâmetros lista esses pedidos.
 Ao voltar do pagamento aprovado o carrinho é limpo.

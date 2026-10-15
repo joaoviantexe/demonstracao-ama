@@ -148,11 +148,3 @@ export function categoriasComProdutos(categorias, produtos) {
   return saida;
 }
 
-/** Mensagem pronta para encomendar / tirar dúvidas pelo WhatsApp. */
-export function mensagemWhatsappProduto(produto, { url = '', motivo = 'duvida' } = {}) {
-  const nome = produto && produto.nome ? produto.nome : 'um produto';
-  const inicio = motivo === 'encomenda'
-    ? `Olá, AMA! Tenho interesse em encomendar: ${nome}.`
-    : `Olá, AMA! Tenho uma dúvida sobre o produto: ${nome}.`;
-  return url ? `${inicio}\n${url}` : inicio;
-}

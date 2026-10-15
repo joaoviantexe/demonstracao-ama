@@ -2,7 +2,7 @@
 
 import { buscarCategorias, buscarProdutos, lojaConfigurada } from './config.js';
 import {
-  blocoEstado, botaoWhatsapp, definirMeta, el, iniciarPagina, trocarConteudo,
+  blocoEstado, definirMeta, el, iniciarPagina, trocarConteudo,
 } from './comum.js';
 import { pluralizar, validarSlug } from './formatos.js';
 import {
@@ -129,8 +129,7 @@ function renderizar() {
     trocarConteudo(grade, blocoEstado({
       icone: 'folha',
       titulo: 'Novidades a caminho',
-      texto: 'Os produtos da AMA aparecem aqui em breve. Enquanto isso, encomende pelo WhatsApp.',
-      acoes: [botaoWhatsapp('Encomendar pelo WhatsApp', 'Olá, AMA! Quero conhecer os produtos da loja.')],
+      texto: 'Os produtos da AMA aparecem aqui em breve.',
     }));
     return;
   }
@@ -159,7 +158,6 @@ function renderizarErro(erro) {
     texto: erro && erro.message ? erro.message : 'Tente novamente em instantes.',
     acoes: [
       el('button', { type: 'button', class: 'botao botao--principal', onclick: carregar }, 'Tentar novamente'),
-      botaoWhatsapp('Comprar pelo WhatsApp', 'Olá, AMA! Quero fazer um pedido.', { classe: 'botao botao--fantasma' }),
     ],
   }));
 }
@@ -172,8 +170,7 @@ function renderizarNaoConfigurada() {
   trocarConteudo(grade, blocoEstado({
     icone: 'folha',
     titulo: 'Loja em configuração',
-    texto: 'Os produtos aparecem aqui assim que a AMA terminar de configurar a loja virtual. Enquanto isso, faça seu pedido pelo WhatsApp.',
-    acoes: [botaoWhatsapp('Encomendar pelo WhatsApp', 'Olá, AMA! Quero conhecer os produtos da loja.')],
+    texto: 'Os produtos aparecem aqui assim que a AMA terminar de configurar a loja virtual.',
   }));
 }
 
