@@ -229,15 +229,5 @@ window.addEventListener('popstate', () => {
   renderizar();
 });
 
-// "Ver a coleção" volta para todos os produtos antes de rolar até a vitrine.
-document.querySelector('[data-ver-colecao]')?.addEventListener('click', () => {
-  if (estado.categoria && estado.carregado) {
-    estado.categoria = '';
-    gravarUrl({ empilhar: true });
-    renderizarFiltros();
-    renderizar();
-  }
-});
-
 lerUrl();
 carregar();

@@ -153,7 +153,7 @@ describe('templates/home.html — esquema do CMS', () => {
       { href: '#sobre', texto: 'Sobre' },
       { href: '#redes', texto: 'Postagens' },
       { href: '#cursos', texto: 'Projetos' },
-      { href: '/loja/', texto: 'Loja' },
+      { href: '/loja/', texto: 'Cosméticos' },
       { href: '#historia', texto: 'História' },
       { href: '#depoimentos', texto: 'Depoimentos' },
     ]);

@@ -405,7 +405,7 @@ removendo o elemento do grupo (só se ele tiver `data-cms-ocultavel`).
 - Grupos: `seo` (no `<head>`: title, description, og), `cabecalho` (logo, menu), `quem-somos`, `postagens`,
   `projetos`, `historia`, `loja` (banner novo), `depoimentos`, `parcerias`, `rodape`, `whatsapp` (botão flutuante).
 - A seção `#biojoias` e o modal de produto saem. Entra a seção `#loja` (banner com título, texto, imagem e botão
-  para `/loja/`), com o visual da AMA. No menu, "Produtos" vira "Loja" → `/loja/`.
+  para `/loja/`), com o visual da AMA. No menu, "Produtos" vira "Cosméticos" → `/loja/`.
 - O visual da página renderizada deve ficar **idêntico** ao atual em tudo que não foi pedido para mudar.
 
 ## 6. APIs
