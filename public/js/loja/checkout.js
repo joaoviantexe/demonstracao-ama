@@ -256,7 +256,7 @@ function renderizarOpcoesFrete() {
 const botaoPagar = el('button', { type: 'submit', class: 'botao botao--ouro botao--bloco resumo-finalizar', id: 'botao-pagar' },
   icone('cadeado'), el('span', { class: 'botao-texto', texto: 'Ir para o pagamento' }));
 const notaPagamento = el('p', { class: 'resumo-seguro' }, icone('escudo'),
-  'Você será levado ao ambiente seguro do Mercado Pago para pagar com Pix, cartão ou boleto.');
+  'Na próxima etapa você paga com Pix, cartão ou boleto, em ambiente seguro.');
 const motivoBloqueio = el('p', { class: 'resumo-bloqueio', hidden: true });
 resumo.append(motivoBloqueio, botaoPagar, notaPagamento);
 

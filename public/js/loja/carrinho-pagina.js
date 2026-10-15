@@ -82,7 +82,7 @@ areaFrete.append(formCep, opcoesFrete);
 const resumo = el('aside', { class: 'resumo', 'aria-labelledby': 'resumo-titulo' },
   el('h2', { class: 'resumo-titulo', id: 'resumo-titulo', texto: 'Resumo' }),
   areaFrete, areaAvisoFrete, areaTotais, areaErro, motivoBloqueio, botaoFinalizar,
-  el('p', { class: 'resumo-seguro' }, icone('escudo'), 'Pagamento seguro pelo Mercado Pago: Pix, cartão ou boleto.'),
+  el('p', { class: 'resumo-seguro' }, icone('escudo'), 'Pix, cartão ou boleto.'),
   el('a', { class: 'link-seta link-seta--voltar', href: '/loja/' }, icone('voltar'), 'Continuar comprando'));
 
 const layout = el('div', { class: 'carrinho-layout' },

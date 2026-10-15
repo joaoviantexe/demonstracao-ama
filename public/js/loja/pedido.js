@@ -59,7 +59,7 @@ function situacao(pedido) {
     case 'pagamento_em_analise':
       return {
         titulo: `Olá${nome}!`,
-        texto: 'Seu pagamento está em análise pelo Mercado Pago. Pix costuma ser confirmado em minutos; boleto, em até 3 dias úteis.',
+        texto: 'Seu pagamento está em análise. Pix costuma ser confirmado em minutos; boleto, em até 3 dias úteis.',
         tom: 'aguardando',
       };
     case 'pago':

@@ -216,10 +216,20 @@ describe('modelos de e-mail', () => {
 
   test('cancelado: não promete estorno automático (a devolução é feita pela AMA)', () => {
     const { texto } = emailStatusPedido(pedidoBase({ status: 'cancelado' }), SITE);
-    assert.match(texto, /Se você já pagou, a AMA vai fazer a devolução pelo Mercado Pago/);
+    assert.match(texto, /Se você já pagou, a AMA vai fazer a devolução; o prazo/);
     assert.match(texto, /depende do meio de pagamento/);
-    assert.doesNotMatch(texto, /é devolvido pelo Mercado Pago/);
     assert.doesNotMatch(texto, /automaticamente/i);
+  });
+
+  test('e-mails da cliente não citam o Mercado Pago (nem pelo meio de pagamento)', () => {
+    const modelos = [
+      ...['account_money', 'digital_currency', 'credit_card'].map((metodo) => emailPedidoPago(pedidoBase({ metodo_pagamento: metodo }), SITE)),
+      emailPedidoEnviado(pedidoBase({ status: 'enviado', codigo_rastreio: 'AA123456789BR' }), SITE),
+      ...['pago', 'enviado', 'entregue', 'cancelado', 'reembolsado'].map((status) => emailStatusPedido(pedidoBase({ status }), SITE)),
+    ];
+    for (const { assunto, html, texto } of modelos) {
+      for (const parte of [assunto, html, texto]) assert.doesNotMatch(parte, /mercado ?pago/i);
+    }
   });
 
   test('logo só com site https público; senão a marca vai em texto', () => {

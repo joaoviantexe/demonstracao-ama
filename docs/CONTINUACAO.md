@@ -70,7 +70,7 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
    - tabela `cupons`, cupons do seed (`AMA10`, `FRETEGRATIS`) e a página/menu "Cupons" do painel;
    - contrato e testes.
    Na migração, use `drop … if exists` para projetos que já têm a tabela, mantendo o arquivo re-executável.
-3. **Tirar todos os textos que citam o Mercado Pago** do que a cliente vê (site, loja e e-mails). Exemplos:
+3. **(Feito; o e-mail interno da equipe e o painel continuam citando a integração)** **Tirar todos os textos que citam o Mercado Pago** do que a cliente vê (site, loja e e-mails). Exemplos:
    - "Pagamento seguro pelo Mercado Pago: Pix, cartão ou boleto." → "Pix, cartão ou boleto."
    - "Compra segura pelo Mercado Pago" e "Pague com Pix, cartão ou boleto pelo Mercado Pago" → sem citar o Mercado Pago.
    - Avisos do checkout como "Você será levado ao ambiente seguro do Mercado Pago…".

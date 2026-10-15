@@ -3,6 +3,7 @@
 
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
 
 import * as formatos from '../../public/js/loja/formatos.js';
 import * as produtos from '../../public/js/loja/produtos.js';
@@ -588,5 +589,21 @@ describe('resumo: total exibido com os números do servidor', () => {
     assert.equal(totalExibido(cotacao, opcaoEscolhida(cotacao, 'retirada')), 17970);
     assert.equal(totalExibido(cotacao, null), 17970);
     assert.equal(totalExibido(null, null), 0);
+  });
+});
+
+describe('textos da loja para a cliente', () => {
+  test('não citam o Mercado Pago (fora de comentários)', () => {
+    const raiz = new URL('../../', import.meta.url);
+    const arquivos = [
+      ...readdirSync(new URL('public/js/loja/', raiz)).map((nome) => `public/js/loja/${nome}`),
+      ...readdirSync(new URL('public/loja/', raiz)).map((nome) => `public/loja/${nome}`),
+      'templates/home.html', 'public/js/main.js',
+    ];
+    for (const arquivo of arquivos) {
+      const semComentarios = readFileSync(new URL(arquivo, raiz), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '').replace(/^\s*\/\/.*$/gm, '');
+      assert.doesNotMatch(semComentarios, /mercado ?pago/i, arquivo);
+    }
   });
 });

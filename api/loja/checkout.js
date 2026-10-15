@@ -21,7 +21,7 @@ import { validarDadosCheckout } from '../../lib/validacao.js';
 
 const MSG_SEM_PAGAMENTO = 'O pagamento online ainda não está disponível. Tente novamente mais tarde ou fale com a AMA pelo WhatsApp.';
 const MSG_FRETE_INDISPONIVEL = 'A opção de entrega escolhida não está mais disponível. Escolha outra forma de entrega.';
-const MSG_FALHA_PREFERENCIA = 'Não foi possível iniciar o pagamento no Mercado Pago agora. Nenhuma cobrança foi feita: tente novamente em instantes.';
+const MSG_FALHA_PREFERENCIA = 'Não foi possível iniciar o pagamento agora. Nenhuma cobrança foi feita: tente novamente em instantes.';
 
 function entregaDaOpcao(opcao) {
   return {
