@@ -22,7 +22,6 @@ export const ROTAS = Object.freeze([
   { padrao: /^\/$/, pagina: 'visao-geral', menu: 'inicio', titulo: 'Visão geral' },
   { padrao: /^\/conteudo$/, pagina: 'conteudo', menu: 'conteudo', titulo: 'Conteúdo do site' },
   { padrao: /^\/conteudo\/([a-z0-9][a-z0-9_-]*)$/, pagina: 'conteudo', menu: 'conteudo', titulo: 'Conteúdo do site', params: ['grupo'] },
-  { padrao: /^\/midia$/, pagina: 'midia', menu: 'midia', titulo: 'Mídia' },
   { padrao: /^\/produtos$/, pagina: 'produtos', menu: 'produtos', titulo: 'Produtos' },
   { padrao: new RegExp(`^/produtos/(novo|${UUID})$`), pagina: 'produtos', menu: 'produtos', titulo: 'Produto', params: ['id'] },
   { padrao: /^\/categorias$/, pagina: 'categorias', menu: 'categorias', titulo: 'Categorias' },
@@ -36,9 +35,19 @@ export const MENU = Object.freeze([
   { secao: null, itens: [{ id: 'inicio', rotulo: 'Visão geral', hash: '#/', icone: 'inicio' }] },
   {
     secao: 'Site',
+    // Um item por parte da página inicial; o hash é o do grupo em paginas/conteudo.js.
     itens: [
-      { id: 'conteudo', rotulo: 'Conteúdo do site', hash: '#/conteudo', icone: 'conteudo' },
-      { id: 'midia', rotulo: 'Mídia', hash: '#/midia', icone: 'midia' },
+      { id: 'conteudo-cabecalho', rotulo: 'Cabeçalho e menu', hash: '#/conteudo/cabecalho', icone: 'menu' },
+      { id: 'conteudo-quem-somos', rotulo: 'Quem somos', hash: '#/conteudo/quem-somos', icone: 'info' },
+      { id: 'conteudo-postagens', rotulo: 'Últimas postagens', hash: '#/conteudo/postagens', icone: 'imagem' },
+      { id: 'conteudo-projetos', rotulo: 'Nossos projetos', hash: '#/conteudo/projetos', icone: 'estrela' },
+      { id: 'conteudo-historia', rotulo: 'História da fundadora', hash: '#/conteudo/historia', icone: 'conteudo' },
+      { id: 'conteudo-loja', rotulo: 'Banner da loja', hash: '#/conteudo/loja', icone: 'loja' },
+      { id: 'conteudo-depoimentos', rotulo: 'Depoimentos', hash: '#/conteudo/depoimentos', icone: 'usuario' },
+      { id: 'conteudo-parcerias', rotulo: 'Colaborações e parcerias', hash: '#/conteudo/parcerias', icone: 'link' },
+      { id: 'conteudo-rodape', rotulo: 'Rodapé', hash: '#/conteudo/rodape', icone: 'email' },
+      { id: 'conteudo-whatsapp', rotulo: 'Botão do WhatsApp', hash: '#/conteudo/whatsapp', icone: 'link' },
+      { id: 'conteudo-seo', rotulo: 'Google e compartilhamento', hash: '#/conteudo/seo', icone: 'busca' },
     ],
   },
   {
@@ -68,7 +77,8 @@ export function resolverRota(hash) {
     if (!m) continue;
     const params = {};
     (rota.params || []).forEach((nome, i) => { params[nome] = rota.params && nome === 'id' && m[i + 1] !== 'novo' ? m[i + 1].toLowerCase() : m[i + 1]; });
-    return { pagina: rota.pagina, menu: rota.menu, titulo: rota.titulo, params, consulta, caminho, hash: `#${texto}` };
+    const menu = rota.pagina === 'conteudo' && params.grupo ? `conteudo-${params.grupo}` : rota.menu;
+    return { pagina: rota.pagina, menu, titulo: rota.titulo, params, consulta, caminho, hash: `#${texto}` };
   }
   return null;
 }

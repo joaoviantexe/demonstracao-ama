@@ -606,7 +606,7 @@ Ao voltar do pagamento aprovado o carrinho é limpo.
   tratamento do evento `PASSWORD_RECOVERY` e de convites (tela de nova senha),
   verificação de admin (`rpc('eh_admin')`; não admin → mensagem e sair), layout (menu lateral, topo com e-mail, "Ver site", "Sair"),
   roteador por hash e aviso de alterações não salvas.
-- Rotas: `#/` visão geral · `#/conteudo` e `#/conteudo/<grupo>` · `#/midia` · `#/produtos`, `#/produtos/novo`, `#/produtos/<id>` ·
+- Rotas: `#/` visão geral · `#/conteudo` e `#/conteudo/<grupo>` (o menu lateral lista cada grupo da página inicial; não há página de mídia) · `#/produtos`, `#/produtos/novo`, `#/produtos/<id>` ·
   `#/categorias` · `#/pedidos`, `#/pedidos/<id>` · `#/configuracoes`.
 - Contrato das páginas: cada arquivo em `admin/js/paginas/` exporta
   `export async function renderizar(ctx)` e pode devolver uma função de limpeza.
@@ -618,7 +618,7 @@ Ao voltar do pagamento aprovado o carrinho é limpo.
 - `admin/js/api.js`: `chamarApi(caminho, {metodo, corpo})` com o JWT da sessão.
 - `admin/js/midia.js`: `enviarArquivo(arquivo, pasta) → { url, caminho }` (bucket `midia`, nome seguro, aviso de tamanho),
   `listarArquivos(pasta)`, `apagarArquivo(caminho)`, `seletorDeMidia({ tipo: 'imagem'|'video' }) → Promise<url|null>` (modal com biblioteca + upload).
-- Páginas: `visao-geral.js`, `conteudo.js`, `midia.js`, `produtos.js`, `categorias.js`, `pedidos.js`, `configuracoes.js`.
+- Páginas: `visao-geral.js`, `conteudo.js`, `produtos.js`, `categorias.js`, `pedidos.js`, `configuracoes.js`.
 - Estilos: `admin/admin.css` é o sistema de design do painel (botões, campos, cartões, tabelas, selos de status,
   modais, abas, listas, área de upload, grade responsiva). Estilos específicos de uma página ficam em
   `admin/css/<pagina>.css`, carregados pela própria página com `ui.carregarCss('<pagina>')`.
