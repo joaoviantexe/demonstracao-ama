@@ -89,11 +89,9 @@ export function validarLoja(v) {
   else if (!whatsapp) erros.whatsapp = 'Informe o WhatsApp da AMA: ele aparece nos botões de contato da loja.';
   const email = texto(v.email_contato).toLowerCase();
   if (email && (email.length > 160 || !EMAIL.test(email))) erros.email_contato = 'Confira o e-mail: parece incompleto.';
-  const aviso = texto(v.aviso_topo);
-  if (aviso.length > 300) erros.aviso_topo = 'Use no máximo 300 caracteres.';
   return {
     erros,
-    valor: { titulo, subtitulo, whatsapp: whatsapp || '', email_contato: email, aviso_topo: aviso },
+    valor: { titulo, subtitulo, whatsapp: whatsapp || '', email_contato: email },
   };
 }
 
@@ -469,14 +467,10 @@ export async function renderizar(ctx) {
       subtitulo: ui.campo({ rotulo: 'Descrição curta', nome: 'subtitulo', tipo: 'textarea', linhas: 2, valor: v.subtitulo || '', ajuda: 'Uma frase sobre a loja. Usada pelos buscadores (Google) e quando o link é compartilhado.', attrs: { maxlength: '400' } }),
       whatsapp: ui.campo({ rotulo: 'WhatsApp da AMA', nome: 'whatsapp', tipo: 'tel', obrigatorio: true, valor: formatarWhatsapp(v.whatsapp || ''), placeholder: '(91) 98105-6049', ajuda: 'Número do botão "Falar com a AMA" das páginas da loja e do pedido. Com DDD.', attrs: { inputmode: 'tel', autocomplete: 'off', maxlength: '20' } }),
       email_contato: ui.campo({ rotulo: 'E-mail de contato', nome: 'email_contato', tipo: 'email', valor: v.email_contato || '', ajuda: 'Opcional. Quando a cliente responde um e-mail da loja, a resposta vai para este endereço.', attrs: { inputmode: 'email', autocomplete: 'off', maxlength: '160' } }),
-      aviso_topo: ui.campo({ rotulo: 'Aviso no topo da loja', nome: 'aviso_topo', valor: v.aviso_topo || '', placeholder: 'Ex.: Frete grátis nas compras acima de R$ 150', ajuda: 'Opcional. Uma frase curta que aparece no alto de todas as páginas da loja. Vazio = sem aviso.', attrs: { maxlength: '300' } }),
     };
     return montarFormulario('loja', 'Dados da loja', [
       cartao('cf-loja', 'Loja', null, c.titulo.elemento, c.subtitulo.elemento),
       cartao('cf-contato', 'Contato', null, c.whatsapp.elemento, c.email_contato.elemento),
-      cartao('cf-aviso', 'Aviso para as clientes', null, c.aviso_topo.elemento,
-        el('p', { class: 'texto-pequeno texto-suave' }, 'O Instagram, o WhatsApp e os contatos do rodapé são editados em ',
-          el('a', { href: '#/conteudo/rodape' }, 'Conteúdo do site → Rodapé'), '.')),
     ], async () => {
       const { erros, valor } = validarLoja(Object.fromEntries(Object.entries(c).map(([k, campo]) => [k, campo.ler()])));
       if (mostrarErros(erros, c)) return MSG_ERROS;

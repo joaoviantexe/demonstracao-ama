@@ -86,14 +86,14 @@ describe('números, documentos e textos', () => {
 
 describe('aba Loja', () => {
   test('válida: normaliza WhatsApp, e-mail e espaços', () => {
-    const r = validarLoja({ titulo: '  Produtos  AMA ', subtitulo: '', whatsapp: '(91) 98105-6049', email_contato: ' Loja@AMA.org.br ', aviso_topo: ' Frete grátis ' });
+    const r = validarLoja({ titulo: '  Produtos  AMA ', subtitulo: '', whatsapp: '(91) 98105-6049', email_contato: ' Loja@AMA.org.br ' });
     assert.deepEqual(r.erros, {});
-    assert.deepEqual(r.valor, { titulo: 'Produtos AMA', subtitulo: '', whatsapp: '5591981056049', email_contato: 'loja@ama.org.br', aviso_topo: 'Frete grátis' });
+    assert.deepEqual(r.valor, { titulo: 'Produtos AMA', subtitulo: '', whatsapp: '5591981056049', email_contato: 'loja@ama.org.br' });
   });
 
   test('erros por campo', () => {
-    const r = validarLoja({ titulo: '', subtitulo: 'x'.repeat(401), whatsapp: '123', email_contato: 'sem-arroba', aviso_topo: 'x'.repeat(301) });
-    assert.deepEqual(Object.keys(r.erros).sort(), ['aviso_topo', 'email_contato', 'subtitulo', 'titulo', 'whatsapp']);
+    const r = validarLoja({ titulo: '', subtitulo: 'x'.repeat(401), whatsapp: '123', email_contato: 'sem-arroba' });
+    assert.deepEqual(Object.keys(r.erros).sort(), ['email_contato', 'subtitulo', 'titulo', 'whatsapp']);
     assert.ok(validarLoja({ titulo: 'A', whatsapp: '' }).erros.whatsapp, 'WhatsApp é obrigatório');
   });
 });

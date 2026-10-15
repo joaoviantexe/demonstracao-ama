@@ -5,8 +5,8 @@
 //      (padrão da saída: <tmp>/capturas-painel-configuracoes)
 //
 // Em cada largura:
-// - Loja: erro no WhatsApp; salva nome, WhatsApp e aviso no topo; confere no banco e na loja
-//   (aviso no alto do catálogo e link do WhatsApp);
+// - Loja: erro no WhatsApp; salva nome e WhatsApp; confere no banco e na loja
+//   (link do WhatsApp);
 // - Frete: aviso "nenhuma forma de entrega", erro no CEP da origem e no estado da opção fixa; liga o frete
 //   fixo com uma opção (PA) e frete grátis; confere no banco e na cotação da loja (/api/loja/cotacao);
 // - Pagamento (parcelas, boleto, prazo) e Avisos por e-mail (erro e lista de e-mails);
@@ -155,26 +155,23 @@ async function rodarLargura(navegador, base, largura) {
     await formLoja.locator('.campo--erro input[name="whatsapp"]').waitFor({ timeout: 10_000 });
     ok('WhatsApp inválido mostra o erro no campo');
     await formLoja.locator('input[name="whatsapp"]').fill('(91) 98888-7777');
-    await formLoja.locator('input[name="aviso_topo"]').fill('Frete grátis acima de R$ 150 (teste)');
     await formLoja.locator('input[name="titulo"]').fill('Produtos AMA');
     await capturar(pagina, `loja-${largura}`);
     await salvarAba(pagina, 'Dados da loja');
     await esperarToast(pagina, 'Dados da loja salvos');
     let config = await lerConfig();
-    conferir(config.loja.valor.whatsapp === '5591988887777' && config.loja.valor.aviso_topo === 'Frete grátis acima de R$ 150 (teste)'
+    conferir(config.loja.valor.whatsapp === '5591988887777'
       && config.loja.valor.titulo === 'Produtos AMA' && config.loja.publico === true && 'instagram' in config.loja.valor,
-    'loja salva no banco (WhatsApp com 55, aviso, nome; campos não mostrados mantidos)', `loja no banco: ${JSON.stringify(config.loja)}`);
+    'loja salva no banco (WhatsApp com 55, nome; campos não mostrados mantidos)', `loja no banco: ${JSON.stringify(config.loja)}`);
     const pronta = await pagina.locator('form[aria-label="Dados da loja"] input[name="whatsapp"]').inputValue();
     conferir(pronta === '(91) 98888-7777', 'WhatsApp mostrado formatado', `WhatsApp no campo: ${pronta}`);
     await fecharToasts(pagina);
 
     const loja = await contexto.newPage();
     await loja.goto(`${base}/loja/`, { waitUntil: 'load' });
-    await loja.waitForSelector('.aviso-topo', { timeout: 20_000 });
-    const avisoLoja = (await loja.locator('.aviso-topo').textContent()).trim();
+    await loja.waitForSelector('[data-whatsapp-loja]', { state: 'attached', timeout: 20_000 });
     const linkWa = await loja.locator('[data-whatsapp-loja]').first().getAttribute('href');
-    conferir(/Frete grátis acima de R\$ 150/.test(avisoLoja) && /5591988887777/.test(linkWa || ''),
-      'a loja mostra o aviso no topo e o WhatsApp novo', `loja: aviso "${avisoLoja}" link ${linkWa}`);
+    conferir(/5591988887777/.test(linkWa || ''), 'a loja mostra o WhatsApp novo', `loja: link ${linkWa}`);
     await loja.close();
 
     // --- Frete -------------------------------------------------------------------
