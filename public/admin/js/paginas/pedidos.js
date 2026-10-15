@@ -678,7 +678,8 @@ async function renderizarDetalhe(ctx) {
   const areaPagamento = el('div', { class: 'pilha pilha--estreita' });
   const areaCliente = el('div', { class: 'pilha pilha--estreita' });
   const areaEntrega = el('div', { class: 'pilha pilha--estreita' });
-  const areaMais = el('div', { class: 'pilha pilha--estreita' });
+  // Só existe para pedidos que podem ser apagados (aguardando pagamento, cancelados ou reembolsados).
+  const cartaoApagar = el('section', { class: 'cartao pedido-bloco--mais', 'aria-label': 'Apagar pedido', hidden: true });
   // Nota interna (fica fora de desenhar() para não perder o que foi digitado).
   const nota = ui.campo({
     rotulo: 'Nova nota da equipe', nome: 'nota', tipo: 'textarea', linhas: 3,
@@ -706,7 +707,7 @@ async function renderizarDetalhe(ctx) {
         cartao('pd-pagamento', 'Pagamento', areaPagamento),
         cartao('pd-cliente', 'Cliente', areaCliente),
         cartao('pd-entrega', 'Entrega', areaEntrega),
-        cartao('pd-mais', 'Mais ações', areaMais))),
+        cartaoApagar)),
   );
   montado = true;
 
@@ -835,20 +836,12 @@ async function renderizarDetalhe(ctx) {
   }
 
   function desenharMais() {
-    const linkCliente = `${window.location.origin}/loja/pedido?id=${encodeURIComponent(pedido.id)}&token=${encodeURIComponent(pedido.token_acesso || '')}`;
     const apagavel = podeApagar(pedido);
-    trocar(areaMais, 
-      ui.botao({ texto: 'Ver como a cliente vê', icone: 'externo', bloco: true, href: linkCliente, attrs: { target: '_blank', rel: 'noopener' } }),
-      ui.botao({
-        texto: 'Copiar link do pedido', icone: 'copiar', bloco: true,
-        aoClicar: () => ui.copiarTexto(linkCliente, { mensagem: 'Link copiado. Com ele a cliente acompanha o pedido.' }),
-      }),
-      el('hr', { class: 'divisor' }),
-      apagavel
-        ? el('p', { class: 'texto-pequeno texto-suave' }, 'Apagar tira o pedido do painel para sempre (útil para pedidos de teste).')
-        : null,
-      apagavel ? ui.botao({ texto: 'Apagar pedido', tipo: 'perigo-suave', icone: 'lixeira', bloco: true, aoClicar: apagarPedido }) : null,
-    );
+    cartaoApagar.hidden = !apagavel;
+    trocar(cartaoApagar, apagavel
+      ? el('div', { class: 'cartao__corpo' },
+        ui.botao({ texto: 'Apagar pedido', tipo: 'perigo-suave', icone: 'lixeira', bloco: true, aoClicar: apagarPedido }))
+      : null);
   }
 
   function desenharEventos() {
