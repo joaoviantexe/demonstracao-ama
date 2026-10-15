@@ -174,9 +174,6 @@ function calculadoraFrete(produto, lerQuantidade) {
   },
   el('label', { for: 'frete-cep', class: 'frete-calculo-rotulo' }, icone('caminhao'), 'Calcular frete e prazo'),
   el('div', { class: 'frete-calculo-linha' }, input, botao),
-  el('a', {
-    class: 'frete-calculo-ajuda', href: 'https://buscacepinter.correios.com.br/app/endereco/index.php', target: '_blank', rel: 'noopener',
-  }, 'Não sei meu CEP'),
   resultado);
   return form;
 }
