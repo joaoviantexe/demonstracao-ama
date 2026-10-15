@@ -1,0 +1,62 @@
+/* Página #/midia (paginas/midia.js). Usa os tokens de admin.css. */
+
+/* ---------- Painel de cada pasta ---------- */
+.pagina[data-pagina="midia"] .midia-painel{display:grid;gap:16px;min-width:0}
+.pagina[data-pagina="midia"] .midia-painel__descricao{color:var(--tinta-suave);font-size:.95rem;line-height:1.5}
+@media (min-width:1100px){
+  .pagina[data-pagina="midia"] .midia-painel{grid-template-columns:300px minmax(0,1fr);align-items:start;gap:20px}
+  .pagina[data-pagina="midia"] .midia-painel__descricao{grid-column:1/-1}
+  .pagina[data-pagina="midia"] .midia-envio{position:sticky;top:calc(var(--topo-altura) + 16px)}
+}
+
+/* Envio: área mais baixa no celular para a biblioteca aparecer logo. */
+.pagina[data-pagina="midia"] .midia-envio .cartao__corpo{gap:16px}
+@media (max-width:719.98px){
+  .pagina[data-pagina="midia"] .midia-envio .area-upload{padding:16px 12px;gap:8px}
+  .pagina[data-pagina="midia"] .midia-envio .area-upload__icone{width:42px;height:42px}
+}
+
+/* ---------- Filtros e contador ---------- */
+.pagina[data-pagina="midia"] .midia-arquivos .filtros > .midia-ordem{flex:1 1 180px}
+.pagina[data-pagina="midia"] .midia-arquivos .filtros > .botao{flex:none}
+.pagina[data-pagina="midia"] .midia-contador{font-size:.88rem;color:var(--tinta-suave);min-height:1.3em}
+.pagina[data-pagina="midia"] .midia-contador:empty{display:none}
+
+/* ---------- Grade de arquivos ---------- */
+.pagina[data-pagina="midia"] .midia-grade{min-width:0}
+.pagina[data-pagina="midia"] .midia-grade > .carregando--cartoes{
+  display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));
+}
+.pagina[data-pagina="midia"] .midia-biblioteca{
+  list-style:none;margin:0;padding:0;display:grid;gap:12px;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+}
+@media (min-width:600px){
+  .pagina[data-pagina="midia"] .midia-biblioteca{grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px}
+}
+.pagina[data-pagina="midia"] .midia-cartao{
+  display:flex;flex-direction:column;min-width:0;overflow:hidden;
+  background:var(--superficie);border:1px solid var(--linha);border-radius:12px;
+  transition:border-color .12s ease,box-shadow .12s ease;
+}
+.pagina[data-pagina="midia"] .midia-cartao:hover,
+.pagina[data-pagina="midia"] .midia-cartao:focus-within{border-color:var(--linha-forte);box-shadow:var(--sombra-1)}
+.pagina[data-pagina="midia"] .midia-cartao__previa{display:block;color:inherit}
+.pagina[data-pagina="midia"] .midia-cartao__previa .miniatura{border-radius:0}
+.pagina[data-pagina="midia"] .midia-cartao__textos{display:flex;flex-direction:column;gap:2px;padding:8px 10px 2px;min-width:0}
+.pagina[data-pagina="midia"] .midia-cartao__nome{
+  font-size:.85rem;font-weight:700;line-height:1.3;color:var(--tinta);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.pagina[data-pagina="midia"] .midia-cartao__info{font-size:.76rem;color:var(--tinta-suave);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Ações com ícone e palavra embaixo (cabem três num cartão estreito de celular). */
+.pagina[data-pagina="midia"] .midia-cartao__acoes{
+  display:flex;justify-content:space-between;gap:2px;padding:4px 4px 6px;margin-top:auto;
+}
+.pagina[data-pagina="midia"] .midia-cartao__acoes .botao{
+  flex:1 1 0;min-width:0;flex-direction:column;gap:3px;min-height:50px;padding:6px 0;border-radius:10px;
+  font-size:.74rem;font-family:var(--sans);font-weight:700;
+}
+.pagina[data-pagina="midia"] .midia-cartao__acoes .botao .icone{width:20px;height:20px}
+.pagina[data-pagina="midia"] .midia-cartao__apagar{color:var(--perigo)}
+.pagina[data-pagina="midia"] .midia-cartao__apagar:hover{background:var(--perigo-fundo);color:var(--perigo-escuro)}

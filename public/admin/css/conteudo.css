@@ -1,0 +1,183 @@
+/* Página #/conteudo e #/conteudo/<grupo> (paginas/conteudo.js). Usa os tokens de admin.css. */
+
+/* ---------- Lista de grupos ---------- */
+.pagina[data-pagina="conteudo"] .cms-grupos{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+@media (min-width:900px){ .pagina[data-pagina="conteudo"] .cms-grupos{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px} }
+.pagina[data-pagina="conteudo"] .cms-grupos > li{display:flex;min-width:0}
+.pagina[data-pagina="conteudo"] .cms-grupo{
+  flex:1;display:flex;align-items:center;gap:14px;min-width:0;padding:16px;
+  background:var(--superficie);border:1px solid var(--linha);border-radius:var(--raio-grande);box-shadow:var(--sombra-1);
+  color:var(--tinta);text-decoration:none;transition:border-color .15s ease,box-shadow .15s ease,transform .1s ease;
+}
+.pagina[data-pagina="conteudo"] .cms-grupo:hover{border-color:var(--ouro-400);box-shadow:var(--sombra-2)}
+.pagina[data-pagina="conteudo"] .cms-grupo:active{transform:translateY(1px)}
+.pagina[data-pagina="conteudo"] .cms-grupo__icone{
+  flex:none;width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+  background:var(--verde-50);color:var(--verde-700);
+}
+.pagina[data-pagina="conteudo"] .cms-grupo__icone .icone{width:23px;height:23px}
+.pagina[data-pagina="conteudo"] .cms-grupo__textos{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.pagina[data-pagina="conteudo"] .cms-grupo__titulo{font-family:var(--serif);font-weight:600;font-size:1.12rem;color:var(--verde-950);line-height:1.25}
+.pagina[data-pagina="conteudo"] .cms-grupo__campos{font-size:.86rem;color:var(--tinta-suave);line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.pagina[data-pagina="conteudo"] .cms-grupo__selos{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:4px}
+.pagina[data-pagina="conteudo"] .cms-grupo__quantidade{font-size:.8rem;color:var(--tinta-suave)}
+.pagina[data-pagina="conteudo"] .cms-grupo__seta{flex:none;width:20px;height:20px;color:var(--tinta-suave)}
+.pagina[data-pagina="conteudo"] .cms-grupo:hover .cms-grupo__seta{color:var(--verde-950)}
+
+/* ---------- Formulário do grupo ---------- */
+.pagina[data-pagina="conteudo"] .cms-formulario{max-width:900px;width:100%}
+.pagina[data-pagina="conteudo"] .cms-campo .cartao__cabecalho{align-items:flex-start}
+.pagina[data-pagina="conteudo"] .cms-campo .cartao__titulo{flex:1 1 200px;min-width:0;padding-top:4px}
+.pagina[data-pagina="conteudo"] .cms-campo__estado{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px 8px}
+.pagina[data-pagina="conteudo"] .cms-campo__estado .selo[hidden],
+.pagina[data-pagina="conteudo"] .cms-campo__restaurar[hidden]{display:none}
+.pagina[data-pagina="conteudo"] .cms-campo .cartao__subtitulo{margin-top:2px;line-height:1.45}
+@media (max-width:479.98px){
+  .pagina[data-pagina="conteudo"] .cms-campo__estado{flex-basis:100%;justify-content:flex-start}
+}
+.pagina[data-pagina="conteudo"] .cms-editor{gap:6px}
+.pagina[data-pagina="conteudo"] textarea.cms-area{min-height:88px;line-height:1.55;overflow-y:auto}
+/* Texto de uma linha numa caixa que cresce: altura de uma entrada comum, sem alça de redimensionar. */
+.pagina[data-pagina="conteudo"] textarea.cms-area--linha{min-height:44px;resize:none;line-height:1.45;padding-top:10px;padding-bottom:10px}
+.pagina[data-pagina="conteudo"] .cms-contador{font-size:.8rem;color:var(--tinta-suave);text-align:right}
+.pagina[data-pagina="conteudo"] .cms-contador--acima{color:#8A5A00;font-weight:700}
+.pagina[data-pagina="conteudo"] .cms-dica{font-size:.85rem;color:var(--verde-700);font-weight:600}
+.pagina[data-pagina="conteudo"] .cms-dica[hidden]{display:none}
+
+/* Visibilidade */
+.pagina[data-pagina="conteudo"] .cms-visibilidade{border-color:var(--ouro-200)}
+.pagina[data-pagina="conteudo"] .cms-visibilidade__linha{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:10px}
+.pagina[data-pagina="conteudo"] .cms-visibilidade__linha > .campo{flex:1 1 260px}
+.pagina[data-pagina="conteudo"] .cms-visibilidade .selo[hidden]{display:none}
+
+/* ---------- Editor rico ---------- */
+.pagina[data-pagina="conteudo"] .cms-rico{
+  border:1.5px solid var(--linha-forte);border-radius:var(--raio);background:var(--superficie);overflow:hidden;
+  transition:border-color .15s ease,box-shadow .15s ease;
+}
+.pagina[data-pagina="conteudo"] .cms-rico:focus-within{border-color:var(--ouro-600);box-shadow:var(--anel-foco)}
+.pagina[data-pagina="conteudo"] .campo--erro .cms-rico{border-color:var(--perigo)}
+.pagina[data-pagina="conteudo"] .cms-rico__barra{
+  display:flex;flex-wrap:wrap;gap:4px;padding:6px;background:var(--superficie-2);border-bottom:1px solid var(--linha);
+}
+.pagina[data-pagina="conteudo"] .cms-rico__botao{padding:0 10px;color:var(--verde-950)}
+.pagina[data-pagina="conteudo"] .cms-rico__botao b,
+.pagina[data-pagina="conteudo"] .cms-rico__botao i,
+.pagina[data-pagina="conteudo"] .cms-rico__botao span[aria-hidden]{font-family:var(--serif);font-size:1.05rem;line-height:1;min-width:.8em;text-align:center}
+.pagina[data-pagina="conteudo"] .cms-rico__botao[aria-pressed="true"]{background:var(--verde-100);color:var(--verde-950);box-shadow:inset 0 0 0 1.5px var(--verde-400)}
+@media (max-width:479.98px){
+  .pagina[data-pagina="conteudo"] .cms-rico__botao--negrito .cms-rico__rotulo,
+  .pagina[data-pagina="conteudo"] .cms-rico__botao--italico .cms-rico__rotulo,
+  .pagina[data-pagina="conteudo"] .cms-rico__botao--paragrafo .cms-rico__rotulo{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .pagina[data-pagina="conteudo"] .cms-rico__botao{min-width:40px;padding:0 8px;gap:5px}
+}
+.pagina[data-pagina="conteudo"] .cms-rico__area{
+  min-height:150px;max-height:65vh;overflow-y:auto;padding:12px 14px;font-size:1rem;line-height:1.6;color:var(--tinta);
+  outline:none;overflow-wrap:anywhere;
+}
+/* :where() zera a especificidade: o espaço entre blocos (> * + *) vale também para os <p>. */
+.pagina[data-pagina="conteudo"] .cms-rico__area :where(p,ul,ol,blockquote,h3,h4){margin:0}
+.pagina[data-pagina="conteudo"] .cms-rico__area :where(ul,ol){padding-left:1.4em}
+.pagina[data-pagina="conteudo"] .cms-rico__area > * + *{margin-top:.75em}
+.pagina[data-pagina="conteudo"] .cms-rico__area li + li{margin-top:.25em}
+.pagina[data-pagina="conteudo"] .cms-rico__area a{color:var(--verde-600);text-decoration:underline;text-underline-offset:2px}
+.pagina[data-pagina="conteudo"] .cms-rico__area blockquote{margin:0;padding-left:12px;border-left:3px solid var(--ouro-400);font-style:italic}
+.pagina[data-pagina="conteudo"] .cms-rico__area:empty::before{content:"Escreva o texto aqui…";color:var(--placeholder)}
+
+/* ---------- Imagem e vídeo ---------- */
+.pagina[data-pagina="conteudo"] .cms-midia{display:grid;gap:14px;min-width:0}
+@media (min-width:600px){
+  .pagina[data-pagina="conteudo"] .cms-midia{grid-template-columns:200px minmax(0,1fr);align-items:start}
+}
+.pagina[data-pagina="conteudo"] .cms-midia__caixa{min-width:0}
+.pagina[data-pagina="conteudo"] .cms-midia__previa{
+  position:relative;display:flex;align-items:center;justify-content:center;height:180px;border-radius:var(--raio);overflow:hidden;
+  border:1px solid var(--linha);background:repeating-conic-gradient(#EFEADD 0 25%,#FAF7F0 0 50%) 0 0/16px 16px;
+}
+.pagina[data-pagina="conteudo"] .cms-midia__previa img{width:100%;height:100%;object-fit:contain}
+.pagina[data-pagina="conteudo"] .cms-midia__caixa--video{border-radius:var(--raio);overflow:hidden;background:#0B2A1C;min-height:120px;display:flex;align-items:center;justify-content:center}
+.pagina[data-pagina="conteudo"] .cms-midia__caixa--video video{display:block;width:100%;max-height:260px;background:#000}
+.pagina[data-pagina="conteudo"] .cms-midia__caixa--video .cms-midia__vazia{color:var(--creme-100)}
+.pagina[data-pagina="conteudo"] .cms-midia__vazia{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px;text-align:center;font-size:.85rem;color:var(--tinta-suave)}
+.pagina[data-pagina="conteudo"] .cms-midia__vazia .icone{width:26px;height:26px}
+.pagina[data-pagina="conteudo"] .cms-midia__lado{display:flex;flex-direction:column;gap:12px;min-width:0}
+.pagina[data-pagina="conteudo"] .cms-midia__arquivo{font-size:.82rem;color:var(--tinta-suave);max-width:100%}
+.pagina[data-pagina="conteudo"] .cms-video__linha-capa{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}
+.pagina[data-pagina="conteudo"] .cms-video__capa{flex:none;width:120px}
+.pagina[data-pagina="conteudo"] .cms-video__capa .cms-midia__previa{height:80px}
+.pagina[data-pagina="conteudo"] .cms-video__linha-capa > .pilha{flex:1 1 180px}
+.pagina[data-pagina="conteudo"] .grupo-botoes .botao[hidden]{display:none}
+
+/* Meta com endereço de imagem (seo.og-imagem) */
+.pagina[data-pagina="conteudo"] .cms-meta-imagem__linha{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:4px}
+.pagina[data-pagina="conteudo"] .cms-meta-imagem__previa{flex:none;width:160px}
+.pagina[data-pagina="conteudo"] .cms-meta-imagem__previa .cms-midia__previa{height:96px}
+
+/* ---------- Links e Instagram ---------- */
+.pagina[data-pagina="conteudo"] .cms-endereco__testar{align-self:flex-start;min-height:36px;font-size:.88rem}
+.pagina[data-pagina="conteudo"] .cms-endereco__testar[hidden]{display:none}
+.pagina[data-pagina="conteudo"] .cms-instagram__estado{display:flex;align-items:center;gap:6px;font-size:.88rem;color:var(--tinta-suave)}
+.pagina[data-pagina="conteudo"] .cms-instagram__estado[hidden]{display:none}
+.pagina[data-pagina="conteudo"] .cms-instagram__estado .icone{width:18px;height:18px;flex:none}
+.pagina[data-pagina="conteudo"] .cms-instagram__estado--ok{color:var(--sucesso);font-weight:700}
+.pagina[data-pagina="conteudo"] .cms-instagram .botao-link[hidden],
+.pagina[data-pagina="conteudo"] .cms-instagram .botao[hidden]{display:none}
+.pagina[data-pagina="conteudo"] .cms-instagram__previa{max-width:400px;border-radius:var(--raio);overflow:hidden;border:1px solid var(--linha)}
+.pagina[data-pagina="conteudo"] .cms-instagram__previa iframe{display:block;width:100%;height:560px;border:0;background:#fff}
+
+/* ---------- Listas ---------- */
+.pagina[data-pagina="conteudo"] .cms-lista-editor{display:flex;flex-direction:column;gap:12px;min-width:0}
+.pagina[data-pagina="conteudo"] .cms-item{flex-wrap:wrap;padding:6px 8px 6px 6px;gap:6px 8px}
+.pagina[data-pagina="conteudo"] .cms-item--erro{border-color:var(--perigo);box-shadow:inset 3px 0 0 var(--perigo)}
+.pagina[data-pagina="conteudo"] .cms-item__alternar{
+  flex:1 1 220px;min-width:0;display:flex;align-items:center;gap:10px;min-height:52px;padding:4px 6px;
+  background:none;border:0;border-radius:var(--raio-pequeno);color:inherit;text-align:left;cursor:pointer;font:inherit;
+}
+.pagina[data-pagina="conteudo"] .cms-item__alternar:hover{background:var(--superficie-2)}
+.pagina[data-pagina="conteudo"] .cms-item__numero{
+  flex:none;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:var(--verde-50);color:var(--verde-700);font-family:var(--display);font-weight:700;font-size:.85rem;
+}
+.pagina[data-pagina="conteudo"] .cms-item .lista-ordenavel__miniatura{width:44px;height:44px}
+.pagina[data-pagina="conteudo"] .cms-item .lista-ordenavel__miniatura[hidden]{display:none}
+.pagina[data-pagina="conteudo"] .cms-item .lista-ordenavel__conteudo{display:flex;flex-direction:column;gap:2px}
+.pagina[data-pagina="conteudo"] .cms-item .lista-ordenavel__detalhe{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pagina[data-pagina="conteudo"] .cms-item .lista-ordenavel__detalhe:empty{display:none}
+.pagina[data-pagina="conteudo"] .cms-item__aviso{display:flex;align-items:center;gap:4px;font-size:.8rem;font-weight:700;color:var(--perigo)}
+.pagina[data-pagina="conteudo"] .cms-item__aviso .icone{width:15px;height:15px}
+.pagina[data-pagina="conteudo"] .cms-item__seta{flex:none;width:20px;height:20px;color:var(--tinta-suave)}
+.pagina[data-pagina="conteudo"] .cms-item .lista-ordenavel__acoes{align-self:center;gap:2px}
+.pagina[data-pagina="conteudo"] .cms-item__acao{padding:0 8px;gap:5px;font-size:.8rem}
+.pagina[data-pagina="conteudo"] .cms-item__acao[data-acao="remover"]{color:var(--perigo)}
+.pagina[data-pagina="conteudo"] .cms-item__acao[data-acao="remover"]:hover:not(:disabled){background:var(--perigo-fundo);color:var(--perigo-escuro)}
+/* Celular e telas médias: as ações descem para uma linha própria, com a palavra embaixo do ícone. */
+@media (max-width:719.98px){
+  .pagina[data-pagina="conteudo"] .cms-item .lista-ordenavel__acoes{
+    width:100%;justify-content:space-between;padding-top:4px;border-top:1px solid var(--linha);
+  }
+  .pagina[data-pagina="conteudo"] .cms-item__acao{
+    flex:1 1 0;min-width:0;flex-direction:column;gap:3px;min-height:50px;padding:6px 0;border-radius:10px;
+    font-family:var(--sans);font-weight:700;font-size:.74rem;
+  }
+  .pagina[data-pagina="conteudo"] .cms-item__acao .icone{width:20px;height:20px}
+}
+.pagina[data-pagina="conteudo"] .cms-item__corpo{
+  flex:1 1 100%;min-width:0;display:flex;flex-direction:column;gap:18px;padding:14px 6px 8px;border-top:1px solid var(--linha);
+}
+.pagina[data-pagina="conteudo"] .cms-item__fim{display:flex;justify-content:flex-end}
+.pagina[data-pagina="conteudo"] .cms-subcampo{display:flex;flex-direction:column;gap:6px;min-width:0}
+.pagina[data-pagina="conteudo"] .cms-subcampo > .campo__ajuda{margin-top:-2px}
+.pagina[data-pagina="conteudo"] .cms-lista__vazia{
+  display:flex;align-items:center;gap:10px;padding:16px;border:1.5px dashed var(--linha-forte);border-radius:var(--raio);
+  color:var(--tinta-suave);font-size:.92rem;background:var(--superficie-2);
+}
+.pagina[data-pagina="conteudo"] .cms-lista__vazia[hidden]{display:none}
+.pagina[data-pagina="conteudo"] .cms-lista__vazia .icone{flex:none;width:22px;height:22px}
+.pagina[data-pagina="conteudo"] .cms-lista__rodape{display:flex}
+@media (max-width:479.98px){
+  .pagina[data-pagina="conteudo"] .cms-lista__rodape > .botao{flex:1}
+}
+
+/* ---------- Barra de ações ---------- */
+.pagina[data-pagina="conteudo"] .cms-barra__link{font-weight:700;color:var(--verde-600);text-underline-offset:2px}
+.pagina[data-pagina="conteudo"] .cms-barra .barra-acoes__info{min-width:0}
