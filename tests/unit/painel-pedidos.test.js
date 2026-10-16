@@ -11,7 +11,7 @@ import { STATUS_PEDIDO } from '../../public/admin/js/ui.js';
 import * as pedidos from '../../public/admin/js/paginas/pedidos.js';
 
 const {
-  ETAPAS_ENVIO, FILTROS_STATUS, TAMANHO_PAGINA, envioDisponivel, erroChaveNfe, errosRastreio, etapasEnvio, filtroDaUrl,
+  ETAPAS_ENVIO, FILTROS_STATUS, TAMANHO_PAGINA, envioDisponivel, errosRastreio, etapasEnvio, filtroDaUrl,
   filtroOuDaBusca, formatarCpf, formatarTelefone, linhasEndereco, linkWhatsapp, nomeEntrega, opcoesDoStatus,
   ordenarEventos, podeApagar, proximaAcao, rotuloAutor, rotuloMetodo, rotuloPagamento, statusDoFiltro, termoBusca,
   totalDePaginas, totalUnidades, ultimoCarrinho, visualEvento,
@@ -256,14 +256,10 @@ describe('envio pelo Melhor Envio', () => {
     assert.equal(situacao(etapasEnvio(semEtiquetas, [envio(1, 'comprar')])).carrinho, 'atual');
   });
 
-  test('ultimoCarrinho e chave da NF-e', () => {
+  test('ultimoCarrinho', () => {
     const eventos = [envio(1, 'adicionar_carrinho', { etiquetas: [{ id: 'a' }] }), envio(3, 'comprar'), envio(2, 'adicionar_carrinho', { etiquetas: [{ id: 'b' }] })];
     assert.equal(ultimoCarrinho(eventos).dados.etiquetas[0].id, 'b');
     assert.equal(ultimoCarrinho([]), null);
-    assert.equal(erroChaveNfe(''), null);
-    assert.equal(erroChaveNfe('3519 0412 3456 7800 0123 5500 1000 0001 2310 0001 2345'), null);
-    assert.ok(erroChaveNfe('123'));
-    assert.ok(erroChaveNfe('3519x0412345678000123550010000001231000012345'));
   });
 });
 

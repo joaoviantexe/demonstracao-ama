@@ -12,7 +12,7 @@ import * as conteudo from '../../public/admin/js/paginas/conteudo.js';
 
 const {
   LIMITE_ITENS, adicionarItem, chaveVisibilidade, clonarValor, ehMetaDeImagem,
-  htmlDaPrevia, htmlDaPreviaViva, limiteIdeal, mapaDeLinhas, montarAlteracoes, moverItem, nomeDoArquivo, normalizarEndereco,
+  limiteIdeal, numeroDoLinkWhatsapp, mensagemDoLinkWhatsapp, numeroWhatsappDigitado, formatarNumeroWhatsapp, montarLinkWhatsapp, mapaDeLinhas, montarAlteracoes, moverItem, nomeDoArquivo, normalizarEndereco,
   normalizarHtml, normalizarValor, ordenarGrupos, removerItem, resumirGrupos, resumoDoItem, textoDoHtml,
   validarEndereco, validarValor, valorEfetivo, valoresDoMolde, valoresIguais,
 } = conteudo;
@@ -446,6 +446,26 @@ describe('operações de lista', () => {
 // Visão geral e pré-visualização
 
 describe('visão geral dos grupos', () => {
+  test('WhatsApp: número digitado + mensagem padrão viram o link wa.me', () => {
+    assert.equal(numeroWhatsappDigitado('(91) 98105-6049'), '5591981056049');
+    assert.equal(numeroWhatsappDigitado('+55 91 98105-6049'), '5591981056049');
+    assert.equal(numeroWhatsappDigitado('9132221234'), '559132221234');
+    assert.equal(numeroWhatsappDigitado('1234'), '');
+    assert.equal(numeroWhatsappDigitado(''), '');
+    assert.equal(numeroWhatsappDigitado('5491981056049'), '', 'outro país');
+    assert.equal(formatarNumeroWhatsapp('5591981056049'), '(91) 98105-6049');
+    assert.equal(formatarNumeroWhatsapp('559132221234'), '(91) 3222-1234');
+    assert.equal(montarLinkWhatsapp('(91) 98105-6049', ''), 'https://wa.me/5591981056049');
+    assert.equal(montarLinkWhatsapp('91981056049', ' Olá!  Quero saber mais '), 'https://wa.me/5591981056049?text=Ol%C3%A1!%20Quero%20saber%20mais');
+    assert.equal(montarLinkWhatsapp('123', 'oi'), '');
+    assert.equal(numeroDoLinkWhatsapp('https://wa.me/5591981056049?text=oi'), '5591981056049');
+    assert.equal(numeroDoLinkWhatsapp('https://exemplo.com/5591981056049'), '');
+    assert.equal(mensagemDoLinkWhatsapp(montarLinkWhatsapp('91981056049', 'Olá, tudo bem?')), 'Olá, tudo bem?');
+    assert.equal(mensagemDoLinkWhatsapp('https://wa.me/5591981056049'), '');
+    assert.match(validarValor({ tipo: 'link', editor: 'whatsapp', padrao: { href: '', texto: 'Falar' } }, { href: '', texto: 'Falar' })[0].mensagem, /número do WhatsApp/);
+    assert.deepEqual(validarValor({ tipo: 'link', editor: 'whatsapp', padrao: { href: '', texto: 'Falar' } }, { href: 'https://wa.me/5591981056049', texto: 'Falar' }), []);
+  });
+
   test('Identidade vem primeiro, SEO vai para o fim; a ordem dos demais é a do template', () => {
     const ids = ordenarGrupos(esquemaDaHome().grupos).map((g) => g.id);
     assert.equal(ids.at(-1), 'seo');
@@ -473,43 +493,5 @@ describe('visão geral dos grupos', () => {
     assert.equal(resumos.get('cabecalho').visivel, true);
     assert.equal(resumos.get('cabecalho').ocultavel, false);
     assert.deepEqual(resumos.get('whatsapp').rotulosCampos, ['WhatsApp do site']);
-  });
-
-  test('pré-visualização: template + <base> na origem + rascunho aplicado + faixa de aviso', () => {
-    const html = htmlDaPrevia(HOME, {
-      'quem-somos.titulo': 'Título <b>do rascunho</b>',
-      'quem-somos.texto': '<p>Oi</p><script>alert(1)</script><img src=x onerror=alert(1)>',
-      'grupo.depoimentos.visivel': false,
-    }, { analisar, origem: 'http://127.0.0.1:3000', aviso: 'Pré-visualização: as mudanças ainda não foram salvas' });
-    assert.match(html, /^<!doctype html>\n<html/i);
-    const doc = analisar(html);
-    const base = doc.querySelector('head > base');
-    assert.equal(base.getAttribute('href'), 'http://127.0.0.1:3000/');
-    assert.equal(doc.querySelector('head').firstElementChild, base);
-    assert.equal(doc.querySelector('[data-cms="quem-somos.titulo"]').textContent, 'Título <b>do rascunho</b>');
-    assert.equal(doc.querySelector('[data-cms="quem-somos.texto"]').innerHTML.trim(), '<p>Oi</p>');
-    assert.equal(doc.querySelector('#depoimentos'), null);
-    assert.equal(doc.querySelector('[data-previa-painel]').textContent, 'Pré-visualização: as mudanças ainda não foram salvas');
-    assert.equal(doc.querySelectorAll('script:not([src])').length, analisar(HOME).querySelectorAll('script:not([src])').length);
-  });
-
-  test('prévia ao vivo: sem scripts, animações já visíveis, marca do campo em foco; WhatsApp só no grupo dele', () => {
-    const html = htmlDaPreviaViva(HOME, { 'historia.coragem-titulo': 'Coragem' }, { analisar, origem: '' });
-    const doc = analisar(html);
-    assert.equal(doc.querySelectorAll('script').length, 0);
-    const estilo = doc.querySelector('head style[data-previa-viva]').textContent;
-    assert.match(estilo, /\.reveal\{opacity:1!important/);
-    assert.match(estilo, /\[data-cms-previa-foco\]/);
-    assert.match(estilo, /\.wa-flutuante\{display:none!important\}/);
-    assert.equal(doc.querySelector('[data-cms="historia.coragem-titulo"]').textContent, 'Coragem');
-    const doWhatsapp = analisar(htmlDaPreviaViva(HOME, {}, { analisar, origem: '', mostrarWhatsapp: true }));
-    assert.doesNotMatch(doWhatsapp.querySelector('head style[data-previa-viva]').textContent, /wa-flutuante/);
-  });
-
-  test('pré-visualização sem aviso não tem a faixa', () => {
-    const html = htmlDaPrevia(HOME, {}, { analisar, origem: '' });
-    const doc = analisar(html);
-    assert.equal(doc.querySelector('[data-previa-painel]'), null);
-    assert.equal(doc.querySelector('head > base').getAttribute('href'), '/');
   });
 });

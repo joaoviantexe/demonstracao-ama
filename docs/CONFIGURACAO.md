@@ -189,8 +189,9 @@ Faça quando a AMA aprovar o site e definir preços.
    prazo e estados atendidos (ex.: só `PA`). Pode ficar ligado junto com o Melhor Envio.
    - O frete usa o **peso e as medidas** de cada produto (**Produtos → produto → Tamanho e peso**). Confira os
      valores reais, principalmente das biojoias.
-   - **Converse com o contador** sobre nota fiscal (NF-e) ou declaração de conteúdo: a AMA tem CNPJ e vende. Com
-     NF-e, a chave de 44 números entra no primeiro passo do envio.
+   - **Nota fiscal:** o painel não pede a chave da NF-e; as etiquetas saem com **declaração de conteúdo**. Converse
+     com o contador sobre CNAE de comércio e nota (a AMA hoje só tem CNAE associativo). Se precisar emitir NF-e, o
+     campo da chave volta ao primeiro passo do envio (a API `/api/admin/envio` já aceita `chave_nfe`).
 5. **E-mails de pedido (opcional).** Crie a conta no [Resend](https://resend.com), verifique o domínio, gere uma
    API key e cadastre `RESEND_API_KEY` e `EMAIL_REMETENTE` (ex.: `AMA <loja@seudominio.com.br>`). No painel, em
    **Configurações → Avisos por e-mail**, informe o e-mail da equipe que recebe o aviso de novo pedido.

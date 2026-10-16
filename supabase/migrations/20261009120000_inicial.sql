@@ -1730,3 +1730,10 @@ update public.produtos p
 -- O painel não tem mais preço promocional: tira as promoções que ainda existirem
 -- (o preço normal vale). A coluna continua na tabela, sem uso.
 update public.produtos set preco_promocional_centavos = null where preco_promocional_centavos is not null;
+
+-- O painel não tem mais "frete grátis a partir de": desliga o que ainda estiver ligado.
+update public.configuracoes
+   set valor = jsonb_set(valor, '{frete_gratis_acima_centavos}', 'null'::jsonb)
+ where chave = 'loja'
+   and valor ? 'frete_gratis_acima_centavos'
+   and jsonb_typeof(valor -> 'frete_gratis_acima_centavos') <> 'null';

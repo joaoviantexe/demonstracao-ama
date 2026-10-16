@@ -25,7 +25,6 @@ const freteValido = (extra = {}) => ({
   melhor_envio: { ativo: true, servicos: [1, 2], seguro: true, prazo_extra_dias: '2', taxa_extra_centavos: 0 },
   fixo: { ativo: false, opcoes: [] },
   embalagem_padrao: { peso_gramas: '300', altura_cm: '4', largura_cm: '12', comprimento_cm: '16' },
-  frete_gratis_centavos: null,
   ...extra,
 });
 
@@ -89,7 +88,6 @@ describe('aba Frete', () => {
   test('válida: monta o valor no formato que lib/frete.js usa', () => {
     const r = validarFrete(freteValido({
       fixo: { ativo: true, opcoes: [{ nome: 'Entrega na Grande Belém', preco_centavos: 1250, prazo_dias: '2', ufs: 'pa' }] },
-      frete_gratis_centavos: 30000,
     }));
     assert.deepEqual(r.erros, {});
     assert.equal(r.frete.origem.documento, '11222333000181');
@@ -98,7 +96,6 @@ describe('aba Frete', () => {
     assert.deepEqual(r.frete.melhor_envio, { ativo: true, servicos: [1, 2], seguro: true, prazo_extra_dias: 2, taxa_extra_centavos: 0 });
     assert.deepEqual(r.frete.fixo.opcoes, [{ id: 'fixo-entrega-na-grande-belem', nome: 'Entrega na Grande Belém', preco_centavos: 1250, prazo_dias: 2, ufs: ['PA'] }]);
     assert.deepEqual(r.frete.embalagem_padrao, { peso_gramas: 300, altura_cm: 4, largura_cm: 12, comprimento_cm: 16 });
-    assert.equal(r.freteGratisCentavos, 30000);
     assert.equal('retirada' in r.frete, false);
     // O servidor entende o que o painel salva.
     const cfg = normalizarConfigFrete({ frete: r.frete });
@@ -155,13 +152,10 @@ describe('aba Frete', () => {
   test('embalagem e frete grátis', () => {
     const r = validarFrete(freteValido({
       embalagem_padrao: { peso_gramas: '0', altura_cm: '200', largura_cm: 'abc', comprimento_cm: '' },
-      frete_gratis_centavos: Number.NaN,
     }));
-    for (const chave of ['embalagem_padrao.peso_gramas', 'embalagem_padrao.altura_cm', 'embalagem_padrao.largura_cm', 'embalagem_padrao.comprimento_cm', 'frete_gratis_centavos']) {
+    for (const chave of ['embalagem_padrao.peso_gramas', 'embalagem_padrao.altura_cm', 'embalagem_padrao.largura_cm', 'embalagem_padrao.comprimento_cm']) {
       assert.ok(r.erros[chave], chave);
     }
-    assert.equal(validarFrete(freteValido({ frete_gratis_centavos: null })).freteGratisCentavos, null);
-    assert.ok(validarFrete(freteValido({ frete_gratis_centavos: 0 })).erros.frete_gratis_centavos);
   });
 
   test('diagnóstico das formas de entrega', () => {
