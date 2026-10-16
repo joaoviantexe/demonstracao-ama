@@ -13,6 +13,17 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
   e as atualizações de valores padrão antigos ficam no fim da seção 10.
 - **Conta do Supabase:** o projeto do Supabase da AMA está na conta do e-mail **joaoviantexe@gmail.com**. Entre com
   ele em supabase.com para ver o banco, os usuários do painel e as chaves. Esse projeto é reaproveitado (não crie outro).
+- **Conta do Cloudflare:** foi configurada pelo e-mail **joaoviantexe@hotmail.com** (Worker `ama-site`, bucket R2
+  `ama-midia` e o DNS do domínio).
+- **Administradores do painel da AMA** (devem estar em `public.admins` e em Authentication → Users do Supabase):
+  - monica@oscama.com.br
+  - rayssa@oscama.com.br
+  - joao@oscama.com.br
+- **Pendente — apagar os usuários antigos do Supabase** (Authentication → Users → ⋯ → Delete user; se também
+  estiverem em `public.admins`, apague a linha de lá, ou rode `delete from public.admins where email in (…)`):
+  - monica@associacaomulheresamazonia.com.br
+  - rayssa@associacaomulheresamazonia.com.br
+  - joao@associacaomulheresamazonia.com.br
 
 ## Leia primeiro
 
