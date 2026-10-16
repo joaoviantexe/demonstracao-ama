@@ -9,6 +9,8 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
   (bucket `ama-midia`) e o domínio do registro.br com o DNS no Cloudflare (passo a passo em `docs/CONFIGURACAO.md`).
   A Vercel não é mais usada (o antigo projeto `demonstracao-site-ama` pode ser apagado). O dono criou o projeto no
   Supabase e aplicou a migração.
+- **Conta do Supabase:** o projeto do Supabase da AMA está na conta do e-mail **joaoviantexe@gmail.com**. Entre com
+  ele em supabase.com para ver o banco, os usuários do painel e as chaves. Esse projeto é reaproveitado (não crie outro).
   **Sempre que a migração mudar, avise o dono para rodar o arquivo inteiro de novo no SQL Editor.** Ela é re-executável,
   e as atualizações de valores padrão antigos ficam no fim da seção 10.
 
