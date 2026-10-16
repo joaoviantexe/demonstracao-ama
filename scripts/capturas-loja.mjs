@@ -16,13 +16,15 @@
 // - Cada página é capturada em 390, 768 e 1440 px. O script falha (código 1) se houver erro no console
 //   das páginas da loja ou conteúdo saindo da tela na horizontal.
 // - No fim, apaga os pedidos criados (devolvendo o estoque que o pagamento consumiu).
+// - O armazenamento do servidor (o bucket R2 em produção) fica numa pasta temporária, apagada no fim.
 
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { armazenamentoLocal } from './armazenamento-local.mjs';
 import { iniciarServidor } from './dev-server.mjs';
 import { ambienteLocal, sql, sqlJson } from '../tests/apoio/supabase-local.js';
 import { iniciar as iniciarMercadoPago } from '../tests/apoio/mercadopago-falso.js';
@@ -396,7 +398,8 @@ async function principal() {
   for (const nome of ['SITE_URL', 'VERCEL_PROJECT_PRODUCTION_URL', 'RESEND_API_KEY', 'SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_SECRET_KEY']) delete process.env[nome];
   Object.assign(process.env, ambiente);
 
-  const servidor = await iniciarServidor({ porta: 0, host: '127.0.0.1' });
+  const pastaMidia = mkdtempSync(path.join(os.tmpdir(), 'ama-capturas-loja-midia-'));
+  const servidor = await iniciarServidor({ porta: 0, host: '127.0.0.1', armazenamento: armazenamentoLocal(pastaMidia) });
   mp.estado.webhookUrl = `${servidor.url}/api/webhooks/mercadopago`;
   const navegador = await chromium.launch();
   console.log(`Capturas da loja em ${SAIDA}`);
@@ -421,6 +424,7 @@ async function principal() {
   } finally {
     await navegador.close();
     await servidor.fechar();
+    rmSync(pastaMidia, { recursive: true, force: true });
     await mp.fechar();
     await me.fechar();
     try {

@@ -1874,7 +1874,8 @@ function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
   // Se falhar, "Salvar" (mesmo sem mudanças) tenta publicar outra vez.
   async function publicarSite() {
     if (typeof ctx.publicarHome !== 'function') return true;
-    const r = await ctx.publicarHome({ forcar: true, sinal: ctx.sinal });
+    // Sem o sinal da página: sair no meio não interrompe a publicação (o banco já foi gravado).
+    const r = await ctx.publicarHome({ forcar: true });
     if (!ctx.ativo()) return false;
     publicacaoPendente = !(r && r.ok);
     if (!publicacaoPendente) return true;
@@ -1900,15 +1901,15 @@ function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
         return;
       }
       salvos.delete(campo.chave);
-      await publicarSite();
-      if (!ctx.ativo()) return;
     }
+    const publicou = temLinha ? await publicarSite() : true;
+    if (!ctx.ativo()) return;
     rascunho.set(campo.chave, clonarValor(campo.padrao));
     desenharEditor(controle);
-    acabouDeSalvar = temLinha;
+    acabouDeSalvar = temLinha && publicou;
     atualizarEstado();
     if (previaGoogle) previaGoogle.atualizar();
     controle.editor.focar();
-    ui.toast(temLinha ? 'Padrão restaurado.' : 'Mudanças desfeitas.', 'sucesso');
+    if (publicou) ui.toast(temLinha ? 'Padrão restaurado.' : 'Mudanças desfeitas.', 'sucesso');
   }
 }
