@@ -91,7 +91,6 @@ export default async function handler(req, res) {
           cliente: dados.cliente,
           endereco: dados.endereco,
           entrega,
-          observacoes: dados.observacoes,
         },
       });
     } catch (erro) {

@@ -18,6 +18,8 @@ export const MAX_IMAGENS = 12; // a loja mostra até 12 fotos
 export const MAIOR_INT = 2147483647; // colunas int do Postgres
 export const MAIOR_MEDIDA = 99999.9; // numeric(6,1)
 export const ESTOQUE_BAIXO = 3;
+/** Nome usado quando o produto é salvo sem nome (o nome não é obrigatório). */
+export const NOME_PADRAO = 'Produto sem Nome';
 
 /** Explicação combinada com a AMA para produto sem preço (a loja não usa "Em breve"). */
 export const EXPLICACAO_SEM_PRECO = 'aparece na loja com R$ 00,00 e ninguém consegue finalizar a compra até você definir o preço';
@@ -161,13 +163,13 @@ export function adicionarImagens(imagens, novas, maximo = MAX_IMAGENS) {
 /**
  * Valores do formulário (textos como foram digitados) → { campo: mensagem } (vazio = tudo certo).
  * Campos: nome, descricao, preco, estoque, ativo, destaque, categoria_id, imagens [{ src, alt }], ordem.
+ * Nada é obrigatório: nome vazio vira NOME_PADRAO; preço e estoque vazios valem 0.
  * As chaves do resultado são as colunas da tabela produtos.
  */
 export function validarProduto(v) {
   const erros = {};
   const nome = String(v.nome ?? '').trim();
-  if (!nome) erros.nome = 'Informe o nome do produto.';
-  else if (nome.length > MAX_NOME) erros.nome = `Use no máximo ${MAX_NOME} caracteres (agora tem ${nome.length}).`;
+  if (nome.length > MAX_NOME) erros.nome = `Use no máximo ${MAX_NOME} caracteres (agora tem ${nome.length}).`;
 
   if (String(v.descricao ?? '').trim().length > MAX_DESCRICAO) {
     erros.descricao = 'A descrição passou de 10.000 caracteres. Encurte um pouco.';
@@ -175,12 +177,12 @@ export function validarProduto(v) {
 
   const precoTexto = String(v.preco ?? '').trim();
   const preco = lerPreco(precoTexto);
-  if (!precoTexto) erros.preco_centavos = `Informe o preço. Se ainda não tiver, digite 0: o produto ${EXPLICACAO_SEM_PRECO}.`;
-  else if (preco === null) erros.preco_centavos = 'Preço inválido. Digite só o valor, como 49,90.';
+  if (precoTexto && preco === null) erros.preco_centavos = 'Preço inválido. Digite só o valor, como 49,90.';
 
   const estoque = lerInteiro(v.estoque);
-  if (estoque.vazio) erros.estoque = 'Informe quantas unidades há para vender (pode ser 0).';
-  else if (estoque.valor === null) erros.estoque = 'Use um número inteiro, como 3.';
+  if (estoque.vazio) {
+    // vazio = 0
+  } else if (estoque.valor === null) erros.estoque = 'Use um número inteiro, como 3.';
   else if (estoque.valor < 0) erros.estoque = 'O estoque não pode ser negativo.';
   else if (estoque.valor > MAIOR_INT) erros.estoque = 'Número grande demais.';
 
@@ -212,7 +214,7 @@ export function montarRegistro(v) {
   const estoque = lerInteiro(v.estoque).valor;
   const ordem = lerInteiro(v.ordem).valor;
   return {
-    nome: String(v.nome ?? '').trim(),
+    nome: String(v.nome ?? '').trim() || NOME_PADRAO,
     descricao: String(v.descricao ?? '').trim(),
     preco_centavos: lerPreco(String(v.preco ?? '').trim()) ?? 0,
     estoque: estoque !== null && estoque >= 0 ? estoque : 0,
@@ -342,6 +344,31 @@ export function ordenarProdutos(lista, criterio = 'loja') {
   return copia.sort((a, b) => comparar(a, b) || compararNome(a, b));
 }
 
+/**
+ * Vitrine da loja com o produto em edição no lugar certo (mesma ordem de ordenarProdutos(…, 'loja')).
+ * outros: produtos da loja; atual: o produto com os valores do formulário ({ id, ativo, destaque, ordem, criado_em, … }).
+ * → { posicao (1…) | null se fora da loja, total, anterior, proximo }
+ */
+export function vitrineComProduto(outros, atual) {
+  const lista = (outros || []).filter((o) => o && o.ativo !== false && o.id !== atual.id);
+  if (!atual.ativo) return { posicao: null, total: lista.length, anterior: null, proximo: null };
+  const todos = ordenarProdutos([...lista, atual], 'loja');
+  const i = todos.indexOf(atual);
+  return { posicao: i + 1, total: todos.length, anterior: todos[i - 1] || null, proximo: todos[i + 1] || null };
+}
+
+/**
+ * Novo valor de "ordem" para o produto passar um lugar para o começo (-1) ou para o fim (+1) da vitrine.
+ * null quando não dá (já é o primeiro/último ou o vizinho está do outro lado dos destaques).
+ */
+export function ordemParaMover(vitrine, atual, direcao) {
+  const vizinho = direcao < 0 ? vitrine.anterior : vitrine.proximo;
+  if (!vizinho || (vizinho.destaque === true) !== (atual.destaque === true)) return null;
+  const base = Number(vizinho.ordem) || 0;
+  const nova = direcao < 0 ? base - 1 : base + 1;
+  return Math.abs(nova) > MAIOR_INT ? null : nova;
+}
+
 /** Quantos produtos há em cada situação do filtro: { 'a-venda': 3, … }. */
 export function contarPorSituacao(lista) {
   const contagem = {};
@@ -369,6 +396,7 @@ export function mensagemAlternarAtivo(p, novo) {
 /** Consulta da lista: só o necessário para a tabela e os filtros. */
 const COLUNAS_LISTA = 'id, nome, slug, preco_centavos, preco_promocional_centavos, estoque, controlar_estoque, ativo, destaque, categoria_id, imagens, ordem, criado_em';
 const COLUNAS_CATEGORIAS = 'id, nome, ativo, ordem';
+const COLUNAS_VITRINE = 'id, nome, imagens, preco_centavos, preco_promocional_centavos, estoque, controlar_estoque, ativo, destaque, ordem, criado_em, categoria_id';
 
 // ---------------------------------------------------------------------------
 // Página
@@ -660,16 +688,18 @@ async function renderizarFormulario(ctx) {
 
   const cabecalho = ui.cabecalhoPagina({
     titulo: novo ? 'Novo produto' : 'Produto',
-    descricao: novo ? 'Preencha os dados e salve. Os campos com * são obrigatórios.' : 'Carregando…',
+    descricao: novo ? '' : 'Carregando…',
     voltar: { href: '#/produtos', texto: 'Produtos' },
   });
   const corpo = el('div', { class: 'pilha' });
   ctx.raiz.append(cabecalho, corpo);
   ui.estadoCarregando(corpo, { linhas: 8, mensagem: novo ? 'Preparando o formulário…' : 'Carregando o produto…' });
 
-  const [rp, rc] = await Promise.all([
+  const [rp, rc, rv] = await Promise.all([
     novo ? { ok: true, dados: null } : api.consultar(supabase.from('produtos').select('*').eq('id', ctx.params.id).maybeSingle()),
     api.consultar(supabase.from('categorias').select(COLUNAS_CATEGORIAS).order('ordem').order('nome')),
+    // Os outros produtos da loja, para a prévia da vitrine (posição e vizinhos).
+    api.consultar(supabase.from('produtos').select(COLUNAS_VITRINE).eq('ativo', true).limit(1000)),
     ui.carregarCss('produtos'),
   ]);
   if (!ctx.ativo()) return undefined;
@@ -693,9 +723,13 @@ async function renderizarFormulario(ctx) {
   let produto = rp.dados; // versão salva (null enquanto o produto novo não foi salvo)
   let categorias = rc.ok ? rc.dados || [] : [];
   let imagens = produto ? normalizarImagens(produto.imagens) : [];
+  const vitrineDaLoja = rv && rv.ok && Array.isArray(rv.dados) ? rv.dados : [];
+  let ordemAtual = Number.isInteger(produto && produto.ordem) ? produto.ordem : 0;
+  const criadoEm = (produto && produto.criado_em) || new Date().toISOString();
   let alterado = false;
   let enviando = false;
   let modalCategoria = null;
+  let botaoApagar = null;
 
   const marcar = (sim = true) => {
     alterado = sim;
@@ -703,49 +737,42 @@ async function renderizarFormulario(ctx) {
   };
 
   // --- Campos -------------------------------------------------------------
+  // Nada é obrigatório: sem nome o produto vira "Produto sem Nome"; preço e estoque começam em 0.
   const p = produto || {};
   const nome = ui.campo({
-    rotulo: 'Nome do produto', nome: 'nome', obrigatorio: true, valor: p.nome ?? '',
+    rotulo: 'Nome do produto', nome: 'nome', valor: p.nome ?? '', placeholder: NOME_PADRAO,
     attrs: { maxlength: String(MAX_NOME), autocomplete: 'off' },
   });
   const descricao = ui.campo({
     rotulo: 'Descrição', nome: 'descricao', tipo: 'textarea', linhas: 7, valor: p.descricao ?? '',
     attrs: { maxlength: String(MAX_DESCRICAO) },
   });
-
-  const preco = ui.campo({
-    rotulo: 'Preço', nome: 'preco', tipo: 'preco', obrigatorio: true, valor: produto ? produto.preco_centavos : null,
-    ajuda: `Digite 0 se ainda não tiver preço: o produto ${EXPLICACAO_SEM_PRECO}.`,
+  const categoria = ui.campo({
+    rotulo: 'Categoria', nome: 'categoria_id', tipo: 'select', valor: '', opcoes: [{ valor: '', rotulo: 'Sem categoria' }],
   });
-  const dicaPreco = el('div', { class: 'produto-dica', 'aria-live': 'polite' });
+  const novaCategoria = ui.botao({ texto: 'Nova categoria', tamanho: 'pequeno', icone: 'mais', classe: 'produto-categoria__nova' });
+
+  const preco = ui.campo({ rotulo: 'Preço', nome: 'preco', tipo: 'preco', valor: produto ? produto.preco_centavos : 0 });
   const estoque = ui.campo({
-    rotulo: 'Estoque', nome: 'estoque', valor: produto ? String(produto.estoque ?? 0) : '', sufixo: 'unidades', placeholder: 'Ex.: 10',
-    ajuda: 'Quantas unidades há para vender. A cada venda paga, a loja desconta sozinha.',
+    rotulo: 'Estoque', nome: 'estoque', valor: produto ? String(produto.estoque ?? 0) : '0', sufixo: 'unidades',
     attrs: { inputmode: 'numeric', autocomplete: 'off', maxlength: '10' },
   });
   const ativo = ui.campo({
     rotulo: 'À venda na loja', nome: 'ativo', tipo: 'interruptor', valor: produto ? produto.ativo === true : true,
   });
-  const destaque = ui.campo({
-    rotulo: 'Mostrar entre os destaques', nome: 'destaque', tipo: 'checkbox', valor: p.destaque === true,
-    ajuda: 'Produtos em destaque aparecem primeiro na loja.',
-  });
-  const categoria = ui.campo({
-    rotulo: 'Categoria', nome: 'categoria_id', tipo: 'select', valor: '', opcoes: [{ valor: '', rotulo: 'Sem categoria' }],
-    ajuda: 'Ajuda a cliente a encontrar o produto no filtro da loja.',
-  });
-  const novaCategoria = ui.botao({ texto: 'Nova categoria', tamanho: 'pequeno', icone: 'mais', classe: 'produto-categoria__nova' });
-  const ordem = ui.campo({
-    rotulo: 'Posição na loja', nome: 'ordem', valor: String(p.ordem ?? 0),
-    ajuda: 'Número menor aparece antes. Os destaques vêm sempre primeiro.', attrs: { inputmode: 'numeric', autocomplete: 'off', maxlength: '10' },
-  });
+  const destaque = ui.campo({ rotulo: 'Mostrar entre os destaques', nome: 'destaque', tipo: 'checkbox', valor: p.destaque === true });
 
   // --- Fotos --------------------------------------------------------------
   const listaFotos = el('ul', { class: 'lista-ordenavel produto-fotos', 'aria-label': 'Fotos do produto' });
-  const semFotos = el('p', { class: 'produto-fotos__vazio' }, ui.icone('imagem'), 'Nenhuma foto ainda. A primeira foto que você adicionar vira a capa.');
   const contadorFotos = el('p', { class: 'texto-pequeno texto-suave', 'aria-live': 'polite' });
   const erroFotos = el('p', { class: 'campo__erro', hidden: true, role: 'alert' });
   const area = midia.criarAreaUpload({ tipo: 'imagem', multiplo: true, texto: 'Arraste as fotos para cá', aoEscolher: enviarFotos });
+
+  // --- Visualização: como o produto aparece na vitrine da loja ---------------
+  const previa = el('div', { class: 'produto-previa', 'aria-live': 'polite' });
+  const textoPosicao = el('p', { class: 'produto-previa__posicao' });
+  const botaoAntes = ui.botao({ texto: 'Mais para o começo', icone: 'voltar', tamanho: 'pequeno', aoClicar: () => moverNaVitrine(-1) });
+  const botaoDepois = ui.botao({ texto: 'Mais para o fim', iconeDireita: 'avancar', tamanho: 'pequeno', aoClicar: () => moverNaVitrine(1) });
 
   // --- Montagem -----------------------------------------------------------
   const cartao = (idTitulo, tituloTexto, subtitulo, ...conteudo) => el('section', { class: 'cartao', 'aria-labelledby': idTitulo },
@@ -762,28 +789,18 @@ async function renderizarFormulario(ctx) {
     infoBarra.classList.toggle('produto-barra__erro', Boolean(texto));
   };
   const botaoSalvar = ui.botao({ texto: novo ? 'Criar produto' : 'Salvar alterações', tipo: 'primario', icone: 'check', tipoHtml: 'submit' });
-  const botaoApagar = novo ? null : ui.botao({ texto: 'Apagar produto', tipo: 'perigo-suave', icone: 'lixeira', bloco: true, aoClicar: apagar });
 
+  // Uma coluna só: Informações, Fotos, Preço, Disponibilidade e, por último, Visualização.
   const form = el('form', { class: 'pilha produto-form', novalidate: true, 'aria-label': novo ? 'Novo produto' : 'Editar produto' },
-    el('div', { class: 'grade grade--painel' },
-      el('div', { class: 'pilha' },
-        cartao('pf-dados', 'Informações', null, nome.elemento, descricao.elemento),
-        cartao('pf-fotos', 'Fotos', 'A primeira foto é a capa, que aparece na vitrine. Use fotos quadradas e bem iluminadas.',
-          listaFotos, semFotos, contadorFotos, erroFotos,
-          el('div', { class: 'produto-fotos__envio' }, area.elemento)),
-        cartao('pf-preco', 'Preço e estoque', null,
-          preco.elemento,
-          estoque.elemento,
-          dicaPreco)),
-      el('div', { class: 'pilha' },
-        cartao('pf-loja', 'Na loja', null,
-          ativo.elemento,
-          destaque.elemento,
-          el('div', { class: 'produto-categoria' }, categoria.elemento, novaCategoria),
-          ordem.elemento),
-        novo ? null : cartao('pf-acoes', 'Mais ações', null,
-          el('p', { class: 'texto-pequeno texto-suave' }, 'Apagar tira o produto da loja e do painel. Os pedidos antigos continuam com o nome e o preço dele.'),
-          botaoApagar))),
+    cartao('pf-dados', 'Informações', null,
+      nome.elemento, descricao.elemento, el('div', { class: 'produto-categoria' }, categoria.elemento, novaCategoria)),
+    cartao('pf-fotos', 'Fotos', null, listaFotos, contadorFotos, erroFotos, el('div', { class: 'produto-fotos__envio' }, area.elemento)),
+    cartao('pf-preco', 'Preço', null, preco.elemento),
+    cartao('pf-disponibilidade', 'Disponibilidade', null, ativo.elemento, estoque.elemento),
+    cartao('pf-visualizacao', 'Visualização', null,
+      destaque.elemento,
+      el('div', { class: 'produto-previa__controles' }, textoPosicao, el('div', { class: 'grupo-botoes' }, botaoAntes, botaoDepois)),
+      previa),
     el('div', { class: 'barra-acoes' },
       infoBarra,
       ui.botao({ texto: 'Cancelar', href: '#/produtos' }),
@@ -799,18 +816,69 @@ async function renderizarFormulario(ctx) {
     categoria.entrada.value = selecionada || '';
   }
 
-  function atualizarDicaPreco() {
-    const precoTexto = preco.entrada.value.trim();
-    const valorPreco = precoTexto ? lerPreco(precoTexto) : null;
-    const avisos = [];
-    if (valorPreco === 0) {
-      avisos.push(ui.aviso(`Com preço 0, o produto ${EXPLICACAO_SEM_PRECO}.`, 'alerta', { titulo: 'Sem preço' }));
+  /** O produto como está no formulário agora (para a prévia). */
+  function produtoDoFormulario() {
+    const lidoPreco = lerPreco(preco.entrada.value.trim());
+    const lidoEstoque = lerInteiro(estoque.entrada.value).valor;
+    const cat = categorias.find((c) => c.id === categoria.entrada.value);
+    return {
+      id: produto ? produto.id : 'novo',
+      nome: nome.entrada.value.trim() || NOME_PADRAO,
+      imagens,
+      preco_centavos: lidoPreco ?? 0,
+      preco_promocional_centavos: null,
+      estoque: lidoEstoque !== null && lidoEstoque >= 0 ? lidoEstoque : 0,
+      controlar_estoque: produto ? produto.controlar_estoque !== false : true,
+      ativo: ativo.ler(),
+      destaque: destaque.ler(),
+      ordem: ordemAtual,
+      criado_em: criadoEm,
+      categoria: cat ? cat.nome : '',
+    };
+  }
+
+  // Cartão como o da vitrine da loja (foto, categoria, nome, preço, selos).
+  function cartaoDaVitrine(item, { atual = false } = {}) {
+    const s = situacaoProduto(item);
+    const capa = normalizarImagens(item.imagens)[0];
+    const cat = item.categoria !== undefined ? item.categoria : (categorias.find((c) => c.id === item.categoria_id) || {}).nome;
+    const selos = [];
+    if (item.destaque) selos.push(el('span', { class: 'produto-previa__selo' }, 'Destaque'));
+    if (!s.semPreco && s.semEstoque) selos.push(el('span', { class: 'produto-previa__selo produto-previa__selo--esgotado' }, 'Esgotado'));
+    return el('div', { class: ['produto-previa__cartao', atual && 'produto-previa__cartao--atual'], 'aria-hidden': atual ? null : 'true' },
+      el('div', { class: 'produto-previa__foto' },
+        capa ? el('img', { src: capa.src, alt: '', loading: 'lazy', decoding: 'async' }) : ui.icone('imagem'),
+        selos.length ? el('div', { class: 'produto-previa__selos' }, ...selos) : null),
+      el('div', { class: 'produto-previa__corpo' },
+        cat ? el('p', { class: 'produto-previa__categoria' }, cat) : null,
+        el('p', { class: 'produto-previa__nome' }, item.nome),
+        el('p', { class: 'produto-previa__preco' }, s.semPreco ? 'R$\u00a000,00' : formatarPreco(s.precoEfetivo))));
+  }
+
+  function atualizarPrevia() {
+    const atual = produtoDoFormulario();
+    const v = vitrineComProduto(vitrineDaLoja, atual);
+    if (v.posicao === null) {
+      textoPosicao.textContent = 'Fora da loja: o produto não aparece na vitrine.';
+      previa.replaceChildren(el('div', { class: 'produto-previa__vitrine produto-previa__vitrine--fora' }, cartaoDaVitrine(atual, { atual: true })));
+    } else {
+      textoPosicao.textContent = `${v.posicao}º de ${v.total} na loja`;
+      previa.replaceChildren(el('div', { class: 'produto-previa__vitrine' },
+        v.anterior ? cartaoDaVitrine(v.anterior) : el('div', { class: 'produto-previa__vazio' }),
+        cartaoDaVitrine(atual, { atual: true }),
+        v.proximo ? cartaoDaVitrine(v.proximo) : el('div', { class: 'produto-previa__vazio' })));
     }
-    const lidoEstoque = lerInteiro(estoque.entrada.value);
-    if (valorPreco > 0 && lidoEstoque.valor === 0) {
-      avisos.push(ui.aviso('Com estoque 0, o produto aparece na loja como esgotado e ninguém consegue comprar. Informe quantas unidades há para vender.', 'alerta', { titulo: 'Sem estoque' }));
-    }
-    dicaPreco.replaceChildren(...avisos);
+    botaoAntes.disabled = v.posicao === null || ordemParaMover(v, atual, -1) === null;
+    botaoDepois.disabled = v.posicao === null || ordemParaMover(v, atual, 1) === null;
+  }
+
+  function moverNaVitrine(direcao) {
+    const atual = produtoDoFormulario();
+    const nova = ordemParaMover(vitrineComProduto(vitrineDaLoja, atual), atual, direcao);
+    if (nova === null) return;
+    ordemAtual = nova;
+    marcar(true);
+    atualizarPrevia();
   }
 
   function atualizarCabecalho() {
@@ -840,14 +908,15 @@ async function renderizarFormulario(ctx) {
         ui.toast('Este produto está fora da loja. Ligue "À venda na loja" e salve para ele aparecer.', 'aviso');
       },
     });
+    botaoApagar = ui.botao({ texto: 'Apagar', tipo: 'perigo-suave', icone: 'lixeira', aoClicar: apagar });
     const linha = cabecalho.querySelector('.pagina-cabecalho__linha');
     const antigas = linha.querySelector('.pagina-cabecalho__acoes');
     if (antigas) antigas.remove();
-    linha.append(el('div', { class: 'pagina-cabecalho__acoes' }, verNaLoja));
+    linha.append(el('div', { class: 'pagina-cabecalho__acoes' }, verNaLoja, botaoApagar));
   }
 
   function desenharFotos({ focar } = {}) {
-    semFotos.hidden = imagens.length > 0;
+    atualizarPrevia();
     contadorFotos.textContent = imagens.length ? `${imagens.length} de ${MAX_IMAGENS} fotos` : '';
     listaFotos.hidden = imagens.length === 0;
     const nomeAtual = nome.entrada.value.trim();
@@ -890,7 +959,7 @@ async function renderizarFormulario(ctx) {
   }
 
   async function removerFoto(i) {
-    const sim = await ui.confirmar(`Tirar a foto ${i + 1} deste produto? O arquivo continua na biblioteca de Mídia, e a mudança só vale depois de salvar.`, {
+    const sim = await ui.confirmar(`Tirar a foto ${i + 1} deste produto? A mudança só vale depois de salvar.`, {
       titulo: 'Tirar foto?', textoConfirmar: 'Tirar foto', perigo: true,
     });
     if (!sim || !ctx.ativo()) return;
@@ -989,12 +1058,12 @@ async function renderizarFormulario(ctx) {
       destaque: destaque.ler(),
       categoria_id: categoria.entrada.value,
       imagens,
-      ordem: ordem.entrada.value,
+      ordem: String(ordemAtual),
     };
   }
 
   const CAMPOS = {
-    nome, descricao, preco_centavos: preco, estoque, ordem, categoria_id: categoria,
+    nome, descricao, preco_centavos: preco, estoque, categoria_id: categoria,
   };
 
   function limparErros() {
@@ -1107,7 +1176,7 @@ async function renderizarFormulario(ctx) {
   async function apagar() {
     if (!produto) return;
     const sim = await ui.confirmar(
-      `Apagar o produto "${produto.nome}"? Ele sai da loja e do painel. Os pedidos antigos continuam mostrando o nome e o preço do produto, e as fotos continuam na biblioteca de Mídia. Esta ação não pode ser desfeita.`,
+      `Apagar o produto "${produto.nome}"? Ele sai da loja e do painel. Os pedidos antigos continuam mostrando o nome e o preço do produto, Esta ação não pode ser desfeita.`,
       { perigo: true, titulo: 'Apagar produto?', textoConfirmar: 'Apagar produto' },
     );
     if (!sim || !ctx.ativo()) return;
@@ -1125,20 +1194,29 @@ async function renderizarFormulario(ctx) {
   }
 
   // Eventos
-  preco.entrada.addEventListener('input', atualizarDicaPreco);
-  estoque.entrada.addEventListener('input', atualizarDicaPreco);
+  // Preço e estoque nunca ficam abaixo de 0: o sinal de menos não entra.
+  preco.entrada.addEventListener('input', () => {
+    if (preco.entrada.value.includes('-')) preco.entrada.value = preco.entrada.value.replace(/-/g, '');
+  });
+  estoque.entrada.addEventListener('input', () => {
+    const limpo = estoque.entrada.value.replace(/\D+/g, '');
+    if (limpo !== estoque.entrada.value) estoque.entrada.value = limpo;
+  });
   novaCategoria.addEventListener('click', criarCategoria);
   // Corrigiu tudo o que estava em vermelho: a barra volta ao texto normal.
   const conferirErrosRestantes = () => {
     if (infoBarra.classList.contains('produto-barra__erro') && !form.querySelector('[aria-invalid="true"]') && erroFotos.hidden) avisarNaBarra(null);
   };
+  const aoMudarPrevia = ui.debounce(atualizarPrevia, 120);
   form.addEventListener('input', () => {
     marcar(true);
     conferirErrosRestantes();
+    aoMudarPrevia();
   });
   form.addEventListener('change', () => {
     marcar(true);
     conferirErrosRestantes();
+    atualizarPrevia();
   });
   form.addEventListener('submit', (evento) => {
     evento.preventDefault();
@@ -1146,7 +1224,6 @@ async function renderizarFormulario(ctx) {
   });
 
   preencherCategorias(p.categoria_id || '');
-  atualizarDicaPreco();
   desenharFotos();
   if (produto) {
     atualizarCabecalho();
@@ -1154,6 +1231,7 @@ async function renderizarFormulario(ctx) {
   }
 
   return () => {
+    aoMudarPrevia.cancelar();
     if (modalCategoria) modalCategoria.fechar(null);
   };
 }

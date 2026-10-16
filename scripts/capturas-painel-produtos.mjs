@@ -354,16 +354,15 @@ async function rodarLargura(navegador, base, largura) {
     await pagina.waitForSelector('.produto-form');
     await capturar(pagina, `produto-novo-${largura}`);
     await semRolagemHorizontal(pagina, 'formulário de produto novo');
-    await pagina.getByRole('button', { name: 'Criar produto' }).click();
-    await pagina.waitForSelector('.campo--erro');
-    const erros = await pagina.locator('.produto-form .campo--erro .campo__rotulo').allTextContents();
-    conferir(erros.length === 3, `salvar vazio: erros em ${erros.map((t) => t.replace(' *', '')).join(', ')}`, `salvar vazio deveria marcar nome, preço e estoque: ${erros.join(', ')}`);
-    const infoBarra = (await pagina.locator('.produto-form .barra-acoes__info').textContent()).trim();
-    const toastsErro = await pagina.locator('.toast--erro').count();
-    conferir(infoBarra === 'Confira os 3 campos marcados em vermelho.' && toastsErro === 0,
-      'aviso dos erros na barra, sem toast por cima do "Criar produto"', `barra: "${infoBarra}", toasts de erro: ${toastsErro}`);
-    await capturar(pagina, `produto-erros-${largura}`, { inteira: false });
-    await fecharToasts(pagina);
+    const secoes = await pagina.locator('.produto-form .cartao__titulo').allTextContents();
+    conferir(secoes.join('|') === 'Informações|Fotos|Preço|Disponibilidade|Visualização'
+      && await pagina.locator('.produto-form [required], .produto-form .grade--painel').count() === 0
+      && await pagina.locator('.produto-form input[name="preco"]').inputValue() === '0,00'
+      && await pagina.locator('.produto-form input[name="estoque"]').inputValue() === '0',
+    'produto novo: uma coluna (Informações, Fotos, Preço, Disponibilidade, Visualização), nada obrigatório, preço e estoque 0',
+    `produto novo: seções ${secoes.join(', ')}`);
+    const previaVazia = (await pagina.locator('.produto-previa__cartao--atual').textContent()).trim();
+    conferir(/Produto sem Nome/.test(previaVazia), 'prévia da vitrine mostra "Produto sem Nome"', `prévia: ${previaVazia}`);
 
     await pagina.locator('.produto-form input[name="nome"]').fill(nomeProduto);
     conferir(await pagina.locator('.produto-form input[name="slug"]').count() === 0, 'formulário sem campo de endereço (ele sai do nome)', 'o formulário ainda tem o campo de endereço');
@@ -419,6 +418,14 @@ async function rodarLargura(navegador, base, largura) {
     const srcCapa = await pagina.locator('.produto-foto img').first().getAttribute('src');
     conferir(srcCapa === srcAntes[0], '"Usar como capa" levou a foto para o primeiro lugar', 'capa não mudou');
 
+    await pagina.waitForTimeout(300); // a prévia se atualiza logo depois da digitação
+    const previaCheia = (await pagina.locator('.produto-previa__cartao--atual').textContent()).replace(/\s+/g, ' ');
+    const posicaoVitrine = (await pagina.locator(".produto-previa__posicao").textContent()).trim();
+    conferir(previaCheia.includes(nomeProduto) && /R\$\s?49,90/.test(previaCheia) && previaCheia.includes(nomeCategoria) && /º de \d+ na loja/.test(posicaoVitrine)
+      && await pagina.locator('.produto-previa__cartao--atual img').count() === 1,
+    `prévia da vitrine: nome, categoria, R$ 49,90, foto e "${posicaoVitrine}"`, `prévia: ${previaCheia} / ${posicaoVitrine}`);
+    await pagina.locator('#pf-visualizacao').scrollIntoViewIfNeeded();
+    await capturar(pagina, `produto-visualizacao-${largura}`, { inteira: false });
     await capturar(pagina, `produto-preenchido-${largura}`);
     await semRolagemHorizontal(pagina, 'formulário preenchido');
     await fecharToasts(pagina);
@@ -564,7 +571,7 @@ async function rodarLargura(navegador, base, largura) {
     // --- Apagar o produto pelo formulário -----------------------------------------------------
     await irPara(pagina, `#/produtos/${id}`, '.produto-form [name="nome"]');
     if (celular) await capturar(pagina, `produto-acoes-${largura}`, { inteira: false });
-    await pagina.getByRole('button', { name: 'Apagar produto' }).click();
+    await pagina.locator('.pagina-cabecalho').getByRole('button', { name: 'Apagar', exact: true }).click();
     await confirmarModal(pagina, 'Apagar produto');
     await esperarListaCarregada(pagina);
     conferir(!(await produtoPorSlug(slugProduto)), 'produto apagado pelo formulário', 'o produto continua no banco');

@@ -161,13 +161,13 @@ describe('modelos de e-mail', () => {
     assert.match(semRastreio.html, /código de rastreio aparece na página do seu pedido/);
   });
 
-  test('emailNovoPedidoAdmin: dados do cliente, observações e link do painel', () => {
+  test('emailNovoPedidoAdmin: dados do cliente e link do painel', () => {
     const { assunto, html } = emailNovoPedidoAdmin(pedidoBase(), SITE);
     assert.equal(assunto, 'Novo pedido pago #1001 — R$ 153,40');
     assert.match(html, /Maria da Silva/);
     assert.match(html, /href="mailto:maria@exemplo\.com"/);
     assert.match(html, /\(91\) 98105-6049/);
-    assert.match(html, /Entregar à tarde/);
+    assert.doesNotMatch(html, /Observações do cliente/);
     assert.match(html, /Pix/);
     assert.ok(html.includes(`href="${SITE}/admin/#/pedidos/${PEDIDO_ID}"`));
     assert.match(html, /Abrir no painel/);

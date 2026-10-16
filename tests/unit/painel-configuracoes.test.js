@@ -12,7 +12,7 @@ import { normalizarConfigFrete, opcoesFixas } from '../../lib/frete.js';
 
 const {
   PRAZOS_PAGAMENTO_DIAS, SERVICOS_MELHOR_ENVIO, UFS, diagnosticoEntrega, diasDoPrazo, documentoValido, formatarDecimal,
-  formatarWhatsapp, idOpcaoFixa, lerDecimal, lerEmails, lerInteiro, lerUfs, normalizarWhatsapp,
+  idOpcaoFixa, lerDecimal, lerEmails, lerInteiro, lerUfs,
   validarCheckout, validarFrete, validarLoja, validarNotificacoes,
 } = config;
 
@@ -44,18 +44,6 @@ describe('números, documentos e textos', () => {
     assert.equal(formatarDecimal(null), '');
   });
 
-  test('WhatsApp: guarda com 55, mostra formatado', () => {
-    assert.equal(normalizarWhatsapp('(91) 98105-6049'), '5591981056049');
-    assert.equal(normalizarWhatsapp('+55 91 98105-6049'), '5591981056049');
-    assert.equal(normalizarWhatsapp('9132221234'), '559132221234');
-    assert.equal(normalizarWhatsapp(''), '');
-    assert.equal(normalizarWhatsapp('1234'), null);
-    assert.equal(normalizarWhatsapp('5491981056049'), null, 'outro país');
-    assert.equal(formatarWhatsapp('5591981056049'), '(91) 98105-6049');
-    assert.equal(formatarWhatsapp('559132221234'), '(91) 3222-1234');
-    assert.equal(formatarWhatsapp(''), '');
-  });
-
   test('CPF e CNPJ com dígitos verificadores', () => {
     assert.equal(documentoValido('529.982.247-25'), true);
     assert.equal(documentoValido('11.222.333/0001-81'), true);
@@ -85,16 +73,15 @@ describe('números, documentos e textos', () => {
 });
 
 describe('aba Loja', () => {
-  test('válida: normaliza WhatsApp, e-mail e espaços', () => {
-    const r = validarLoja({ titulo: '  Produtos  AMA ', subtitulo: '', whatsapp: '(91) 98105-6049', email_contato: ' Loja@AMA.org.br ' });
+  test('válida: normaliza espaços; WhatsApp e e-mail de contato não são mais editados aqui', () => {
+    const r = validarLoja({ titulo: '  Produtos  AMA ', subtitulo: '', whatsapp: '(91) 98105-6049', email_contato: 'x' });
     assert.deepEqual(r.erros, {});
-    assert.deepEqual(r.valor, { titulo: 'Produtos AMA', subtitulo: '', whatsapp: '5591981056049', email_contato: 'loja@ama.org.br' });
+    assert.deepEqual(r.valor, { titulo: 'Produtos AMA', subtitulo: '' });
   });
 
   test('erros por campo', () => {
-    const r = validarLoja({ titulo: '', subtitulo: 'x'.repeat(401), whatsapp: '123', email_contato: 'sem-arroba' });
-    assert.deepEqual(Object.keys(r.erros).sort(), ['email_contato', 'subtitulo', 'titulo', 'whatsapp']);
-    assert.ok(validarLoja({ titulo: 'A', whatsapp: '' }).erros.whatsapp, 'WhatsApp é obrigatório');
+    const r = validarLoja({ titulo: '', subtitulo: 'x'.repeat(401) });
+    assert.deepEqual(Object.keys(r.erros).sort(), ['subtitulo', 'titulo']);
   });
 });
 

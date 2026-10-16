@@ -121,7 +121,6 @@ function corpoCheckout(extra = {}) {
     frete_id: 'fixo-1',
     cliente: CLIENTE,
     endereco: ENDERECO_PA,
-    observacoes: 'Entregar à tarde',
     ...extra,
   };
 }
@@ -559,7 +558,6 @@ describe('POST /api/loja/checkout', () => {
     assert.equal(banco.entrega.servico_id, 1);
     assert.equal('cupom_codigo' in banco, false);
     assert.equal(banco.cliente_cpf, CPF_DIGITOS);
-    assert.equal(banco.observacoes, 'Entregar à tarde');
 
     const somaItens = pref.items.reduce((soma, item) => soma + Math.round(item.unit_price * 100) * item.quantity, 0);
     assert.equal(somaItens, banco.total_centavos);

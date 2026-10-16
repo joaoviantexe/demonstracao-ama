@@ -598,10 +598,9 @@ a.metrica:hover{border-color:var(--ouro-500);box-shadow:var(--sombra-2);color:va
 .grade--2{grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr))}
 .grade--3{grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr))}
 .grade--4{grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr))}
-.grade--painel{grid-template-columns:minmax(0,1fr);align-items:start}
+.grade--painel{grid-template-columns:minmax(0,1fr);align-items:start} /* uma coluna em todo o painel */
 .grade__largo{grid-column:1/-1}
 @media (min-width:720px){ .grade{gap:20px} }
-@media (min-width:1100px){ .grade--painel{grid-template-columns:minmax(0,1.65fr) minmax(300px,1fr)} }
 .pilha{display:flex;flex-direction:column;gap:16px;min-width:0}
 @media (min-width:720px){ .pilha{gap:20px} }
 .pilha--estreita{gap:10px}

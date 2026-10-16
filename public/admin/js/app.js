@@ -32,22 +32,22 @@ export const ROTAS = Object.freeze([
 
 /** Itens do menu lateral, em seções. */
 export const MENU = Object.freeze([
-  { secao: null, itens: [{ id: 'inicio', rotulo: 'Visão geral', hash: '#/', icone: 'inicio' }] },
   {
     secao: 'Site',
     // Um item por parte da página inicial; o hash é o do grupo em paginas/conteudo.js.
     itens: [
+      { id: 'conteudo-identidade', rotulo: 'Identidade', hash: '#/conteudo/identidade', icone: 'midia' },
       { id: 'conteudo-cabecalho', rotulo: 'Cabeçalho e menu', hash: '#/conteudo/cabecalho', icone: 'menu' },
       { id: 'conteudo-quem-somos', rotulo: 'Quem somos', hash: '#/conteudo/quem-somos', icone: 'info' },
-      { id: 'conteudo-postagens', rotulo: 'Últimas postagens', hash: '#/conteudo/postagens', icone: 'imagem' },
+      { id: 'conteudo-postagens', rotulo: 'Postagens destacadas', hash: '#/conteudo/postagens', icone: 'imagem' },
       { id: 'conteudo-projetos', rotulo: 'Nossos projetos', hash: '#/conteudo/projetos', icone: 'estrela' },
-      { id: 'conteudo-historia', rotulo: 'História da fundadora', hash: '#/conteudo/historia', icone: 'conteudo' },
-      { id: 'conteudo-loja', rotulo: 'Banner da loja', hash: '#/conteudo/loja', icone: 'loja' },
+      { id: 'conteudo-historia', rotulo: 'História', hash: '#/conteudo/historia', icone: 'conteudo' },
+      { id: 'conteudo-loja', rotulo: 'Banner da Loja', hash: '#/conteudo/loja', icone: 'loja' },
       { id: 'conteudo-depoimentos', rotulo: 'Depoimentos', hash: '#/conteudo/depoimentos', icone: 'usuario' },
       { id: 'conteudo-parcerias', rotulo: 'Colaborações e parcerias', hash: '#/conteudo/parcerias', icone: 'link' },
       { id: 'conteudo-rodape', rotulo: 'Rodapé', hash: '#/conteudo/rodape', icone: 'email' },
-      { id: 'conteudo-whatsapp', rotulo: 'Botão do WhatsApp', hash: '#/conteudo/whatsapp', icone: 'link' },
-      { id: 'conteudo-seo', rotulo: 'Google e compartilhamento', hash: '#/conteudo/seo', icone: 'busca' },
+      { id: 'conteudo-whatsapp', rotulo: 'WhatsApp', hash: '#/conteudo/whatsapp', icone: 'link' },
+      { id: 'conteudo-seo', rotulo: 'Google', hash: '#/conteudo/seo', icone: 'busca' },
     ],
   },
   {
@@ -56,9 +56,9 @@ export const MENU = Object.freeze([
       { id: 'pedidos', rotulo: 'Pedidos', hash: '#/pedidos', icone: 'pedidos' },
       { id: 'produtos', rotulo: 'Produtos', hash: '#/produtos', icone: 'produtos' },
       { id: 'categorias', rotulo: 'Categorias', hash: '#/categorias', icone: 'categorias' },
+      { id: 'configuracoes', rotulo: 'Configurações', hash: '#/configuracoes', icone: 'configuracoes' },
     ],
   },
-  { secao: 'Ajustes', itens: [{ id: 'configuracoes', rotulo: 'Configurações', hash: '#/configuracoes', icone: 'configuracoes' }] },
 ]);
 
 /**

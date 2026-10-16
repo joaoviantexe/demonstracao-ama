@@ -172,8 +172,6 @@ function renderizarPedido(pedido) {
   if (link) {
     acoes.push(el('a', { class: 'botao botao--ouro', href: link }, icone('cadeado'), 'Pagar agora'));
   }
-  acoes.push(botaoWhatsapp('Falar com a AMA', `Olá, AMA! Tenho uma dúvida sobre o pedido ${numero}.`,
-    { classe: link ? 'botao botao--whatsapp-contorno' : 'botao botao--whatsapp' }));
 
   let avisoRetorno = null;
   if (voltouDoPagamento && pedido.status === 'aguardando_pagamento' && pagamentoFalhou) {

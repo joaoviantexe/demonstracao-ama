@@ -270,6 +270,46 @@ create trigger conteudo_site_atualizado_em
   before insert or update on public.conteudo_site
   for each row execute function public.definir_autor_conteudo();
 
+-- O WhatsApp do site vem de um lugar só: o link do botão do WhatsApp (conteudo_site "whatsapp.link",
+-- editado em Site → Botão do WhatsApp). Este gatilho copia o número dele para configuracoes.loja.whatsapp,
+-- que a loja e os e-mails já usam. Sem o link salvo (ou apagado), volta ao número padrão.
+create or replace function public.sincronizar_whatsapp_loja()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_numero text;
+begin
+  if tg_op = 'DELETE' then
+    if old.chave <> 'whatsapp.link' then
+      return old;
+    end if;
+    v_numero := '5591981056049';
+  else
+    if new.chave <> 'whatsapp.link' then
+      return new;
+    end if;
+    v_numero := substring(coalesce(new.valor ->> 'href', '') from '^https://wa\.me/([0-9]{10,15})(?:$|[/?#])');
+    if v_numero is null then
+      return new;
+    end if;
+  end if;
+  update public.configuracoes
+     set valor = jsonb_set(valor, '{whatsapp}', to_jsonb(v_numero))
+   where chave = 'loja';
+  return coalesce(new, old);
+end;
+$$;
+
+revoke all on function public.sincronizar_whatsapp_loja() from public, anon, authenticated, service_role;
+
+drop trigger if exists conteudo_site_whatsapp_loja on public.conteudo_site;
+create trigger conteudo_site_whatsapp_loja
+  after insert or update or delete on public.conteudo_site
+  for each row execute function public.sincronizar_whatsapp_loja();
+
 drop trigger if exists configuracoes_atualizado_em on public.configuracoes;
 create trigger configuracoes_atualizado_em
   before update on public.configuracoes

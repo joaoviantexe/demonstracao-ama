@@ -280,14 +280,14 @@ async function cartaoDoGrupo(pagina, id) {
 async function salvar(pagina, onde) {
   await limparToasts(pagina);
   await pagina.locator('.cms-salvar').click();
-  await esperarToast(pagina, 'Salvo! O site mostra as mudanças em até 15 segundos');
+  await esperarToast(pagina, 'Salvo!');
   await pagina.waitForSelector('.cms-salvar:not([aria-busy="true"])');
   await pagina.waitForTimeout(300); // passa o atraso (150 ms) da atualização dos selos
   const info = (await pagina.locator('.cms-barra__info').textContent()).trim();
   const pendentes = await pagina.evaluate(() => [...document.querySelectorAll('.cms-campo')]
     .filter((c) => c.querySelector('.selo--ambar:not([hidden])')).map((c) => c.dataset.chave));
-  conferir(/^Salvo! O site mostra as mudanças em até 15 segundos/.test(info) && await pagina.locator('.cms-barra__info a', { hasText: 'Ver no site' }).count() === 1,
-    `${onde}: depois de salvar, "Salvo! O site mostra as mudanças em até 15 segundos" + "Ver no site"`,
+  conferir(/^Salvo\./.test(info) && !/15 segundos/.test(info) && await pagina.locator('.cms-barra__info a', { hasText: 'Ver no site' }).count() === 1,
+    `${onde}: depois de salvar, "Salvo." + "Ver no site"`,
     `${onde}: barra depois de salvar: "${info}" (não salvos: ${pendentes.join(', ')})`);
   const alterado = await pagina.isVisible('.topo__alterado');
   conferir(!alterado, 'aviso de alterações não salvas sumiu depois de salvar', 'aviso de alterações continuou depois de salvar');
@@ -306,7 +306,7 @@ async function rodarLargura(navegador, url, largura) {
     await entrar(pagina);
     await pagina.waitForSelector('.pagina[data-pagina="conteudo"] .cms-grupos', { timeout: 20_000 });
     const grupos = await pagina.locator('.cms-grupo').count();
-    conferir(grupos === 11, `#/conteudo lista os 11 grupos do template`, `#/conteudo mostrou ${grupos} grupos`);
+    conferir(grupos === 12, `#/conteudo lista os 12 grupos do template (com Identidade)`, `#/conteudo mostrou ${grupos} grupos`);
     const qs = await cartaoDoGrupo(pagina, 'quem-somos');
     conferir(qs.titulo === 'Quem somos' && /Visível no site/.test(qs.selos) && /Conteúdo original/.test(qs.selos) && /3 campos/.test(qs.selos),
       `cartão "Quem somos": ${qs.selos}`, `cartão "Quem somos" inesperado: ${JSON.stringify(qs)}`);
@@ -441,7 +441,7 @@ async function rodarLargura(navegador, url, largura) {
     const primeiro = (await itens().nth(0).locator('.lista-ordenavel__titulo').textContent()).trim();
     conferir(primeiro === nomeNovo, '"Subir" levou o depoimento para o 1º lugar', `1º item depois de subir: ${primeiro}`);
 
-    // Adiciona (nasce igual ao molde), duplica e remove com confirmação.
+    // Adiciona (nasce igual ao molde) e remove com confirmação; não há mais "Duplicar".
     await pagina.locator('[data-chave="depoimentos.itens"]').getByRole('button', { name: 'Adicionar depoimento' }).click();
     await pagina.waitForFunction(() => document.querySelectorAll('[data-chave="depoimentos.itens"] .cms-item').length === 4);
     const novo = itens().nth(3);
@@ -450,14 +450,11 @@ async function rodarLargura(navegador, url, largura) {
       'depoimento novo nasce com os valores do molde e explica isso', `item novo: nome "${nomeMolde}"`);
     await capturar(pagina, `depoimentos-${largura}`);
     await semRolagemHorizontal(pagina, 'Depoimentos');
-    await novo.locator('[data-acao="duplicar"]').click();
-    await pagina.waitForFunction(() => document.querySelectorAll('[data-chave="depoimentos.itens"] .cms-item').length === 5);
-    for (const indice of [4, 3]) {
-      await itens().nth(indice).locator('[data-acao="remover"]').click();
-      const msg = await responderConfirmacao(pagina, 'Remover', { capturaComo: indice === 4 ? `remover-item-${largura}` : null });
-      if (indice === 4) conferir(/Remover "Doraci Silva" da lista\?/.test(msg), 'remover pede confirmação com o nome do item', `confirmação: ${msg}`);
-    }
-    conferir(await itens().count() === 3, 'adicionar, duplicar e remover voltaram a 3 itens', `itens depois: ${await itens().count()}`);
+    conferir(await pagina.locator('[data-chave="depoimentos.itens"] [data-acao="duplicar"]').count() === 0, 'sem botão "Duplicar"', 'a lista ainda tem "Duplicar"');
+    await itens().nth(3).locator('[data-acao="remover"]').click();
+    const msg = await responderConfirmacao(pagina, 'Remover', { capturaComo: `remover-item-${largura}` });
+    conferir(/Remover "Doraci Silva" da lista\?/.test(msg), 'remover pede confirmação com o nome do item', `confirmação: ${msg}`);
+    conferir(await itens().count() === 3, 'adicionar e remover voltaram a 3 itens', `itens depois: ${await itens().count()}`);
     await salvar(pagina, 'Depoimentos');
     const salvos = (await linhas(['depoimentos.itens'])).get('depoimentos.itens');
     conferir(Array.isArray(salvos) && salvos.length === 3 && salvos[0].nome === nomeNovo && salvos[0].foto.src === srcNovo
@@ -488,6 +485,22 @@ async function rodarLargura(navegador, url, largura) {
     conferir(!visivel.size && site.documento.querySelector('#parcerias'), 'mostrar de novo apaga a linha e a seção volta',
       `parcerias: linha ${JSON.stringify([...visivel])}, seção ${Boolean(site.documento.querySelector('#parcerias'))}`);
 
+    // --- Banner da Loja: as fotos são escolhidas entre os produtos
+    await irPara(pagina, '#/conteudo/loja', '[data-chave="loja.imagem-1"] .cms-produto select');
+    await pagina.waitForFunction(() => document.querySelectorAll('[data-chave="loja.imagem-1"] .cms-produto select option').length > 2, null, { timeout: 20_000 });
+    conferir(await pagina.locator('.cms-produto').count() === 3 && await pagina.locator('[data-chave^="loja.imagem"] input[name="alt"]').count() === 0,
+      'Banner da Loja: 3 seletores de produto, sem envio de foto nem texto alternativo', 'o banner ainda tem os campos de foto');
+    await pagina.locator('[data-chave="loja.imagem-1"] .cms-produto select').selectOption({ label: 'Body Splash Raiz' });
+    const fotoEscolhida = await pagina.locator('[data-chave="loja.imagem-1"] .cms-produto__foto img').getAttribute('src');
+    await capturar(pagina, `banner-produtos-${largura}`, { inteira: false });
+    await salvar(pagina, 'Banner da Loja');
+    const banner = (await linhas(['loja.imagem-1'])).get('loja.imagem-1');
+    site = await home(url);
+    const imgSite = site.documento.querySelector('[data-cms="loja.imagem-1"]');
+    conferir(banner && banner.alt === 'Body Splash Raiz' && banner.src === fotoEscolhida && imgSite && imgSite.getAttribute('src') === fotoEscolhida,
+      'Banner: produto escolhido gravado (foto e nome do produto) e aplicado em GET /', `banner: ${JSON.stringify(banner)} / site: ${imgSite && imgSite.getAttribute('src')}`);
+    await clienteServico().from('conteudo_site').delete().eq('chave', 'loja.imagem-1');
+
     // --- Restaurar padrão (apaga as linhas) e conferir que GET / voltou
     await irPara(pagina, '#/conteudo/quem-somos', '[data-chave="quem-somos.titulo"] .cms-campo__restaurar');
     await limparToasts(pagina);
@@ -517,6 +530,17 @@ async function rodarLargura(navegador, url, largura) {
 
     // Outras telas só para conferir o visual.
     await irPara(pagina, '#/conteudo/historia', '[data-chave="historia.trechos"] .cms-item');
+    // Prévia ao vivo: digitar no título do quadro "Palavra de coragem" muda a prévia na hora e marca o campo.
+    const quadroPrevia = pagina.frameLocator('.cms-previa__quadro');
+    await quadroPrevia.locator('[data-cms="historia.coragem-titulo"]').waitFor({ state: 'attached', timeout: 20_000 });
+    const tituloQuadro = `Coragem ${sufixo}`;
+    await pagina.locator('[data-chave="historia.coragem-titulo"] input').fill(tituloQuadro);
+    await pagina.waitForTimeout(600);
+    const naPrevia = await quadroPrevia.locator('[data-cms="historia.coragem-titulo"]').evaluate((e) => ({ texto: e.textContent.trim(), foco: e.hasAttribute('data-cms-previa-foco') }));
+    conferir(naPrevia.texto === tituloQuadro && naPrevia.foco, 'prévia ao vivo: o título digitado aparece na hora e o campo fica marcado',
+      `prévia ao vivo: ${JSON.stringify(naPrevia)}`);
+    await capturar(pagina, `previa-ao-vivo-${largura}`, { inteira: false });
+    await pagina.locator('[data-chave="historia.coragem-titulo"] input').fill('Palavra de coragem');
     await pagina.locator('[data-chave="historia.trechos"] .cms-item__alternar').first().click();
     await pagina.waitForSelector('[data-chave="historia.trechos"] .cms-item__corpo .cms-rico__area');
     await capturar(pagina, `historia-${largura}`);
@@ -563,7 +587,7 @@ async function principal() {
   const local = ambienteLocal();
   if (!local.serviceKey) throw new Error('Chave de serviço do Supabase local não encontrada (rode "supabase start").');
   // Linhas que já existiam nas chaves usadas aqui: devolvidas no fim.
-  const anteriores = await linhas([...CHAVES, 'postagens.publicacoes']);
+  const anteriores = await linhas([...CHAVES, 'postagens.publicacoes', 'loja.imagem-1']);
   if (anteriores.size) console.log(`Aviso: já havia conteúdo salvo em ${[...anteriores.keys()].join(', ')}; ele será devolvido no fim.`);
   if (anteriores.size) await clienteServico().from('conteudo_site').delete().in('chave', [...anteriores.keys()]);
 
@@ -580,7 +604,7 @@ async function principal() {
     await servidor.fechar();
     await navegador.close();
     const servico = clienteServico();
-    const { error } = await servico.from('conteudo_site').delete().in('chave', [...CHAVES, 'postagens.publicacoes']);
+    const { error } = await servico.from('conteudo_site').delete().in('chave', [...CHAVES, 'postagens.publicacoes', 'loja.imagem-1']);
     if (error) console.log(`Aviso: não foi possível apagar as chaves de teste: ${error.message}`);
     if (anteriores.size) {
       const { error: erroVolta } = await servico.from('conteudo_site')

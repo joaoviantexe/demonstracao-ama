@@ -1,4 +1,4 @@
-// Checkout /loja/checkout — dados, entrega (CEP com ViaCEP), frete, observações e resumo.
+// Checkout /loja/checkout — dados, entrega (CEP com ViaCEP), frete e resumo.
 // "Ir para o pagamento" → POST /api/loja/checkout → Mercado Pago (window.location = redirecionar).
 // O navegador só envia produto, quantidade, frete escolhido e dados do cliente: valores
 // cobrados são sempre calculados no servidor.
@@ -31,9 +31,8 @@ const avisoCep = document.getElementById('aviso-cep');
 const cepCarregando = document.getElementById('cep-carregando');
 const resumoConteudo = document.getElementById('resumo-conteudo');
 const resumo = document.getElementById('resumo');
-const contadorObs = document.getElementById('contador-observacoes');
 
-const IDS = ['nome', 'email', 'telefone', 'cpf', 'cep', 'logradouro', 'numero', 'complemento', 'bairro', 'cidade', 'uf', 'observacoes'];
+const IDS = ['nome', 'email', 'telefone', 'cpf', 'cep', 'logradouro', 'numero', 'complemento', 'bairro', 'cidade', 'uf'];
 const campo = Object.fromEntries(IDS.map((id) => [id, document.getElementById(id)]));
 
 // Chave do servidor → id do campo (na ordem em que aparecem na página).
@@ -61,7 +60,7 @@ const estado = {
 // Rascunho do formulário na sessão (sem o CPF), para quem volta do pagamento.
 
 const CHAVE_RASCUNHO = 'ama_checkout_rascunho_v1';
-const CAMPOS_RASCUNHO = ['nome', 'email', 'telefone', 'cep', 'logradouro', 'numero', 'complemento', 'bairro', 'cidade', 'uf', 'observacoes'];
+const CAMPOS_RASCUNHO = ['nome', 'email', 'telefone', 'cep', 'logradouro', 'numero', 'complemento', 'bairro', 'cidade', 'uf'];
 
 function restaurarRascunho() {
   let dados = null;
@@ -162,7 +161,6 @@ function coletarDados() {
       uf: campo.uf.value,
     },
     frete_id: estado.freteId && opcaoAtual() ? estado.freteId : '',
-    observacoes: campo.observacoes.value,
   };
 }
 
@@ -487,7 +485,6 @@ form.addEventListener('submit', async (evento) => {
       frete_id: dados.frete_id,
       cliente: dados.cliente,
       endereco: dados.endereco,
-      observacoes: normalizarTexto(dados.observacoes, 500, { multilinha: true }) || undefined,
     });
     const destino = urlSegura(resposta.redirecionar, { permitirRelativa: false });
     const pedido = resposta.pedido || {};
@@ -558,11 +555,6 @@ function iniciarFormulario() {
     const cep = somenteDigitos(campo.cep.value);
     if (cep && !validarCep(cep)) mostrarErroCampo('cep', 'Informe um CEP válido (8 dígitos).');
   });
-  const atualizarContador = () => {
-    contadorObs.textContent = `${campo.observacoes.value.length}/500`;
-  };
-  campo.observacoes.addEventListener('input', atualizarContador);
-  atualizarContador();
 
   form.hidden = false;
   renderizarOpcoesFrete();

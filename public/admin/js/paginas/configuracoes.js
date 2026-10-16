@@ -1,5 +1,5 @@
 // #/configuracoes — ajustes da loja (docs/ARQUITETURA.md §4.1 → configuracoes, §6.6 e §8).
-// Abas: Loja (nome, WhatsApp, e-mail de contato, aviso no topo), Frete (origem, Melhor Envio, frete fixo,
+// Abas: Loja (nome e descrição), Frete (origem, Melhor Envio, frete fixo,
 // frete grátis, embalagem padrão; não existe retirada na sede), Pagamento (parcelas, boleto, prazo),
 // Avisos por e-mail (equipe) e Integrações (situação das chaves na Vercel, via /api/admin/status).
 // Cada aba salva só as chaves dela, mantendo o que já existe no valor (campos que o painel não mostra).
@@ -57,25 +57,6 @@ export function formatarDecimal(numero) {
 // ---------------------------------------------------------------------------
 // Loja
 
-/**
- * WhatsApp digitado → só dígitos com o 55 do Brasil ("(91) 98105-6049" → "5591981056049").
- * Vazio → ''. Número que não parece telefone brasileiro → null.
- */
-export function normalizarWhatsapp(valor) {
-  let d = digitos(valor);
-  if (!d) return '';
-  if (d.length === 10 || d.length === 11) d = `55${d}`;
-  return /^55\d{10,11}$/.test(d) ? d : null;
-}
-
-/** '5591981056049' → '(91) 98105-6049' (para mostrar no campo). */
-export function formatarWhatsapp(valor) {
-  const d = digitos(valor).replace(/^55(?=\d{10,11}$)/, '');
-  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
-  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
-  return String(valor ?? '');
-}
-
 /** Campos da aba Loja → { erros, valor } (valor = só os campos desta aba). */
 export function validarLoja(v) {
   const erros = {};
@@ -84,15 +65,8 @@ export function validarLoja(v) {
   else if (titulo.length > 120) erros.titulo = 'Use no máximo 120 caracteres.';
   const subtitulo = texto(v.subtitulo);
   if (subtitulo.length > 400) erros.subtitulo = 'Use no máximo 400 caracteres.';
-  const whatsapp = normalizarWhatsapp(v.whatsapp);
-  if (whatsapp === null) erros.whatsapp = 'Confira o número: DDD + número, por exemplo (91) 98105-6049.';
-  else if (!whatsapp) erros.whatsapp = 'Informe o WhatsApp da AMA: ele aparece nos botões de contato da loja.';
-  const email = texto(v.email_contato).toLowerCase();
-  if (email && (email.length > 160 || !EMAIL.test(email))) erros.email_contato = 'Confira o e-mail: parece incompleto.';
-  return {
-    erros,
-    valor: { titulo, subtitulo, whatsapp: whatsapp || '', email_contato: email },
-  };
+  // O WhatsApp e o e-mail de contato não são editados aqui: o número vem do botão do WhatsApp (Site → Botão do WhatsApp).
+  return { erros, valor: { titulo, subtitulo } };
 }
 
 // ---------------------------------------------------------------------------
@@ -408,12 +382,9 @@ export async function renderizar(ctx) {
     const c = {
       titulo: ui.campo({ rotulo: 'Nome da loja', nome: 'titulo', obrigatorio: true, valor: v.titulo || 'Cosméticos', ajuda: 'Aparece no título da aba do navegador e nos resultados de busca.', attrs: { maxlength: '120' } }),
       subtitulo: ui.campo({ rotulo: 'Descrição curta', nome: 'subtitulo', tipo: 'textarea', linhas: 2, valor: v.subtitulo || '', ajuda: 'Uma frase sobre a loja. Usada pelos buscadores (Google) e quando o link é compartilhado.', attrs: { maxlength: '400' } }),
-      whatsapp: ui.campo({ rotulo: 'WhatsApp da AMA', nome: 'whatsapp', tipo: 'tel', obrigatorio: true, valor: formatarWhatsapp(v.whatsapp || ''), placeholder: '(91) 98105-6049', ajuda: 'Número do botão "Falar com a AMA" das páginas da loja e do pedido. Com DDD.', attrs: { inputmode: 'tel', autocomplete: 'off', maxlength: '20' } }),
-      email_contato: ui.campo({ rotulo: 'E-mail de contato', nome: 'email_contato', tipo: 'email', valor: v.email_contato || '', ajuda: 'Opcional. Quando a cliente responde um e-mail da loja, a resposta vai para este endereço.', attrs: { inputmode: 'email', autocomplete: 'off', maxlength: '160' } }),
     };
     return montarFormulario('loja', 'Dados da loja', [
       cartao('cf-loja', 'Loja', null, c.titulo.elemento, c.subtitulo.elemento),
-      cartao('cf-contato', 'Contato', null, c.whatsapp.elemento, c.email_contato.elemento),
     ], async () => {
       const { erros, valor } = validarLoja(Object.fromEntries(Object.entries(c).map(([k, campo]) => [k, campo.ler()])));
       if (mostrarErros(erros, c)) return MSG_ERROS;
@@ -423,7 +394,6 @@ export async function renderizar(ctx) {
         ui.toast(resp.mensagem, 'erro');
         return false;
       }
-      c.whatsapp.entrada.value = formatarWhatsapp(valor.whatsapp);
       ui.toast('Dados da loja salvos.', 'sucesso');
       return true;
     });

@@ -27,22 +27,6 @@
   .pagina[data-pagina="pedidos"] .pedido-celula{flex-direction:row;align-items:baseline;gap:10px;flex-wrap:wrap}
 }
 
-/* ---------- Detalhe: ordem dos blocos ---------- */
-/* Abaixo de 1100 px as duas colunas viram uma só: a situação, a cliente e a entrega sobem para perto
-   dos itens, e a linha do tempo fica no fim. */
-@media (max-width:1099.98px){
-  .pagina[data-pagina="pedidos"] .pedido-colunas > .pilha{display:contents}
-  .pagina[data-pagina="pedidos"] .pedido-bloco--itens{order:1}
-  .pagina[data-pagina="pedidos"] .pedido-bloco--situacao{order:2}
-  .pagina[data-pagina="pedidos"] .pedido-bloco--envio{order:3}
-  .pagina[data-pagina="pedidos"] .pedido-bloco--obs{order:4}
-  .pagina[data-pagina="pedidos"] .pedido-bloco--cliente{order:5}
-  .pagina[data-pagina="pedidos"] .pedido-bloco--entrega{order:6}
-  .pagina[data-pagina="pedidos"] .pedido-bloco--pagamento{order:7}
-  .pagina[data-pagina="pedidos"] .pedido-bloco--tempo{order:8}
-  .pagina[data-pagina="pedidos"] .pedido-bloco--mais{order:9}
-}
-
 /* ---------- Detalhe: próxima ação ---------- */
 .pagina[data-pagina="pedidos"] .pedido-proxima__conteudo{display:flex;flex-direction:column;gap:10px}
 .pagina[data-pagina="pedidos"] .pedido-proxima__conteudo .grupo-botoes{margin-top:2px}
@@ -127,4 +111,3 @@
 .pagina[data-pagina="pedidos"] .pedido-rastreio__rotulo{font-size:.85rem;color:var(--tinta-suave)}
 .pagina[data-pagina="pedidos"] .pedido-rastreio a{color:var(--verde-600);font-weight:700}
 .pagina[data-pagina="pedidos"] .pedido-rastreio a .icone{width:14px;height:14px;vertical-align:-2px}
-.pagina[data-pagina="pedidos"] .pedido-observacao{white-space:pre-line;overflow-wrap:anywhere}

@@ -602,7 +602,6 @@ describe('lib/validacao.js', () => {
         cep: '66000-000', logradouro: 'Rua das Flores', numero: '10', complemento: '',
         bairro: 'Centro', cidade: 'Belém', uf: 'pa',
       },
-      observacoes: '  Entregar à tarde  ',
     });
 
     test('dados válidos são normalizados', () => {
@@ -615,7 +614,6 @@ describe('lib/validacao.js', () => {
           cep: '66000000', logradouro: 'Rua das Flores', numero: '10', complemento: '',
           bairro: 'Centro', cidade: 'Belém', uf: 'PA',
         },
-        observacoes: 'Entregar à tarde',
         itens: [{ produto_id: ID, quantidade: 2 }],
         frete_id: 'me-1',
       });
@@ -651,16 +649,14 @@ describe('lib/validacao.js', () => {
       assert.equal(validarDadosCheckout(corpo).ok, false);
     });
 
-    test('observações ausentes: null; campo antigo de cupom é ignorado', () => {
+    test('campos antigos (cupom, observações) são ignorados', () => {
       const corpo = valido();
       corpo.cupom = 'qualquer coisa';
-      corpo.observacoes = '   ';
+      corpo.observacoes = 'Entregar à tarde';
       const r = validarDadosCheckout(corpo);
       assert.equal(r.ok, true);
       assert.equal('cupom' in r.dados, false);
-      assert.equal(r.dados.observacoes, null);
-      corpo.observacoes = 'x'.repeat(600);
-      assert.equal(validarDadosCheckout(corpo).dados.observacoes.length, 500);
+      assert.equal('observacoes' in r.dados, false);
     });
 
     test('erros por campo', () => {

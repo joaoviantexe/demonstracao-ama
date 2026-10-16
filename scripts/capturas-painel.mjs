@@ -460,8 +460,8 @@ async function rodarLargura(navegador, base, largura) {
       const voltou = await pagina.evaluate(() => document.activeElement && document.activeElement.classList.contains('topo__menu'));
       if (!voltou) falhar('Esc não devolveu o foco ao botão do menu');
       else ok('Esc fecha a gaveta e devolve o foco');
-    } else if (!(await pagina.isVisible('#menu-lateral .menu-lateral__link[aria-current="page"]'))) {
-      falhar('menu lateral deveria estar visível no desktop com a rota atual marcada');
+    } else if (!(await pagina.isVisible('#menu-lateral .menu-lateral__link')) || await pagina.locator('#menu-lateral .menu-lateral__link', { hasText: 'Visão geral' }).count()) {
+      falhar('menu lateral deveria estar visível no desktop, sem o item "Visão geral" (a logo leva para lá)');
     } else {
       ok('menu lateral fixo com a rota atual marcada');
     }

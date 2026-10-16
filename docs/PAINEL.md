@@ -374,8 +374,8 @@ export async function renderizar(ctx) {
 
 ### 5.2 Menu lateral (`MENU` em `app.js`)
 
-Seções e itens, na ordem: *(sem título)* Visão geral · **Site**: um item por parte da página inicial (Cabeçalho e menu, Quem somos, Últimas postagens, Nossos projetos…) · **Loja**: Pedidos,
-Produtos, Categorias · **Ajustes**: Configurações. Cada link tem `data-menu="<id>"` e
+Seções e itens, na ordem: **Site**: Identidade (a logo do topo, do menu do celular e do rodapé) e um item por parte da página inicial (Cabeçalho e menu, Quem somos, Postagens destacadas, Nossos projetos, História, Banner da Loja, Depoimentos, Colaborações e parcerias, Rodapé, WhatsApp, Google) · **Loja**: Pedidos,
+Produtos, Categorias, Configurações. Cada link tem `data-menu="<id>"` e
 `aria-current="page"` quando ativo. Só o item "Pedidos" tem contador (pedidos `pago` + `em_separacao`).
 O rodapé do menu tem "Ver loja" (`/loja/`, nova aba) e, só na gaveta do celular, o e-mail, "Ver site" e "Sair".
 No desktop (≥ 1024 px) o menu fica fixo à esquerda; abaixo disso vira gaveta aberta pelo botão "Abrir menu" do topo

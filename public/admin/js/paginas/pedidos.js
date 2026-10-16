@@ -10,6 +10,8 @@ import { formatarPreco, rotuloStatusPedido, STATUS_PEDIDO } from '../ui.js';
 // Filtros e busca da lista
 
 export const TAMANHO_PAGINA = 20;
+/** Intervalo da atualização automática da lista e do pedido. */
+export const ATUALIZAR_A_CADA_MS = 20_000;
 
 /** Filtros de situação da lista. `status` null = todos. */
 export const FILTROS_STATUS = Object.freeze([
@@ -386,11 +388,9 @@ async function renderizarLista(ctx) {
   let carregado = false;
   let sequencia = 0;
 
-  const botaoAtualizar = ui.botao({ texto: 'Atualizar', icone: 'atualizar', aoClicar: () => carregar({ silencioso: true, botao: botaoAtualizar }) });
   ctx.raiz.append(ui.cabecalhoPagina({
     titulo: 'Pedidos',
     descricao: 'Acompanhe o pagamento, a separação e o envio de cada pedido da loja.',
-    acoes: [botaoAtualizar],
   }));
   const css = ui.carregarCss('pedidos');
 
@@ -495,15 +495,14 @@ async function renderizarLista(ctx) {
     return q.order('criado_em', { ascending: false }).order('numero', { ascending: false }).range(inicio, inicio + TAMANHO_PAGINA - 1);
   }
 
-  async function carregar({ silencioso = false, botao = null } = {}) {
+  async function carregar({ silencioso = false, automatico = false } = {}) {
     const minha = ++sequencia;
     if (!silencioso) ui.estadoCarregando(corpo, { linhas: 6, tipo: 'tabela', mensagem: 'Carregando pedidos…' });
-    const tarefa = () => Promise.all([
+    const [r, rEnviar] = await Promise.all([
       api.consultar(montarConsulta()),
       api.consultar(supabase.from('pedidos').select('id', { count: 'exact', head: true }).in('status', ['pago', 'em_separacao'])),
       css,
     ]);
-    const [r, rEnviar] = botao ? await ui.ocupado(botao, tarefa) || [] : await tarefa();
     if (!ctx.ativo() || minha !== sequencia || !r) return;
     if (!r.ok) {
       // Página que não existe mais (a lista encolheu): volta para a primeira.
@@ -514,7 +513,7 @@ async function renderizarLista(ctx) {
         return;
       }
       if (silencioso && carregado) {
-        ui.toast(r.mensagem, 'erro');
+        if (!automatico) ui.toast(r.mensagem, 'erro');
         return;
       }
       contador.textContent = '';
@@ -582,15 +581,18 @@ async function renderizarLista(ctx) {
   });
   selFiltro.addEventListener('change', aplicarFiltros);
 
+  // Sem botão "Atualizar": a lista se atualiza sozinha (a cada ATUALIZAR_A_CADA_MS e ao voltar para a aba).
   const aoVoltar = () => {
-    if (document.visibilityState === 'visible' && carregado) carregar({ silencioso: true });
+    if (document.visibilityState === 'visible' && carregado) carregar({ silencioso: true, automatico: true });
   };
   document.addEventListener('visibilitychange', aoVoltar);
+  const relogio = setInterval(aoVoltar, ATUALIZAR_A_CADA_MS);
 
   await carregar();
 
   return () => {
     buscar.cancelar();
+    clearInterval(relogio);
     document.removeEventListener('visibilitychange', aoVoltar);
   };
 }
@@ -603,12 +605,11 @@ async function renderizarDetalhe(ctx) {
   const { el } = ui;
   const id = ctx.params.id;
 
-  const botaoAtualizar = ui.botao({ texto: 'Atualizar', icone: 'atualizar', aoClicar: () => recarregar({ botao: botaoAtualizar }) });
   const cabecalho = ui.cabecalhoPagina({
     titulo: 'Pedido',
     descricao: 'Carregando…',
     voltar: { href: '#/pedidos', texto: 'Pedidos' },
-    acoes: [botaoAtualizar],
+    acoes: [el('span', {})], // lugar do selo da situação (preenchido em desenharCabecalho)
   });
   const corpo = el('div', { class: 'pilha' });
   ctx.raiz.append(cabecalho, corpo);
@@ -678,11 +679,8 @@ async function renderizarDetalhe(ctx) {
   const areaPagamento = el('div', { class: 'pilha pilha--estreita' });
   const areaCliente = el('div', { class: 'pilha pilha--estreita' });
   const areaEntrega = el('div', { class: 'pilha pilha--estreita' });
-  const areaMais = el('div', { class: 'pilha pilha--estreita' });
-  const cartaoObservacoes = el('section', { class: 'cartao cartao--destaque pedido-bloco--obs', 'aria-labelledby': 'pd-obs', hidden: true },
-    el('div', { class: 'cartao__cabecalho' }, el('h2', { class: 'cartao__titulo', id: 'pd-obs' }, 'Observação da cliente')),
-    el('div', { class: 'cartao__corpo' }, el('p', { class: 'pedido-observacao' })));
-
+  // Só existe para pedidos que podem ser apagados (aguardando pagamento, cancelados ou reembolsados).
+  const cartaoApagar = el('section', { class: 'cartao pedido-bloco--mais', 'aria-label': 'Apagar pedido', hidden: true });
   // Nota interna (fica fora de desenhar() para não perder o que foi digitado).
   const nota = ui.campo({
     rotulo: 'Nova nota da equipe', nome: 'nota', tipo: 'textarea', linhas: 3,
@@ -699,19 +697,16 @@ async function renderizarDetalhe(ctx) {
 
   corpo.replaceChildren(
     areaProxima,
-    // No celular os blocos das duas colunas se intercalam (ordem em pedidos.css).
-    el('div', { class: 'grade grade--painel pedido-colunas' },
-      el('div', { class: 'pilha' },
-        cartao('pd-itens', 'Itens', areaItens),
-        cartaoEnvio,
-        cartaoObservacoes,
-        cartao('pd-tempo', 'Linha do tempo', formNota, listaEventos)),
-      el('div', { class: 'pilha' },
-        cartao('pd-situacao', 'Situação', areaSituacao),
-        cartao('pd-pagamento', 'Pagamento', areaPagamento),
-        cartao('pd-cliente', 'Cliente', areaCliente),
-        cartao('pd-entrega', 'Entrega', areaEntrega),
-        cartao('pd-mais', 'Mais ações', areaMais))),
+    // Uma coluna só, na ordem de quem cuida do pedido.
+    el('div', { class: 'pilha pedido-colunas' },
+      cartao('pd-itens', 'Itens', areaItens),
+      cartao('pd-situacao', 'Situação', areaSituacao),
+      cartaoEnvio,
+      cartao('pd-cliente', 'Cliente', areaCliente),
+      cartao('pd-entrega', 'Entrega', areaEntrega),
+      cartao('pd-pagamento', 'Pagamento', areaPagamento),
+      cartao('pd-tempo', 'Linha do tempo', formNota, listaEventos),
+      cartaoApagar),
   );
   montado = true;
 
@@ -723,7 +718,7 @@ async function renderizarDetalhe(ctx) {
     titulo.textContent = `Pedido ${numero}`;
     ctx.definirTitulo(`Pedido ${numero}`);
     descricaoTopo.textContent = `Feito em ${ui.formatarData(pedido.criado_em)} (${ui.tempoRelativo(pedido.criado_em)}) por ${pedido.cliente_nome || 'cliente'}`;
-    trocar(acoesTopo, ui.seloStatusPedido(pedido.status), botaoAtualizar);
+    trocar(acoesTopo, ui.seloStatusPedido(pedido.status));
   }
 
   function desenharProxima() {
@@ -828,10 +823,6 @@ async function renderizarDetalhe(ctx) {
       endereco.length
         ? el('address', { class: 'pedido-endereco' }, endereco.map((linha) => el('span', {}, linha)))
         : el('p', { class: 'texto-suave' }, 'Sem endereço.'),
-      endereco.length ? ui.botao({
-        texto: 'Copiar endereço', icone: 'copiar', tamanho: 'pequeno',
-        aoClicar: () => ui.copiarTexto([pedido.cliente_nome, ...endereco].filter(Boolean).join('\n'), { mensagem: 'Endereço copiado.' }),
-      }) : null,
       codigos.length || pedido.url_rastreio
         ? el('div', { class: 'pedido-rastreio' },
           el('p', { class: 'pedido-rastreio__rotulo' }, codigos.length > 1 ? 'Códigos de rastreio' : 'Rastreio'),
@@ -841,26 +832,15 @@ async function renderizarDetalhe(ctx) {
             : null)
         : null,
     );
-    const obs = String(pedido.observacoes || '').trim();
-    cartaoObservacoes.hidden = !obs;
-    cartaoObservacoes.querySelector('.pedido-observacao').textContent = obs;
   }
 
   function desenharMais() {
-    const linkCliente = `${window.location.origin}/loja/pedido?id=${encodeURIComponent(pedido.id)}&token=${encodeURIComponent(pedido.token_acesso || '')}`;
     const apagavel = podeApagar(pedido);
-    trocar(areaMais, 
-      ui.botao({ texto: 'Ver como a cliente vê', icone: 'externo', bloco: true, href: linkCliente, attrs: { target: '_blank', rel: 'noopener' } }),
-      ui.botao({
-        texto: 'Copiar link do pedido', icone: 'copiar', bloco: true,
-        aoClicar: () => ui.copiarTexto(linkCliente, { mensagem: 'Link copiado. Com ele a cliente acompanha o pedido.' }),
-      }),
-      el('hr', { class: 'divisor' }),
-      apagavel
-        ? el('p', { class: 'texto-pequeno texto-suave' }, 'Apagar tira o pedido do painel para sempre (útil para pedidos de teste).')
-        : el('p', { class: 'texto-pequeno texto-suave' }, 'Pedidos pagos não podem ser apagados: o histórico fica guardado. Para desistir, mude a situação para "Cancelado".'),
-      apagavel ? ui.botao({ texto: 'Apagar pedido', tipo: 'perigo-suave', icone: 'lixeira', bloco: true, aoClicar: apagarPedido }) : null,
-    );
+    cartaoApagar.hidden = !apagavel;
+    trocar(cartaoApagar, apagavel
+      ? el('div', { class: 'cartao__corpo' },
+        ui.botao({ texto: 'Apagar pedido', tipo: 'perigo-suave', icone: 'lixeira', bloco: true, aoClicar: apagarPedido }))
+      : null);
   }
 
   function desenharEventos() {
@@ -1242,13 +1222,14 @@ async function renderizarDetalhe(ctx) {
     desenharEventos();
   }
 
-  async function recarregar({ silencioso = true, botao = null } = {}) {
+  async function recarregar({ silencioso = true, automatico = false } = {}) {
     if (carregando) return;
     carregando = true;
     try {
-      const { rp: r1, re: r2 } = botao ? (await ui.ocupado(botao, buscarDados)) || {} : await buscarDados();
+      const { rp: r1, re: r2 } = await buscarDados();
       if (!ctx.ativo() || !r1) return;
       if (!r1.ok) {
+        if (automatico) return;
         if (!silencioso) ui.toast(r1.mensagem, 'erro');
         else ui.toast(`Não foi possível atualizar o pedido: ${r1.mensagem}`, 'erro');
         return;
@@ -1259,8 +1240,11 @@ async function renderizarDetalhe(ctx) {
         ctx.navegar('#/pedidos', { substituir: true });
         return;
       }
+      const novosEventos = r2.ok ? r2.dados || [] : eventos;
+      // Atualização automática sem mudança: não redesenha (nada pisca nem perde o que está aberto).
+      if (automatico && JSON.stringify([r1.dados, novosEventos]) === JSON.stringify([pedido, eventos])) return;
       pedido = r1.dados;
-      if (r2.ok) eventos = r2.dados || [];
+      eventos = novosEventos;
       desenhar();
     } finally {
       carregando = false;
@@ -1269,12 +1253,18 @@ async function renderizarDetalhe(ctx) {
 
   desenhar();
 
+  // Sem botão "Atualizar": o pedido se atualiza sozinho. Não atualiza enquanto alguém digita no
+  // pedido ou com uma janela aberta (para não apagar o que está sendo escrito).
+  const ocupado = () => Boolean(document.querySelector('dialog[open]'))
+    || (document.activeElement && ctx.raiz.contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName));
   const aoVoltar = () => {
-    if (document.visibilityState === 'visible') recarregar({ silencioso: true });
+    if (document.visibilityState === 'visible' && !ocupado()) recarregar({ silencioso: true, automatico: true });
   };
   document.addEventListener('visibilitychange', aoVoltar);
+  const relogio = setInterval(aoVoltar, ATUALIZAR_A_CADA_MS);
 
   return () => {
+    clearInterval(relogio);
     document.removeEventListener('visibilitychange', aoVoltar);
   };
 }

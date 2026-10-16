@@ -11,8 +11,8 @@ import { aplicarConteudo, extrairEsquema, lerValor } from '../../public/js/cms/a
 import * as conteudo from '../../public/admin/js/paginas/conteudo.js';
 
 const {
-  LIMITE_ITENS, adicionarItem, chaveVisibilidade, clonarValor, duplicarItem, ehMetaDeImagem, enderecoDeTeste,
-  htmlDaPrevia, limiteIdeal, mapaDeLinhas, montarAlteracoes, moverItem, nomeDoArquivo, normalizarEndereco,
+  LIMITE_ITENS, adicionarItem, chaveVisibilidade, clonarValor, ehMetaDeImagem,
+  htmlDaPrevia, htmlDaPreviaViva, limiteIdeal, mapaDeLinhas, montarAlteracoes, moverItem, nomeDoArquivo, normalizarEndereco,
   normalizarHtml, normalizarValor, ordenarGrupos, removerItem, resumirGrupos, resumoDoItem, textoDoHtml,
   validarEndereco, validarValor, valorEfetivo, valoresDoMolde, valoresIguais,
 } = conteudo;
@@ -117,12 +117,6 @@ describe('endereços de links', () => {
     }
   });
 
-  test('enderecoDeTeste: âncora da home vira /#secao; inseguro → null', () => {
-    assert.equal(enderecoDeTeste('#sobre'), '/#sobre');
-    assert.equal(enderecoDeTeste('www.ama.org.br'), 'https://www.ama.org.br');
-    assert.equal(enderecoDeTeste('javascript:alert(1)'), null);
-    assert.equal(enderecoDeTeste(''), null);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -404,14 +398,6 @@ describe('operações de lista', () => {
     assert.deepEqual(adicionarItem(undefined, { a: 1 }), [{ a: 1 }]);
   });
 
-  test('duplicar põe a cópia logo depois, independente do original', () => {
-    const lista = duplicarItem(base, 1);
-    assert.deepEqual(lista.map((i) => i.n), [1, 2, 2, 3]);
-    lista[2].n = 9;
-    assert.equal(lista[1].n, 2);
-    assert.deepEqual(duplicarItem(base, 7), base);
-  });
-
   test('remover e mover devolvem listas novas', () => {
     assert.deepEqual(removerItem(base, 0).map((i) => i.n), [2, 3]);
     assert.deepEqual(removerItem(base, 5).map((i) => i.n), [1, 2, 3]);
@@ -460,10 +446,10 @@ describe('operações de lista', () => {
 // Visão geral e pré-visualização
 
 describe('visão geral dos grupos', () => {
-  test('SEO vai para o fim; a ordem dos demais é a do template', () => {
+  test('Identidade vem primeiro, SEO vai para o fim; a ordem dos demais é a do template', () => {
     const ids = ordenarGrupos(esquemaDaHome().grupos).map((g) => g.id);
     assert.equal(ids.at(-1), 'seo');
-    assert.deepEqual(ids.slice(0, 3), ['cabecalho', 'quem-somos', 'postagens']);
+    assert.deepEqual(ids.slice(0, 4), ['identidade', 'cabecalho', 'quem-somos', 'postagens']);
   });
 
   test('resumo: campos, edições salvas e visibilidade', () => {
@@ -486,7 +472,7 @@ describe('visão geral dos grupos', () => {
     assert.equal(dep.atualizadoEm, '2026-10-13T10:00:00Z');
     assert.equal(resumos.get('cabecalho').visivel, true);
     assert.equal(resumos.get('cabecalho').ocultavel, false);
-    assert.deepEqual(resumos.get('whatsapp').rotulosCampos, ['Botão do WhatsApp']);
+    assert.deepEqual(resumos.get('whatsapp').rotulosCampos, ['WhatsApp do site']);
   });
 
   test('pré-visualização: template + <base> na origem + rascunho aplicado + faixa de aviso', () => {
@@ -505,6 +491,19 @@ describe('visão geral dos grupos', () => {
     assert.equal(doc.querySelector('#depoimentos'), null);
     assert.equal(doc.querySelector('[data-previa-painel]').textContent, 'Pré-visualização: as mudanças ainda não foram salvas');
     assert.equal(doc.querySelectorAll('script:not([src])').length, analisar(HOME).querySelectorAll('script:not([src])').length);
+  });
+
+  test('prévia ao vivo: sem scripts, animações já visíveis, marca do campo em foco; WhatsApp só no grupo dele', () => {
+    const html = htmlDaPreviaViva(HOME, { 'historia.coragem-titulo': 'Coragem' }, { analisar, origem: '' });
+    const doc = analisar(html);
+    assert.equal(doc.querySelectorAll('script').length, 0);
+    const estilo = doc.querySelector('head style[data-previa-viva]').textContent;
+    assert.match(estilo, /\.reveal\{opacity:1!important/);
+    assert.match(estilo, /\[data-cms-previa-foco\]/);
+    assert.match(estilo, /\.wa-flutuante\{display:none!important\}/);
+    assert.equal(doc.querySelector('[data-cms="historia.coragem-titulo"]').textContent, 'Coragem');
+    const doWhatsapp = analisar(htmlDaPreviaViva(HOME, {}, { analisar, origem: '', mostrarWhatsapp: true }));
+    assert.doesNotMatch(doWhatsapp.querySelector('head style[data-previa-viva]').textContent, /wa-flutuante/);
   });
 
   test('pré-visualização sem aviso não tem a faixa', () => {

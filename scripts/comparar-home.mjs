@@ -36,7 +36,7 @@ const ALTURAS = { 1440: 900, 768: 1024, 390: 844 };
 const REGIOES = [
   { nome: 'cabecalho', seletor: '.topo', fixo: true, muda: true },
   { nome: 'quem-somos', seletor: '#sobre' },
-  { nome: 'postagens', seletor: '#redes' },
+  { nome: 'postagens', seletor: '#redes', muda: true },
   { nome: 'projetos', seletor: '#cursos' },
   { nome: 'historia', seletor: '#historia' },
   { nome: 'depoimentos', seletor: '#depoimentos' },
