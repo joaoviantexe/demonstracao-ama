@@ -1,8 +1,8 @@
 /**
  * Motor do CMS da AMA (docs/ARQUITETURA.md §5).
  *
- * Módulo ES sem dependências: roda no navegador (painel, pré-visualização) e no
- * servidor com o linkedom (api/render.js). Lê o esquema de campos a partir dos
+ * Módulo ES sem dependências: roda no navegador (o painel monta e publica a home,
+ * public/admin/js/publicar-home.js) e no Node com o linkedom (testes). Lê o esquema de campos a partir dos
  * atributos data-cms-* do template, lê os valores padrão e aplica o conteúdo
  * salvo em `conteudo_site`. Valor ausente, nulo ou malformado nunca quebra a
  * página: o padrão do template é mantido.

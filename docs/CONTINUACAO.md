@@ -4,10 +4,11 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
 
 ## Onde está o trabalho
 
-- Repositório `joaoviantexe/demonstracao-ama`, branch **`claude/brave-curie-t7yeku`**.
-- PR em rascunho: https://github.com/joaoviantexe/demonstracao-ama/pull/3. Atualize a descrição do PR ao final de cada etapa.
-- Publicado na Vercel, no projeto `demonstracao-site-ama` (https://demonstracao-site-ama.vercel.app). Existe um projeto
-  duplicado, `demonstracao-ama`, ligado ao mesmo repositório. O dono criou o projeto no Supabase e aplicou a migração.
+- Repositório `joaoviantexe/demonstracao-ama`. Os PRs #3 a #9 já foram aprovados (merge) na `main`.
+- Hospedagem: **Cloudflare Workers** com os arquivos estáticos (`wrangler.jsonc`, `worker/`), fotos e vídeos no **R2**
+  (bucket `ama-midia`) e o domínio do registro.br com o DNS no Cloudflare (passo a passo em `docs/CONFIGURACAO.md`).
+  A Vercel não é mais usada (o antigo projeto `demonstracao-site-ama` pode ser apagado). O dono criou o projeto no
+  Supabase e aplicou a migração.
   **Sempre que a migração mudar, avise o dono para rodar o arquivo inteiro de novo no SQL Editor.** Ela é re-executável,
   e as atualizações de valores padrão antigos ficam no fim da seção 10.
 
@@ -16,8 +17,9 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
 1. `docs/ARQUITETURA.md`: contrato técnico (tabelas, RPCs, RLS, rotas, CMS, loja, painel).
 2. `docs/PAINEL.md`: núcleo do painel (contrato das páginas, `ctx`, `ui.js`, `api.js`, `midia.js` e todas as classes
    do `admin.css`).
-3. `docs/CONFIGURACAO.md`: guia de publicação (Vercel e Supabase) para o dono.
-4. `docs/pesquisa-apis.json`: fatos e armadilhas do Mercado Pago, do Melhor Envio e da Vercel/Supabase.
+3. `docs/CONFIGURACAO.md`: guia de publicação (Cloudflare, registro.br e Supabase) para o dono.
+4. `docs/pesquisa-apis.json`: fatos e armadilhas do Mercado Pago, do Melhor Envio e do Supabase (o trecho da Vercel
+   ficou só como histórico).
 
 ## O que já está pronto e testado
 
@@ -25,7 +27,8 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
   - `confirmar_pagamento` é idempotente e seguro em paralelo.
   - Catálogo inicial: 10 produtos Ama Bioessência com descrições reais e 6 biojoias "Nome em Produção".
 - **Motor do CMS:** `public/js/cms/aplicar.js`.
-- **Página inicial editável:** `templates/home.html` com `data-cms`, renderizada em `api/render.js`.
+- **Página inicial editável:** `templates/home.html` com `data-cms`; o painel monta e publica a página
+  (`public/admin/js/publicar-home.js` → `/api/admin/home`) e `api/render.js` só entrega a versão publicada.
   - Visual idêntico ao da `main`, conferido por `scripts/comparar-home.mjs`.
 - **Servidor:**
   - Bibliotecas em `lib/`.
@@ -123,10 +126,11 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
   - Na primeira vez baixa as imagens (cerca de 5 minutos).
   - `scripts/supabase-local.sh db reset` reaplica a migração e o seed.
   - Admin de desenvolvimento: `admin@ama.local` / `admin123456`.
-- **Servidor local:** `npm run dev`. Playwright usa o Chromium que já está em `/opt/pw-browsers`; **nunca** rode
-  `playwright install`.
+- **Servidor local:** `npm run dev` (fotos e home publicada em `.midia-local`). Para rodar o Worker de verdade:
+  `npx wrangler dev` (R2 simulado; `npx wrangler r2 object put ama-midia/<caminho> --file … --local` grava nele).
+  Playwright usa o Chromium que já está em `/opt/pw-browsers`; **nunca** rode `playwright install`.
 - **Segredos:** nunca escreva chaves em arquivos (o GitHub bloqueia o push).
-- **Rede:** os domínios do Mercado Pago, Melhor Envio, Vercel, ViaCEP e Instagram são inacessíveis do container; use
+- **Rede:** os domínios do Mercado Pago, Melhor Envio, ViaCEP e Instagram são inacessíveis do container; use
   os servidores falsos.
 - **Limite de uso:** o dono atinge o limite com frequência. Trabalhe em partes pequenas e faça commit e push a cada
   parte que passar nos testes.

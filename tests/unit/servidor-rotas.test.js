@@ -1,6 +1,6 @@
 // Testes de api/render.js, api/config.js e api/cron/manter-ativo.js com fetch simulado (sem rede).
 // O render lê templates/home.html de process.cwd(): aqui o cwd aponta para uma pasta temporária
-// com um template de teste (o template real é anotado por outra etapa).
+// com um template de teste; a home publicada fica num armazenamento em memória.
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -10,8 +10,10 @@ import vm from 'node:vm';
 import render from '../../api/render.js';
 import config from '../../api/config.js';
 import manterAtivo from '../../api/cron/manter-ativo.js';
+import { CHAVE_HOME, definirArmazenamento } from '../../lib/armazenamento.js';
+import { armazenamentoMemoria } from '../apoio/armazenamento.js';
 import {
-  AMBIENTE_VAZIO, aplicarAmbiente, chamarHandler, esperarAbort, respostaJson, simularFetch,
+  AMBIENTE_VAZIO, aplicarAmbiente, chamarHandler, respostaJson, simularFetch,
 } from '../apoio/servidor.js';
 
 const URL_SUPA = 'http://supabase.teste';
@@ -48,6 +50,9 @@ afterEach(() => {
 describe('api/render.js', () => {
   const cwdOriginal = process.cwd();
   let pasta;
+  let armazenamento;
+  const PUBLICADA = TEMPLATE.replace('Texto padrão', 'Texto publicado')
+    .replace('</head>', '<meta property="og:image" content="/midia/site/2026-10/capa-a1b2c3.jpg">\n</head>');
 
   before(() => {
     pasta = mkdtempSync(path.join(tmpdir(), 'ama-render-'));
@@ -58,103 +63,65 @@ describe('api/render.js', () => {
   after(() => {
     process.chdir(cwdOriginal);
     rmSync(pasta, { recursive: true, force: true });
+    definirArmazenamento(null);
   });
-
+  beforeEach(() => {
+    armazenamento = armazenamentoMemoria();
+    definirArmazenamento(armazenamento);
+  });
   const configurar = () => aplicarAmbiente({ SUPABASE_URL: URL_SUPA, SUPABASE_ANON_KEY: ANON });
 
-  test('sem Supabase: template puro, X-AMA-CMS padrao e cache público', async () => {
-    fetchSimulado = simularFetch(() => respostaJson(200, []));
+  test('sem home publicada: template puro, X-AMA-CMS padrao e sem cache compartilhado', async () => {
     const res = await chamarHandler(render, { url: '/' });
     assert.equal(res.statusCode, 200);
     assert.equal(res.cabecalhos['content-type'], 'text/html; charset=utf-8');
     assert.equal(res.cabecalhos['x-ama-cms'], 'padrao');
-    assert.equal(res.cabecalhos['cache-control'], 'public, s-maxage=15, stale-while-revalidate=600');
+    assert.equal(res.cabecalhos['cache-control'], 'public, max-age=0, must-revalidate');
     assert.equal(res.corpo, TEMPLATE);
-    assert.equal(fetchSimulado.chamadas.length, 0);
   });
 
-  test('chave secreta no lugar da pública: não consulta o banco com ela (X-AMA-CMS padrao)', async (t) => {
-    silenciar(t);
-    fetchSimulado = simularFetch(() => respostaJson(200, []));
-    aplicarAmbiente({ SUPABASE_URL: URL_SUPA, SUPABASE_ANON_KEY: 'sb_secret_render_teste' });
-    const res = await chamarHandler(render, { url: '/' });
-    assert.equal(res.cabecalhos['x-ama-cms'], 'padrao');
-    assert.equal(fetchSimulado.chamadas.length, 0);
-  });
-
-  test('com conteúdo no banco: aplica, preserva o doctype e marca X-AMA-CMS banco', async () => {
-    configurar();
-    fetchSimulado = simularFetch(() => respostaJson(200, [
-      { chave: 'teste.titulo', valor: 'Título <b>do banco</b>' },
-      { chave: 'seo.titulo', valor: 'AMA — editado' },
-    ]));
-    const res = await chamarHandler(render, { url: '/' });
-    assert.equal(res.statusCode, 200);
-    assert.equal(res.cabecalhos['x-ama-cms'], 'banco');
-    assert.equal(res.cabecalhos['cache-control'], 'public, s-maxage=15, stale-while-revalidate=600');
-    assert.ok(res.corpo.startsWith('<!doctype html>\n<html lang="pt-BR">'), 'doctype igual ao do template');
-    assert.match(res.corpo, /<h1 class="titulo"[^>]*>Título &lt;b>do banco&lt;\/b><\/h1>|<h1 class="titulo"[^>]*>Título &lt;b&gt;do banco&lt;\/b&gt;<\/h1>/);
-    assert.match(res.corpo, /AMA — editado<\/title>/);
-    assert.match(res.corpo, /Parágrafo padrão/, 'chave ausente mantém o padrão');
-    assert.doesNotMatch(res.corpo, /Texto padrão/);
-    assert.equal(res.cabecalhos['content-length'], String(Buffer.byteLength(res.corpo)));
-
-    assert.equal(fetchSimulado.chamadas.length, 1);
-    const [c] = fetchSimulado.chamadas;
-    assert.equal(c.url, `${URL_SUPA}/rest/v1/conteudo_site?select=chave,valor`);
-    assert.equal(c.cabecalhos.apikey, ANON);
-    assert.equal(c.cabecalhos.authorization, `Bearer ${ANON}`);
-  });
-
-  test('banco sem linhas: template (aplicado sem mudanças) com X-AMA-CMS banco', async () => {
-    configurar();
-    fetchSimulado = simularFetch(() => respostaJson(200, []));
-    const res = await chamarHandler(render, { url: '/' });
-    assert.equal(res.cabecalhos['x-ama-cms'], 'banco');
-    assert.match(res.corpo, /^<!doctype html>/i);
-    assert.match(res.corpo, /Texto padrão/);
-  });
-
-  test('fetch falhando: template puro com X-AMA-CMS padrao', async (t) => {
-    silenciar(t);
-    configurar();
-    fetchSimulado = simularFetch(() => { throw new TypeError('fetch failed'); });
+  test('sem armazenamento configurado: template puro', async () => {
+    definirArmazenamento(null);
     const res = await chamarHandler(render, { url: '/' });
     assert.equal(res.statusCode, 200);
     assert.equal(res.cabecalhos['x-ama-cms'], 'padrao');
     assert.equal(res.corpo, TEMPLATE);
   });
 
-  test('erro HTTP do Supabase: X-AMA-CMS padrao', async (t) => {
-    silenciar(t);
+  test('com home publicada: entrega a publicada (X-AMA-CMS publicado), sem consultar o banco', async () => {
+    fetchSimulado = simularFetch(() => respostaJson(200, []));
     configurar();
-    fetchSimulado = simularFetch(() => respostaJson(500, { message: 'falhou' }));
+    await armazenamento.gravar(CHAVE_HOME, PUBLICADA);
     const res = await chamarHandler(render, { url: '/' });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.cabecalhos['x-ama-cms'], 'publicado');
+    assert.equal(res.corpo, PUBLICADA);
+    assert.equal(fetchSimulado.chamadas.length, 0);
+  });
+
+  test('og:image da home publicada sai com endereço completo quando há SITE_URL', async () => {
+    aplicarAmbiente({ SITE_URL: 'https://ama.exemplo.org' });
+    await armazenamento.gravar(CHAVE_HOME, PUBLICADA);
+    const res = await chamarHandler(render, { url: '/' });
+    assert.match(res.corpo, /<meta property="og:image" content="https:\/\/ama\.exemplo\.org\/midia\/site\/2026-10\/capa-a1b2c3\.jpg">/);
+  });
+
+  test('armazenamento falhando: template puro com X-AMA-CMS padrao', async (t) => {
+    silenciar(t);
+    definirArmazenamento({ lerTexto: async () => { throw new Error('R2 fora do ar'); } });
+    const res = await chamarHandler(render, { url: '/' });
+    assert.equal(res.statusCode, 200);
     assert.equal(res.cabecalhos['x-ama-cms'], 'padrao');
     assert.equal(res.corpo, TEMPLATE);
   });
 
-  test('Supabase lento: desiste em ~2,5 s e devolve o padrão', async (t) => {
-    silenciar(t);
-    configurar();
-    fetchSimulado = simularFetch((url, init) => esperarAbort(init));
-    const inicio = Date.now();
-    const res = await chamarHandler(render, { url: '/' });
-    const duracao = Date.now() - inicio;
-    assert.equal(res.cabecalhos['x-ama-cms'], 'padrao');
-    assert.equal(res.corpo, TEMPLATE);
-    assert.ok(duracao >= 2000 && duracao < 4500, `durou ${duracao} ms`);
-  });
-
-  test('?modelo=1: template cru, no-store e sem consultar o banco', async () => {
-    configurar();
-    fetchSimulado = simularFetch(() => respostaJson(200, [{ chave: 'teste.titulo', valor: 'X' }]));
+  test('?modelo=1: template cru e no-store, mesmo com home publicada', async () => {
+    await armazenamento.gravar(CHAVE_HOME, PUBLICADA);
     const res = await chamarHandler(render, { url: '/api/render?modelo=1' });
     assert.equal(res.statusCode, 200);
     assert.equal(res.cabecalhos['cache-control'], 'no-store');
     assert.equal(res.cabecalhos['content-type'], 'text/html; charset=utf-8');
     assert.equal(res.corpo, TEMPLATE);
-    assert.equal(fetchSimulado.chamadas.length, 0);
 
     const comQuery = await chamarHandler(render, { url: '/', query: { modelo: '1' } });
     assert.equal(comQuery.corpo, TEMPLATE);
@@ -165,7 +132,6 @@ describe('api/render.js', () => {
     assert.equal(res.statusCode, 200);
     assert.equal(res.corpo, '');
     assert.equal(res.cabecalhos['x-ama-cms'], 'padrao');
-    assert.equal(res.cabecalhos['content-length'], String(Buffer.byteLength(TEMPLATE)));
   });
 
   test('outros métodos → 405', async () => {

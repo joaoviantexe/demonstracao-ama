@@ -9,11 +9,15 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { chromium } from 'playwright';
 import { AMBIENTE_VAZIO, subirServidor } from '../apoio/servidor.js';
 import { ambienteLocal, clienteServico, criarUsuario, removerUsuario } from '../apoio/supabase-local.js';
 import { iniciar as iniciarMercadoPago } from '../apoio/mercadopago-falso.js';
 import { iniciar as iniciarMelhorEnvio } from '../apoio/melhorenvio-falso.js';
+import { armazenamentoLocal } from '../../scripts/armazenamento-local.mjs';
 
 const SUF = randomBytes(4).toString('hex');
 const ADMIN = { email: `admin-e2e-${SUF}@teste.ama.local`, senha: `Senha-${SUF}-123` };
@@ -35,6 +39,7 @@ let servico;
 let mp;
 let me;
 let servidor;
+let pastaMidia;
 let base;
 let navegador;
 let admin;
@@ -113,6 +118,8 @@ before(async () => {
 
   mp = await iniciarMercadoPago({ segredo: 'segredo-teste' });
   me = await iniciarMelhorEnvio();
+  // Home publicada e fotos numa pasta temporária (o bucket R2 em produção).
+  pastaMidia = mkdtempSync(path.join(tmpdir(), 'ama-e2e-midia-'));
   servidor = await subirServidor({
     ...AMBIENTE_VAZIO,
     SUPABASE_URL: local.url,
@@ -124,7 +131,7 @@ before(async () => {
     MELHOR_ENVIO_TOKEN: 'token-melhor-envio-e2e',
     MELHOR_ENVIO_API_BASE: me.url,
     MELHOR_ENVIO_EMAIL: 'tecnico@ama.local',
-  });
+  }, { armazenamento: armazenamentoLocal(pastaMidia) });
   base = servidor.url;
   mp.estado.webhookUrl = `${base}/api/webhooks/mercadopago`;
 
@@ -136,6 +143,7 @@ before(async () => {
 after(async () => {
   if (navegador) await navegador.close();
   if (servidor) await servidor.fechar();
+  if (pastaMidia) rmSync(pastaMidia, { recursive: true, force: true });
   if (mp) await mp.fechar();
   if (me) await me.fechar();
   if (!servico) return;
@@ -156,11 +164,14 @@ describe('fluxo completo da loja', { concurrency: false }, () => {
     await campo.waitFor({ timeout: 20_000 });
     await campo.fill(TITULO_NOVO);
     await painel.locator('.cms-salvar').click();
-    await painel.locator('.cms-barra__info', { hasText: 'Salvo' }).waitFor({ timeout: 20_000 });
+    // "Salvo." só aparece depois de gravar no banco e publicar a home ("ainda não foi salvo" não conta).
+    await painel.locator('.cms-barra__info', { hasText: /^Salvo\./ }).waitFor({ timeout: 20_000 });
 
     const linha = await semErro(servico.from('conteudo_site').select('valor').eq('chave', CHAVE_TITULO).single(), 'ler título salvo');
     assert.equal(linha.valor, TITULO_NOVO);
-    await loja.goto(`${base}/`);
+    // Ao salvar, o painel montou a home no navegador e publicou (o servidor só entrega o arquivo).
+    const home = await loja.goto(`${base}/`);
+    assert.equal(home.headers()['x-ama-cms'], 'publicado');
     assert.equal((await loja.locator('h2[data-cms="quem-somos.titulo"]').first().textContent()).trim(), TITULO_NOVO);
   });
 

@@ -13,11 +13,10 @@
     "test:integracao": "node --test --test-concurrency=1 \"tests/integracao/**/*.test.js\"",
     "test:e2e": "node --test --test-concurrency=1 \"tests/e2e/**/*.test.js\""
   },
-  "dependencies": {
-    "linkedom": "0.18.13"
-  },
   "devDependencies": {
     "@supabase/supabase-js": "2.116.0",
-    "playwright": "1.56.1"
+    "linkedom": "0.18.13",
+    "playwright": "1.56.1",
+    "wrangler": "4.145.0"
   }
 }

@@ -1,14 +1,17 @@
 #!/usr/bin/env node
-// Servidor local que imita a Vercel (docs/ARQUITETURA.md §2 e §2.1). Uso: npm run dev
+// Servidor local que imita o Worker do Cloudflare (docs/ARQUITETURA.md §2 e §2.1). Uso: npm run dev
+// (Para rodar o Worker de verdade, com o simulador do Cloudflare: npx wrangler dev.)
 //
-// - Serve public/ como estático com cleanUrls (/loja/produto → public/loja/produto.html,
+// - Serve public/ como estático com URLs sem .html (/loja/produto → public/loja/produto.html,
 //   /admin/ → public/admin/index.html, /x.html → 308 para /x).
 // - /api/<caminho> → importa api/<caminho>.js e chama o export default handler(req, res),
-//   com req.query, req.cookies e req.body (getter que lança em JSON inválido, como na Vercel).
+//   com req.query, req.cookies, req.body (getter que lança em JSON inválido) e req.corpoBruto (bytes).
 //   Os módulos de api/ são recarregados quando o arquivo muda (import com ?v=<hash do conteúdo>;
 //   cada versão é importada uma vez, porque o cache de módulos ESM nunca libera memória).
-// - Rewrite "/" → api/render (só porque não existe public/index.html, como na Vercel).
-// - Aplica os "headers" do vercel.json.
+// - "/" → api/render (não existe public/index.html, como no Worker).
+// - /midia/<caminho> → arquivos do armazenamento local (o bucket R2 em produção), na pasta .midia-local
+//   (ou MIDIA_DIR); as funções de api/ usam a mesma pasta (lib/armazenamento.js).
+// - Aplica os cabeçalhos de public/_headers.
 // - Executado diretamente: carrega .env (sem sobrescrever o ambiente), PORT (padrão 3000) e HOST.
 
 import http from 'node:http';
@@ -18,9 +21,13 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import querystring from 'node:querystring';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { definirArmazenamento } from '../lib/armazenamento.js';
+import { cabecalhosPara, lerRegrasCabecalhos } from '../lib/cabecalhos.js';
+import { armazenamentoLocal } from './armazenamento-local.mjs';
 
 const RAIZ = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
-const LIMITE_CORPO_VERCEL = 4.5 * 1024 * 1024;
+/** Limite do corpo de uma requisição no plano gratuito do Cloudflare. */
+const LIMITE_CORPO = 100 * 1024 * 1024;
 
 const TIPOS = {
   '.html': 'text/html; charset=utf-8',
@@ -85,57 +92,19 @@ export function carregarEnv(arquivo = path.join(RAIZ, '.env')) {
   return carregadas;
 }
 
-// "source" do vercel.json (path-to-regexp simplificado: grupos "(...)", ":nome", ":nome*") → RegExp.
-export function fonteParaRegex(fonte) {
-  let re = '';
-  let i = 0;
-  while (i < fonte.length) {
-    const c = fonte[i];
-    if (c === '(') {
-      let profundidade = 0;
-      let j = i;
-      for (; j < fonte.length; j += 1) {
-        if (fonte[j] === '(') profundidade += 1;
-        else if (fonte[j] === ')' && --profundidade === 0) break;
-      }
-      re += fonte.slice(i, j + 1);
-      i = j + 1;
-      continue;
-    }
-    if (c === ':') {
-      const m = fonte.slice(i).match(/^:([A-Za-z_]\w*)([*+?])?/);
-      if (m) {
-        re += m[2] === '*' ? '(.*)' : '([^/]+)';
-        i += m[0].length;
-        continue;
-      }
-    }
-    re += c.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
-    i += 1;
-  }
-  return new RegExp(`^${re}$`);
-}
-
-function lerRegrasCabecalhos(arquivoVercel) {
+function lerRegrasDoArquivo(arquivo) {
   try {
-    const config = JSON.parse(readFileSync(arquivoVercel, 'utf8'));
-    return (config.headers || []).map((regra) => ({
-      regex: fonteParaRegex(regra.source),
-      cabecalhos: (regra.headers || []).filter((h) => h && h.key),
-    }));
+    return lerRegrasCabecalhos(readFileSync(arquivo, 'utf8'));
   } catch {
     return [];
   }
 }
 
 function aplicarCabecalhos(res, caminho, regras) {
-  for (const { regex, cabecalhos } of regras) {
-    if (!regex.test(caminho)) continue;
-    for (const { key, value } of cabecalhos) res.setHeader(key, value);
-  }
+  for (const [nome, valor] of cabecalhosPara(caminho, regras)) res.setHeader(nome, valor);
 }
 
-// Redirecionamentos 308 do cleanUrls (mesmas expressões da Vercel).
+// Redirecionamentos 308 de /x.html e /x/index para /x.
 function redirecionamentoCleanUrls(caminho) {
   let destino = null;
   const indice = caminho.match(/^\/(?:(.+)\/)?index(?:\.html)?\/?$/);
@@ -178,7 +147,7 @@ async function arquivoExistente(caminho) {
 async function acharEstatico(caminho, dirPublico) {
   const segmentos = caminho.split('/').filter(Boolean);
   for (const s of segmentos) {
-    if (s === '.' || s === '..' || s.startsWith('.') || s.includes('\\') || s.includes('\0')) {
+    if (s === '.' || s === '..' || s.startsWith('.') || s.includes('\\') || s.includes('\0') || s === '_headers' || s === '_redirects') {
       return { proibido: true };
     }
   }
@@ -249,7 +218,7 @@ async function responder404(req, res, opcoes) {
 }
 
 // ---------------------------------------------------------------------------
-// Funções (imitação dos helpers do @vercel/node)
+// Funções (req/res no estilo do Node, como o adaptador do Worker entrega)
 
 function lerCorpoBruto(req, limite) {
   return new Promise((resolve, reject) => {
@@ -262,7 +231,7 @@ function lerCorpoBruto(req, limite) {
       if (total > limite) {
         estourou = true;
         partes.length = 0;
-        reject(Object.assign(new Error('FUNCTION_PAYLOAD_TOO_LARGE'), { statusCode: 413 }));
+        reject(Object.assign(new Error('PAYLOAD_TOO_LARGE'), { statusCode: 413 }));
         return;
       }
       partes.push(parte);
@@ -274,9 +243,9 @@ function lerCorpoBruto(req, limite) {
   });
 }
 
-// Mesmo comportamento do req.body da Vercel para cada Content-Type.
-function interpretarCorpoVercel(tipoConteudo, bruto) {
-  if (!tipoConteudo) return ''; // a Vercel nem lê o corpo sem Content-Type
+// req.body interpretado pelo Content-Type (JSON, formulário, texto ou bytes).
+function interpretarCorpo(tipoConteudo, bruto) {
+  if (!tipoConteudo) return '';
   const tipo = String(tipoConteudo).split(';')[0].trim().toLowerCase();
   switch (tipo) {
     case 'application/json': {
@@ -318,7 +287,7 @@ function propriedadePreguicosa(objeto, nome, calcular) {
     configurable: true,
     enumerable: true,
     get() {
-      const valor = calcular(); // se lançar, lança de novo no próximo acesso (como a Vercel)
+      const valor = calcular(); // se lançar, lança de novo no próximo acesso
       Object.defineProperty(objeto, nome, { value: valor, writable: true, configurable: true, enumerable: true });
       return valor;
     },
@@ -339,7 +308,8 @@ function adicionarAjudantes(req, res, url, bruto) {
     return query;
   });
   propriedadePreguicosa(req, 'cookies', () => lerCookies(req.headers.cookie));
-  propriedadePreguicosa(req, 'body', () => interpretarCorpoVercel(req.headers['content-type'], bruto));
+  propriedadePreguicosa(req, 'body', () => interpretarCorpo(req.headers['content-type'], bruto));
+  req.corpoBruto = bruto;
 
   res.status = (codigo) => {
     res.statusCode = codigo;
@@ -370,7 +340,7 @@ function adicionarAjudantes(req, res, url, bruto) {
 async function acharFuncao(rota, dirApi) {
   const segmentos = rota.split('/').filter(Boolean);
   if (!segmentos.length) return null;
-  // Como na Vercel, arquivos/pastas que começam com "_" ou "." não são rotas.
+  // Arquivos/pastas que começam com "_" ou "." não são rotas.
   if (segmentos.some((s) => !/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(s))) return null;
   const base = path.resolve(dirApi, ...segmentos);
   if (!dentroDe(base, dirApi)) return null;
@@ -406,7 +376,7 @@ async function atenderFuncao(req, res, url, rota, opcoes) {
 
   let bruto;
   try {
-    bruto = await lerCorpoBruto(req, LIMITE_CORPO_VERCEL);
+    bruto = await lerCorpoBruto(req, LIMITE_CORPO);
   } catch (erro) {
     if (erro && erro.statusCode === 413) {
       res.setHeader('Connection', 'close');
@@ -434,7 +404,6 @@ async function atenderFuncao(req, res, url, rota, opcoes) {
   try {
     await handler(req, res);
   } catch (erro) {
-    // Na Vercel isso vira FUNCTION_INVOCATION_FAILED (500).
     console.error(`[dev-server] erro não tratado em ${path.relative(RAIZ, arquivo)}:`, erro);
     if (!res.headersSent) {
       enviarJson(res, 500, { ok: false, erro: 'erro_interno', mensagem: 'Erro interno.' });
@@ -442,6 +411,22 @@ async function atenderFuncao(req, res, url, rota, opcoes) {
       res.end();
     }
   }
+}
+
+// /midia/<caminho>: arquivo do armazenamento local, com o tipo gravado no envio.
+async function servirMidia(req, res, caminhoMidia, opcoes) {
+  const { caminhoDeMidiaValido } = await import('../lib/armazenamento.js');
+  const local = opcoes.armazenamento;
+  if (!caminhoDeMidiaValido(caminhoMidia) || !local || typeof local.caminhoNoDisco !== 'function') {
+    enviarTexto(res, 404, 'Arquivo não encontrado');
+    return;
+  }
+  const achado = await arquivoExistente(local.caminhoNoDisco(caminhoMidia));
+  if (!achado) {
+    enviarTexto(res, 404, 'Arquivo não encontrado');
+    return;
+  }
+  servirArquivo(req, res, achado);
 }
 
 async function atender(req, res, opcoes) {
@@ -476,6 +461,11 @@ async function atender(req, res, opcoes) {
     return;
   }
 
+  if (caminho.startsWith('/midia/')) {
+    await servirMidia(req, res, caminho.slice('/midia/'.length), opcoes);
+    return;
+  }
+
   const estatico = await acharEstatico(caminho, opcoes.dirPublico);
   if (estatico && estatico.proibido) {
     await responder404(req, res, opcoes);
@@ -486,7 +476,7 @@ async function atender(req, res, opcoes) {
     return;
   }
 
-  // rewrites do vercel.json: "/" → /api/render (o filesystem vem antes, como na Vercel).
+  // "/" → api/render (os arquivos de public/ vêm antes, como no Cloudflare).
   if (caminho === '/') {
     await atenderFuncao(req, res, url, 'render', opcoes);
     return;
@@ -497,7 +487,8 @@ async function atender(req, res, opcoes) {
 
 /**
  * Sobe o servidor. Devolve { url, porta, servidor, fechar() }.
- * Opções extras (para testes): raiz, dirPublico, dirApi, recarregar (padrão true), log (padrão false).
+ * Opções extras (para testes): raiz, dirPublico, dirApi, recarregar (padrão true), log (padrão false),
+ * armazenamento (padrão: pasta MIDIA_DIR ou <raiz>/.midia-local; ver scripts/armazenamento-local.mjs).
  * O api/render.js lê o template de process.cwd(): rode a partir da raiz do repositório.
  */
 export async function iniciarServidor({
@@ -508,13 +499,17 @@ export async function iniciarServidor({
   dirApi,
   recarregar = true,
   log = false,
+  armazenamento,
 } = {}) {
+  const dirPublicoFinal = path.resolve(dirPublico || path.join(raiz, 'public'));
   const opcoes = {
-    dirPublico: path.resolve(dirPublico || path.join(raiz, 'public')),
+    dirPublico: dirPublicoFinal,
     dirApi: path.resolve(dirApi || path.join(raiz, 'api')),
-    regras: lerRegrasCabecalhos(path.join(raiz, 'vercel.json')),
+    regras: lerRegrasDoArquivo(path.join(dirPublicoFinal, '_headers')),
     recarregar,
+    armazenamento: armazenamento || armazenamentoLocal(process.env.MIDIA_DIR || path.join(raiz, '.midia-local')),
   };
+  definirArmazenamento(opcoes.armazenamento);
 
   const servidor = http.createServer((req, res) => {
     const inicio = Date.now();

@@ -13,9 +13,6 @@ ehthumbs.db
 *.swp
 *.swo
 
-# Vercel
-.vercel
-
 # Node & Logs (se usados scripts de automação)
 node_modules/
 *.log
@@ -38,3 +35,10 @@ supabase/.branches/
 # Saídas de testes
 test-results/
 tests/e2e/capturas/
+
+# Armazenamento local (fotos, vídeos e home publicada no servidor local)
+.midia-local/
+
+# Cloudflare (wrangler dev)
+.wrangler/
+.dev.vars

@@ -9,8 +9,9 @@ encaixem sem retrabalho.
 
 | Camada | Tecnologia | Observação |
 |---|---|---|
-| Hospedagem | Vercel (preset "Other", sem build) | Estático em `public/`, funções Node em `api/` |
-| Banco, login, arquivos | Supabase (Postgres + Auth + Storage) | RLS em todas as tabelas |
+| Hospedagem | Cloudflare Workers com arquivos estáticos (sem build) | Estático em `public/`; funções de `api/` (estilo Node `handler(req, res)`) rodando num Worker (`worker/`) |
+| Banco e login | Supabase (Postgres + Auth) | RLS em todas as tabelas |
+| Fotos, vídeos e a home publicada | Cloudflare R2 (bucket `ama-midia`, binding `MIDIA`) | Servidos pelo Worker em `/midia/…` |
 | Pagamento | Mercado Pago Checkout Pro (API REST, sem SDK) | Pix, cartão, boleto |
 | Frete | Melhor Envio (API REST, token pessoal) + frete fixo | Sem Melhor Envio, o frete fixo precisa estar ligado (não há retirada na sede) |
 | E-mail (opcional) | Resend (API REST) | Sem chave, os e-mails são simplesmente pulados |
@@ -25,6 +26,8 @@ Princípios:
   Única dependência externa de front: Google Fonts (já usada) e o `embed.js` do Instagram.
 - **O site continua funcionando sem Supabase configurado**: a home usa o conteúdo
   padrão do template; a loja mostra "loja em configuração".
+- **Pouca CPU por requisição.** No plano gratuito do Cloudflare cada requisição tem 10 ms de CPU, então o
+  servidor não monta a home: o painel monta no navegador e publica (§5.1). As funções só leem/gravam e chamam APIs.
 - **Dinheiro sempre em centavos (inteiro)** no banco, nas APIs e no JS. Só o
   Mercado Pago recebe reais com 2 casas (`centavos / 100`).
 - **Preço, estoque e frete são sempre recalculados no servidor.** O navegador
@@ -35,8 +38,8 @@ Princípios:
 ## 2. Estrutura de pastas
 
 ```
-api/                         Funções serverless (cada arquivo = uma rota)
-  render.js                  GET /  (rewrite) — home renderizada no servidor
+api/                         Funções (cada arquivo = uma rota; no Worker, mapeadas em worker/rotas.js)
+  render.js                  GET /  — home publicada pelo painel (ou o template)
   config.js                  GET /api/config — configuração pública (JS)
   loja/cotacao.js            POST /api/loja/cotacao
   loja/checkout.js           POST /api/loja/checkout
@@ -46,11 +49,21 @@ api/                         Funções serverless (cada arquivo = uma rota)
   admin/pedido-status.js     POST /api/admin/pedido-status (admin)
   admin/envio.js             POST /api/admin/envio         (admin)
   admin/pagamento.js         POST /api/admin/pagamento     (admin)
-  cron/manter-ativo.js       GET  /api/cron/manter-ativo   (Vercel Cron diário: consulta leve ao banco para o
-                             projeto Supabase gratuito não ser pausado por inatividade)
+  admin/midia.js             GET/POST/DELETE /api/admin/midia (admin) — fotos e vídeos no R2 (§4.4)
+  admin/home.js              GET/POST /api/admin/home      (admin) — home publicada (§5.1)
+  cron/manter-ativo.js       GET  /api/cron/manter-ativo   (agendamento diário do Worker: consulta leve ao banco
+                             para o projeto Supabase gratuito não ser pausado por inatividade)
 lib/                         Código compartilhado do servidor (não vira rota)
   ambiente.js  http.js  supabase.js  dinheiro.js  validacao.js
   mercadopago.js  melhorenvio.js  frete.js  cep.js  loja.js  email.js  admin.js
+  armazenamento.js           interface do armazenamento (R2 no Worker, pasta no servidor local)
+  home.js                    template da home, validação da home publicada, og:image absoluta
+  cabecalhos.js              regras de public/_headers
+worker/                      Worker do Cloudflare
+  index.js                   entrada (embute templates/home.html e public/_headers como texto)
+  app.js                     roteamento: "/", /api/*, /midia/*, agendamento; o resto vai para os estáticos
+  adaptador.js               Request → req/res estilo Node para os handlers de api/
+  rotas.js  r2.js  midia.js
 public/                      Tudo que é servido estaticamente
   css/estilo.css             (existente) + estilos do banner da loja
   css/loja.css               estilos da loja
@@ -61,32 +74,46 @@ public/                      Tudo que é servido estaticamente
   loja/index.html  produto.html  carrinho.html  checkout.html  pedido.html
   admin/index.html  admin/admin.css  admin/js/**.js
   vendor/supabase-2.116.0.js
+  _headers                   cabeçalhos de segurança (formato do Cloudflare; o Worker aplica os mesmos)
 templates/home.html          Template da home (conteúdo padrão + atributos data-cms)
 supabase/config.toml         Supabase local (desenvolvimento)
 supabase/migrations/20261009120000_inicial.sql
 supabase/seed.sql            Dados de exemplo só para desenvolvimento local
-scripts/dev-server.mjs       Servidor local que imita a Vercel
+scripts/dev-server.mjs       Servidor local que imita o Worker (armazenamento numa pasta: scripts/armazenamento-local.mjs)
 tests/unit/ tests/integracao/ tests/e2e/
 docs/CONFIGURACAO.md         Passo a passo para colocar no ar
-vercel.json  package.json  .env.example
+wrangler.jsonc  package.json  .env.example
 ```
 
-### 2.1 `vercel.json`
+### 2.1 `wrangler.jsonc`
 
-```json
+```jsonc
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "outputDirectory": "public",
-  "cleanUrls": true,
-  "rewrites": [{ "source": "/", "destination": "/api/render" }],
-  "functions": { "api/render.js": { "includeFiles": "templates/**" } },
-  "crons": [{ "path": "/api/cron/manter-ativo", "schedule": "17 9 * * *" }]
+  "name": "ama-site",
+  "main": "worker/index.js",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat"],      // Buffer, node:crypto e process.env com as variáveis
+  "assets": { "directory": "./public", "binding": "ASSETS", "html_handling": "auto-trailing-slash" },
+  "r2_buckets": [{ "binding": "MIDIA", "bucket_name": "ama-midia" }],
+  "triggers": { "crons": ["17 9 * * *"] },        // api/cron/manter-ativo.js
+  "rules": [{ "type": "Text", "globs": ["**/*.html", "**/_headers"], "fallthrough": true }],
+  "keep_vars": true
 }
 ```
 
-Mais cabeçalhos de segurança (`X-Content-Type-Options: nosniff`,
-`Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY` em `/admin/(.*)`).
-Não existe `public/index.html`: por isso o rewrite de `/` para `/api/render` funciona.
+- Os arquivos de `public/` são entregues pelo Cloudflare sem passar pelo Worker (grátis e sem limite), com os
+  cabeçalhos de `public/_headers` (`X-Content-Type-Options: nosniff`, `Referrer-Policy:
+  strict-origin-when-cross-origin`, `X-Frame-Options: DENY` em `/admin` e `/admin/*`). `/x.html` redireciona
+  para `/x`; `/admin` para `/admin/`.
+- O Worker (`worker/app.js`) recebe só o que não é arquivo: `/` → `api/render.js`; `/api/*` → a rota de
+  `worker/rotas.js` (404 em JSON se não existe); `/midia/*` → `worker/midia.js`; o resto → 404 dos estáticos.
+  Ele aplica as regras de `_headers` às próprias respostas e copia as variáveis (strings de `env`) para `process.env`.
+- `worker/adaptador.js` monta `req` (`method`, `url`, `headers` em minúsculas, `query` com repetidos em array,
+  `body`/`corpoBruto` em bytes fora de GET/HEAD; `x-forwarded-proto`/`x-forwarded-host` vêm da própria URL) e
+  `res` (`statusCode`, `setHeader`, `write`/`end`…). Handler que lança ou não responde → 500 JSON.
+- Deploy: o Cloudflare (Workers Builds) roda `npx wrangler deploy` a cada push na `main`. Teste local do Worker:
+  `npx wrangler dev` (variáveis em `.dev.vars`, R2 simulado).
+- Não existe `public/index.html`: por isso `/` chega ao Worker.
 
 ## 3. Variáveis de ambiente (`lib/ambiente.js`)
 
@@ -95,14 +122,14 @@ Não existe `public/index.html`: por isso o rewrite de `/` para `/api/render` fu
 | `SUPABASE_URL` | URL do projeto | `NEXT_PUBLIC_SUPABASE_URL` |
 | `SUPABASE_ANON_KEY` | chave pública | `SUPABASE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` |
 | `SUPABASE_SERVICE_ROLE_KEY` | chave secreta (só servidor) | `SUPABASE_SECRET_KEY` |
-| `SITE_URL` | URL pública (back_urls, webhooks, e-mails) | `VERCEL_PROJECT_PRODUCTION_URL` (prefixar https://), depois host da requisição |
+| `SITE_URL` | URL pública (back_urls, webhooks, e-mails, og:image) | `VERCEL_PROJECT_PRODUCTION_URL` (prefixar https://), depois host da requisição |
 | `MP_ACCESS_TOKEN` | Mercado Pago | — |
 | `MP_WEBHOOK_SECRET` | assinatura secreta dos webhooks MP | — |
 | `MELHOR_ENVIO_TOKEN` | token pessoal Melhor Envio | — |
 | `MELHOR_ENVIO_AMBIENTE` | `producao` (padrão) ou `sandbox` | — |
 | `MELHOR_ENVIO_EMAIL` | e-mail técnico no User-Agent | — |
 | `RESEND_API_KEY` | e-mails transacionais (opcional) | — |
-| `CRON_SECRET` | protege `/api/cron/manter-ativo` (a Vercel envia `Authorization: Bearer <CRON_SECRET>`) | — |
+| `CRON_SECRET` | protege `/api/cron/manter-ativo` (o agendamento do Worker envia `Authorization: Bearer <CRON_SECRET>`) | — |
 | `EMAIL_REMETENTE` | ex.: `AMA <loja@seudominio.com.br>` (opcional) | — |
 | `MP_API_BASE`, `MELHOR_ENVIO_API_BASE`, `RESEND_API_BASE` | só para testes (servidores falsos) | — |
 
@@ -277,14 +304,25 @@ Todas `security definer`, `set search_path = ''` (nomes totalmente qualificados)
 | `pedidos`, `pedido_itens` | — | — | select, update, delete |
 | `pedido_eventos` | — | — | select e delete; insert e update só com `tipo = 'nota'` |
 
-O `service_role` ignora RLS (usado só pelas funções da Vercel).
+O `service_role` ignora RLS (usado só pelas funções do servidor).
 
-### 4.4 Storage
+### 4.4 Fotos e vídeos (R2)
 
-Bucket `midia`, **público**, limite 50 MB por arquivo, tipos `image/*`, `video/mp4`, `video/webm`.
-Policies em `storage.objects` para `bucket_id = 'midia'`: select/insert/update/delete apenas `public.eh_admin()`.
-(Leitura pública acontece pela URL pública do bucket, que não passa por policy.)
-Pastas: `site/` (CMS), `produtos/`, `videos/`. Nome de arquivo: `<pasta>/<aaaa-mm>/<slug-do-nome>-<6 hex>.<ext>`.
+Ficam no bucket R2 `ama-midia` (binding `MIDIA`), atrás da interface de `lib/armazenamento.js`
+(`lerTexto`, `gravar`, `existe`, `listar`, `apagar`; no servidor local, uma pasta: `scripts/armazenamento-local.mjs`).
+
+- Pastas: `site/` (CMS), `produtos/`, `videos/`. Nome: `<pasta>/<aaaa-mm>/<slug-do-nome>-<hex>.<ext>`, em que o
+  `<hex>` é o começo do SHA-256 do arquivo original (o painel reaproveita um arquivo idêntico em vez de enviar de novo).
+- `/api/admin/midia` (admin): `GET ?pasta=` lista (`{ arquivos: [{ nome, caminho, pasta, url, tamanho, tipo,
+  categoria, criado_em }] }`); `POST ?caminho=` com o corpo binário e o `Content-Type` grava (só JPG, PNG, WebP,
+  GIF, AVIF, MP4 e WebM, até 50 MB, extensão combinando com o tipo; 409 `duplicado` se o caminho existe);
+  `DELETE ?caminho=` apaga.
+- URL pública: `/midia/<caminho>` (relativa ao site), servida por `worker/midia.js`: só caminhos das três pastas,
+  `Cache-Control: public, max-age=31536000, immutable` (os nomes são únicos), `ETag`/304, `Range`/206 e o cache
+  do Cloudflare (`caches.default`). Ver `lib/armazenamento.js` → `caminhoDeMidiaValido`. Um arquivo apagado do
+  bucket ainda pode ser entregue pelo cache do Cloudflare por um tempo (nada no site aponta mais para ele).
+- O bucket `midia` do Supabase Storage (com policies só para admins) continua criado pela migração: URLs antigas de
+  lá seguem funcionando, mas o painel não envia mais para ele.
 
 ### 4.5 Seeds
 
@@ -307,13 +345,23 @@ deixa um produto em promoção e preenche a origem do frete com dados fictícios
 ### 5.1 Como funciona
 
 1. `templates/home.html` é o HTML da home **com o conteúdo atual como padrão** e atributos `data-cms-*`.
-2. `GET /` → `api/render.js` lê o template, busca todas as linhas de `conteudo_site`
-   (REST anônimo, timeout 2,5 s), aplica com `aplicarConteudo()` (linkedom) e devolve o HTML.
-   Se o Supabase falhar ou não estiver configurado, devolve o template puro (cabeçalho `X-AMA-CMS: padrao`).
-   Cache: `Cache-Control: public, s-maxage=15, stale-while-revalidate=600`.
-   `GET /api/render?modelo=1` devolve o template cru com `Cache-Control: no-store` (o painel usa para montar o formulário).
-3. O painel lê o template, roda `extrairEsquema()` para descobrir grupos e campos, mostra os valores atuais
-   (linha do banco ou padrão do template) e grava em `conteudo_site`.
+2. O painel lê o template (`GET /api/render?modelo=1`, `Cache-Control: no-store`), roda `extrairEsquema()` para
+   descobrir grupos e campos, mostra os valores atuais (linha do banco ou padrão do template) e grava em `conteudo_site`.
+3. **Publicação** (`public/admin/js/publicar-home.js`): depois de gravar, o painel lê o template e todas as linhas de
+   `conteudo_site`, aplica com `aplicarConteudo()` num `DOMParser` do navegador e envia o HTML completo para
+   `POST /api/admin/home` `{ html, assinatura }` (assinatura = SHA-256 do template + conteúdo canônico). Ao entrar no
+   painel, ele compara a assinatura com a de `GET /api/admin/home` e publica de novo se mudou (versão nova do
+   template, conteúdo mudado direto no banco). As publicações ficam numa fila (uma por vez).
+4. O servidor valida o HTML contra o template (`lib/home.js` → `validarHomePublicada`, 422 `home_invalida`): só tags
+   do template ou do editor de texto; `<script>`, `<link>`, `<style>`, `<base>` e `<meta http-equiv>` só como no
+   template; nenhum atributo `on*` nem `srcdoc`; nenhuma URL `javascript:`/`data:`/`vbscript:`; `<iframe>` só do
+   Instagram; um `<title>`; até 1 MB. Grava em `_publicado/home.html` (+ `_publicado/home.json` com a assinatura).
+5. `GET /` → `api/render.js` entrega `_publicado/home.html` (cabeçalho `X-AMA-CMS: publicado`) ou, se não houver
+   (ou o armazenamento falhar), o template puro (`X-AMA-CMS: padrao`), sempre com o `og:image` absoluto
+   (`SITE_URL`). `Cache-Control: public, max-age=0, must-revalidate`: a mudança aparece na hora.
+
+Por que assim: montar a página com o linkedom leva de 5 a 70 ms de CPU, acima dos 10 ms do plano gratuito do
+Workers; ler um arquivo pronto do R2 gasta quase nada.
 
 ### 5.2 Atributos
 
@@ -406,10 +454,11 @@ removendo o elemento do grupo (só se ele tiver `data-cms-ocultavel`).
 
 Todas respondem JSON `{ "ok": true, ... }` ou `{ "ok": false, "erro": "codigo", "mensagem": "Texto para o cliente" }`
 com status HTTP adequado (400 dados inválidos, 401/403 auth, 404, 405 método, 409 conflito de estoque, 502 falha em
-serviço externo, 503 integração não configurada). `lib/http.js` abstrai a diferença entre a Vercel (que já entrega
-`req.body` e `req.query`) e o servidor local: `lerCorpo(req)`, `lerQuery(req)`, `responderJson(res, status, obj)`,
-`exigirMetodo(req, res, ['POST'])`, `urlBase(req)`. Handlers usam só APIs nativas de `res`
-(`statusCode`, `setHeader`, `end`). Tamanho máximo de corpo: 100 kB.
+serviço externo, 503 integração não configurada). `lib/http.js` abstrai a diferença entre o adaptador do Worker,
+o servidor local (que já entregam `req.body`, `req.corpoBruto` e `req.query`) e um stream puro: `lerCorpo(req)`,
+`lerCorpoBinario(req)`, `lerQuery(req)`, `responderJson(res, status, obj)`, `exigirMetodo(req, res, ['POST'])`,
+`urlBase(req)`. Handlers usam só APIs nativas de `res` (`statusCode`, `setHeader`, `end`). Tamanho máximo de corpo
+JSON: 100 kB (a home publicada aceita 1,5 MB; arquivos de mídia, 50 MB).
 
 ### 6.0 Bibliotecas do servidor (`lib/`)
 
@@ -418,7 +467,8 @@ Assinaturas fixas (outras funções internas são livres):
 ```js
 // lib/http.js
 export async function lerCorpo(req, { limiteBytes = 100_000 } = {}) // objeto (JSON) ou {}; lança ErroHttp(400) se inválido
-                                    // (na Vercel, ler req.body com JSON inválido LANÇA exceção: usar try/catch)
+                                    // (req.body pode ser um getter que LANÇA com JSON inválido: usar try/catch)
+export async function lerCorpoBinario(req, { limiteBytes = 100_000 } = {}) // bytes (Uint8Array) para envio de arquivos
 export function lerQuery(req)                                       // objeto simples com os parâmetros da URL
 export function responderJson(res, status, objeto, cabecalhos = {})
 export function responderErro(res, status, erro, mensagem, extra = {}) // { ok:false, erro, mensagem, ...extra }
@@ -611,14 +661,16 @@ Ao voltar do pagamento aprovado o carrinho é limpo.
   `#/categorias` · `#/pedidos`, `#/pedidos/<id>` · `#/configuracoes`.
 - Contrato das páginas: cada arquivo em `admin/js/paginas/` exporta
   `export async function renderizar(ctx)` e pode devolver uma função de limpeza.
-  `ctx = { raiz, supabase, usuario, params, navegar(hash), marcarAlterado(bool), ui, api }`.
+  `ctx = { raiz, supabase, usuario, params, navegar(hash), marcarAlterado(bool), ui, api, midia, publicarHome }`.
 - `admin/js/ui.js`: `toast(msg, tipo)`, `confirmar(msg, {perigo}) → Promise<boolean>`, `escapar(txt)`,
   `formatarPreco(centavos)`, `lerPreco("12,50") → 1250`, `formatarData(iso)`, `slugify(txt)`, `el(tag, attrs, ...filhos)`,
   `estadoCarregando(container)`, `estadoVazio(container, msg)`, `rotuloStatusPedido(status)`, `corStatusPedido(status)`,
   `carregarCss(nome)` (insere `<link>` para `/admin/css/<nome>.css` uma única vez), `modal({ titulo, conteudo, acoes })`.
 - `admin/js/api.js`: `chamarApi(caminho, {metodo, corpo})` com o JWT da sessão.
-- `admin/js/midia.js`: `enviarArquivo(arquivo, pasta) → { url, caminho }` (bucket `midia`, nome seguro, aviso de tamanho),
-  `listarArquivos(pasta)`, `apagarArquivo(caminho)`, `seletorDeMidia({ tipo: 'imagem'|'video' }) → Promise<url|null>` (modal com biblioteca + upload).
+- `admin/js/midia.js`: `enviarArquivo(arquivo, pasta) → { url, caminho }` (R2 via `/api/admin/midia`, nome seguro, aviso
+  de tamanho), `listarArquivos(pasta)`, `apagarArquivo(caminho)`, `seletorDeMidia({ tipo: 'imagem'|'video' }) → Promise<url|null>`
+  (modal com biblioteca + upload). URLs públicas: `/midia/<caminho>`.
+- `admin/js/publicar-home.js`: `publicarHome({ supabase, forcar })` (§5.1), `montarHome(template, conteudo)`.
 - Páginas: `visao-geral.js`, `conteudo.js`, `produtos.js`, `categorias.js`, `pedidos.js`, `configuracoes.js`.
 - Estilos: `admin/admin.css` é o sistema de design do painel (botões, campos, cartões, tabelas, selos de status,
   modais, abas, listas, área de upload, grade responsiva). Estilos específicos de uma página ficam em
@@ -629,7 +681,8 @@ Editor de conteúdo: grupos vindos de `extrairEsquema` (template de `/api/render
 (texto, textarea, editor rico com barra Negrito/Itálico/Link/Lista/Parágrafo + `sanitizarHtml`, imagem com prévia,
 upload, biblioteca e texto alternativo, vídeo com upload e capa, link, URL, Instagram, listas com adicionar/remover/
 subir/descer; o menu do cabeçalho não cria itens novos), "Restaurar padrão" por campo (apaga a linha), "Salvar"
-(upsert só do que mudou) e "Ver no site".
+(upsert só do que mudou, depois publica a home; se a publicação falhar, "Salvar" sem mudanças tenta de novo) e
+"Ver no site".
 Os editores do site não têm prévia (nem botão "Pré-visualizar" nem prévia ao vivo); "Ver no site" abre a página.
 Campos com `data-cms-editor="produto"` (fotos do Banner da Loja) são escolhidos entre os produtos (capa + nome).
 "Identidade" (`identidade.logo`) é a logo do topo, do menu do celular e do rodapé (espelhos da mesma chave).
@@ -655,10 +708,12 @@ grátis a partir de um valor; sem retirada), Pagamento (parcelas, boleto, prazo 
 ## 9. Testes
 
 - `npm test` — unitários (`node --test`), sem rede: CMS (linkedom), sanitização, URLs, Instagram, validações,
-  assinatura do webhook, regras de frete, montagem da preferência, handlers com `fetch` simulado.
+  assinatura do webhook, regras de frete, montagem da preferência, handlers com `fetch` simulado, Worker
+  (`worker.test.js`: rotas, adaptador, `/midia` com Range/304/cache, R2 falso, publicação e validação da home).
 - `npm run test:integracao` — exige o Supabase local (`supabase start`) e `supabase db reset`: RLS, RPCs,
   idempotência do pagamento e do estoque, APIs completas contra servidores falsos do MP e do Melhor Envio.
-- `npm run test:e2e` — Playwright (`tests/e2e/`), exige o Supabase local com o seed: admin edita o site; cliente
+- `npm run test:e2e` — Playwright (`tests/e2e/`), exige o Supabase local com o seed: admin edita o site (e a home
+  sai publicada, `X-AMA-CMS: publicado`); cliente
   compra; pagamento aprovado no MP falso (webhook assinado); estoque baixa; admin envia pelo Melhor Envio falso
   (carrinho → pagar → gerar → imprimir → rastreio → enviado); cliente vê o rastreio.
 
@@ -666,7 +721,7 @@ grátis a partir de um valor; sem retirada), Pagamento (parcelas, boleto, prazo 
 
 - **Segredos:** só a URL e a chave pública do Supabase chegam ao navegador (`/api/config`, que recusa uma chave
   secreta colada no lugar da pública). Tokens do Mercado Pago, do Melhor Envio, do Resend e a chave de serviço
-  ficam só nas funções da Vercel; o painel mostra apenas se cada uma está configurada.
+  ficam só no Worker (segredos do Cloudflare); o painel mostra apenas se cada uma está configurada.
 - **RLS:** ligada em todas as tabelas; visitante e usuário comum leem só o que é público; escrita só para admin
   (`eh_admin()`); as RPCs de pedido e pagamento só rodam com a chave de serviço (testado em `banco.test.js`).
 - **Rotas de admin:** todas exigem o JWT de um admin (`exigirAdmin`).
@@ -675,5 +730,8 @@ grátis a partir de um valor; sem retirada), Pagamento (parcelas, boleto, prazo 
 - **Pedido do cliente:** token de 256 bits, comparado em tempo constante; id ou token errado → o mesmo 404; a
   resposta não traz CPF, e-mail, telefone, endereço nem notas internas.
 - **XSS:** loja e painel criam elementos com `textContent` (sem `innerHTML` com dados); o HTML do editor rico é
-  limpo no painel e de novo no servidor ao montar a página (tags e atributos permitidos, links só http/https/
-  mailto/tel); os e-mails escapam todo texto. Conferido com conteúdo malicioso gravado direto no banco.
+  limpo no painel e de novo ao montar a página (tags e atributos permitidos, links só http/https/mailto/tel); a
+  home publicada é conferida no servidor contra o template (sem script, `on*`, `javascript:` nem iframe fora do
+  Instagram; §5.1); os e-mails escapam todo texto. Conferido com conteúdo malicioso gravado direto no banco.
+- **Mídia:** só admin envia/apaga; tipos de imagem e vídeo (sem SVG), extensão igual ao tipo, servidos com
+  `X-Content-Type-Options: nosniff` e só das pastas `site/`, `produtos/`, `videos/`.

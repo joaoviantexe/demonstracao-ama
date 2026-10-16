@@ -1,0 +1,31 @@
+// Configuração do Cloudflare (docs/CONFIGURACAO.md, Parte 1). Deploy: o Cloudflare roda "npx wrangler deploy"
+// a cada push na branch principal; para testar localmente: npx wrangler dev.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ama-site",
+  "main": "worker/index.js",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Arquivos estáticos: servidos direto pelo Cloudflare (grátis e sem limite), com public/_headers.
+  // /loja/produto entrega public/loja/produto.html; /loja/produto.html redireciona para /loja/produto.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "html_handling": "auto-trailing-slash"
+  },
+
+  // Bucket das fotos e vídeos (crie no painel do Cloudflare com este nome: R2 → Create bucket).
+  "r2_buckets": [{ "binding": "MIDIA", "bucket_name": "ama-midia" }],
+
+  // Todo dia às 09:17 (UTC): leitura leve no Supabase para o projeto gratuito não ser pausado.
+  "triggers": { "crons": ["17 9 * * *"] },
+
+  // templates/home.html e public/_headers entram no Worker como texto.
+  "rules": [{ "type": "Text", "globs": ["**/*.html", "**/_headers"], "fallthrough": true }],
+
+  // As variáveis e segredos ficam no painel do Cloudflare (Settings → Variables and Secrets).
+  "keep_vars": true,
+
+  "observability": { "enabled": true }
+}
