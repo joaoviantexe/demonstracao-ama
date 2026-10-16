@@ -10,6 +10,8 @@ import { formatarPreco, rotuloStatusPedido, STATUS_PEDIDO } from '../ui.js';
 // Filtros e busca da lista
 
 export const TAMANHO_PAGINA = 20;
+/** Intervalo da atualização automática da lista e do pedido. */
+export const ATUALIZAR_A_CADA_MS = 20_000;
 
 /** Filtros de situação da lista. `status` null = todos. */
 export const FILTROS_STATUS = Object.freeze([
@@ -386,11 +388,9 @@ async function renderizarLista(ctx) {
   let carregado = false;
   let sequencia = 0;
 
-  const botaoAtualizar = ui.botao({ texto: 'Atualizar', icone: 'atualizar', aoClicar: () => carregar({ silencioso: true, botao: botaoAtualizar }) });
   ctx.raiz.append(ui.cabecalhoPagina({
     titulo: 'Pedidos',
     descricao: 'Acompanhe o pagamento, a separação e o envio de cada pedido da loja.',
-    acoes: [botaoAtualizar],
   }));
   const css = ui.carregarCss('pedidos');
 
@@ -495,15 +495,14 @@ async function renderizarLista(ctx) {
     return q.order('criado_em', { ascending: false }).order('numero', { ascending: false }).range(inicio, inicio + TAMANHO_PAGINA - 1);
   }
 
-  async function carregar({ silencioso = false, botao = null } = {}) {
+  async function carregar({ silencioso = false, automatico = false } = {}) {
     const minha = ++sequencia;
     if (!silencioso) ui.estadoCarregando(corpo, { linhas: 6, tipo: 'tabela', mensagem: 'Carregando pedidos…' });
-    const tarefa = () => Promise.all([
+    const [r, rEnviar] = await Promise.all([
       api.consultar(montarConsulta()),
       api.consultar(supabase.from('pedidos').select('id', { count: 'exact', head: true }).in('status', ['pago', 'em_separacao'])),
       css,
     ]);
-    const [r, rEnviar] = botao ? await ui.ocupado(botao, tarefa) || [] : await tarefa();
     if (!ctx.ativo() || minha !== sequencia || !r) return;
     if (!r.ok) {
       // Página que não existe mais (a lista encolheu): volta para a primeira.
@@ -514,7 +513,7 @@ async function renderizarLista(ctx) {
         return;
       }
       if (silencioso && carregado) {
-        ui.toast(r.mensagem, 'erro');
+        if (!automatico) ui.toast(r.mensagem, 'erro');
         return;
       }
       contador.textContent = '';
@@ -582,15 +581,18 @@ async function renderizarLista(ctx) {
   });
   selFiltro.addEventListener('change', aplicarFiltros);
 
+  // Sem botão "Atualizar": a lista se atualiza sozinha (a cada ATUALIZAR_A_CADA_MS e ao voltar para a aba).
   const aoVoltar = () => {
-    if (document.visibilityState === 'visible' && carregado) carregar({ silencioso: true });
+    if (document.visibilityState === 'visible' && carregado) carregar({ silencioso: true, automatico: true });
   };
   document.addEventListener('visibilitychange', aoVoltar);
+  const relogio = setInterval(aoVoltar, ATUALIZAR_A_CADA_MS);
 
   await carregar();
 
   return () => {
     buscar.cancelar();
+    clearInterval(relogio);
     document.removeEventListener('visibilitychange', aoVoltar);
   };
 }
@@ -603,12 +605,11 @@ async function renderizarDetalhe(ctx) {
   const { el } = ui;
   const id = ctx.params.id;
 
-  const botaoAtualizar = ui.botao({ texto: 'Atualizar', icone: 'atualizar', aoClicar: () => recarregar({ botao: botaoAtualizar }) });
   const cabecalho = ui.cabecalhoPagina({
     titulo: 'Pedido',
     descricao: 'Carregando…',
     voltar: { href: '#/pedidos', texto: 'Pedidos' },
-    acoes: [botaoAtualizar],
+    acoes: [el('span', {})], // lugar do selo da situação (preenchido em desenharCabecalho)
   });
   const corpo = el('div', { class: 'pilha' });
   ctx.raiz.append(cabecalho, corpo);
@@ -696,18 +697,16 @@ async function renderizarDetalhe(ctx) {
 
   corpo.replaceChildren(
     areaProxima,
-    // No celular os blocos das duas colunas se intercalam (ordem em pedidos.css).
-    el('div', { class: 'grade grade--painel pedido-colunas' },
-      el('div', { class: 'pilha' },
-        cartao('pd-itens', 'Itens', areaItens),
-        cartaoEnvio,
-        cartao('pd-tempo', 'Linha do tempo', formNota, listaEventos)),
-      el('div', { class: 'pilha' },
-        cartao('pd-situacao', 'Situação', areaSituacao),
-        cartao('pd-pagamento', 'Pagamento', areaPagamento),
-        cartao('pd-cliente', 'Cliente', areaCliente),
-        cartao('pd-entrega', 'Entrega', areaEntrega),
-        cartaoApagar)),
+    // Uma coluna só, na ordem de quem cuida do pedido.
+    el('div', { class: 'pilha pedido-colunas' },
+      cartao('pd-itens', 'Itens', areaItens),
+      cartao('pd-situacao', 'Situação', areaSituacao),
+      cartaoEnvio,
+      cartao('pd-cliente', 'Cliente', areaCliente),
+      cartao('pd-entrega', 'Entrega', areaEntrega),
+      cartao('pd-pagamento', 'Pagamento', areaPagamento),
+      cartao('pd-tempo', 'Linha do tempo', formNota, listaEventos),
+      cartaoApagar),
   );
   montado = true;
 
@@ -719,7 +718,7 @@ async function renderizarDetalhe(ctx) {
     titulo.textContent = `Pedido ${numero}`;
     ctx.definirTitulo(`Pedido ${numero}`);
     descricaoTopo.textContent = `Feito em ${ui.formatarData(pedido.criado_em)} (${ui.tempoRelativo(pedido.criado_em)}) por ${pedido.cliente_nome || 'cliente'}`;
-    trocar(acoesTopo, ui.seloStatusPedido(pedido.status), botaoAtualizar);
+    trocar(acoesTopo, ui.seloStatusPedido(pedido.status));
   }
 
   function desenharProxima() {
@@ -1223,13 +1222,14 @@ async function renderizarDetalhe(ctx) {
     desenharEventos();
   }
 
-  async function recarregar({ silencioso = true, botao = null } = {}) {
+  async function recarregar({ silencioso = true, automatico = false } = {}) {
     if (carregando) return;
     carregando = true;
     try {
-      const { rp: r1, re: r2 } = botao ? (await ui.ocupado(botao, buscarDados)) || {} : await buscarDados();
+      const { rp: r1, re: r2 } = await buscarDados();
       if (!ctx.ativo() || !r1) return;
       if (!r1.ok) {
+        if (automatico) return;
         if (!silencioso) ui.toast(r1.mensagem, 'erro');
         else ui.toast(`Não foi possível atualizar o pedido: ${r1.mensagem}`, 'erro');
         return;
@@ -1240,8 +1240,11 @@ async function renderizarDetalhe(ctx) {
         ctx.navegar('#/pedidos', { substituir: true });
         return;
       }
+      const novosEventos = r2.ok ? r2.dados || [] : eventos;
+      // Atualização automática sem mudança: não redesenha (nada pisca nem perde o que está aberto).
+      if (automatico && JSON.stringify([r1.dados, novosEventos]) === JSON.stringify([pedido, eventos])) return;
       pedido = r1.dados;
-      if (r2.ok) eventos = r2.dados || [];
+      eventos = novosEventos;
       desenhar();
     } finally {
       carregando = false;
@@ -1250,12 +1253,18 @@ async function renderizarDetalhe(ctx) {
 
   desenhar();
 
+  // Sem botão "Atualizar": o pedido se atualiza sozinho. Não atualiza enquanto alguém digita no
+  // pedido ou com uma janela aberta (para não apagar o que está sendo escrito).
+  const ocupado = () => Boolean(document.querySelector('dialog[open]'))
+    || (document.activeElement && ctx.raiz.contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName));
   const aoVoltar = () => {
-    if (document.visibilityState === 'visible') recarregar({ silencioso: true });
+    if (document.visibilityState === 'visible' && !ocupado()) recarregar({ silencioso: true, automatico: true });
   };
   document.addEventListener('visibilitychange', aoVoltar);
+  const relogio = setInterval(aoVoltar, ATUALIZAR_A_CADA_MS);
 
   return () => {
+    clearInterval(relogio);
     document.removeEventListener('visibilitychange', aoVoltar);
   };
 }
