@@ -1,24 +1,28 @@
 #!/usr/bin/env node
-// Capturas e verificação das páginas "Conteúdo do site" e "Mídia" do painel (Playwright + Supabase local).
+// Capturas e verificação das páginas "Conteúdo do site" do painel (#/conteudo) (Playwright + Supabase local).
 //
 // Uso: node scripts/capturas-painel-conteudo.mjs [--saida <pasta>] [--larguras 390,1440]
 //      (padrão da saída: <tmp>/capturas-painel-conteudo)
 //
+// O armazenamento (fotos e home publicada; o bucket R2 em produção) fica numa pasta temporária, apagada no
+// fim. GET / entrega a home publicada pelo painel: antes de entrar, o template (X-AMA-CMS: padrao); ao entrar,
+// o painel publica; depois de cada "Salvar", GET / vem com X-AMA-CMS: publicado e o conteúdo novo.
+//
 // Em cada largura, com dados próprios (sufixo aleatório):
 // - #/conteudo: cartões dos grupos (quantos campos, visível/oculta, editado ou original);
-// - "Quem somos": aviso de alterações não salvas, editor rico (Negrito) desfeito com "Restaurar padrão",
-//   título novo, pré-visualização numa aba nova (Blob URL com <base>), "Salvar" grava só a chave mudada
-//   e GET / (renderizado no servidor) mostra o título novo;
-// - "Depoimentos": abre um item, muda o nome, troca a foto por upload (seletor de mídia), sobe o item,
-//   adiciona um item (nasce igual ao molde), duplica e remove com confirmação; salva e confere em GET /;
+// - "Quem somos": editor rico (Negrito, Link com javascript: recusado, Lista e Parágrafo) desfeito com
+//   "Restaurar padrão"; título novo e aviso ao sair sem salvar; sem prévia; "Salvar" grava só a chave
+//   mudada e GET / mostra o título novo;
+// - "Depoimentos": abre um item, muda o nome, troca a foto por upload (seletor de mídia → /midia/site/...),
+//   sobe o item, adiciona um item (nasce igual ao molde) e remove com confirmação; salva e confere em GET /;
 // - "Parcerias": desliga "Mostrar esta seção no site" (some de GET /) e liga de novo (a linha é apagada);
-// - #/midia: a foto enviada aparece em uso ("Depoimentos") na confirmação de apagar; envio de 2 fotos de
-//   uma vez, busca, copiar endereço, apagar com confirmação, aba Vídeos e busca sem resultado;
-// - "Restaurar padrão" do título e da lista de depoimentos: as linhas somem e GET / volta ao original.
-// No fim apaga as chaves de conteudo_site criadas (e devolve as que já existiam) e os arquivos enviados.
+// - "Banner da Loja" (foto escolhida entre os produtos) e "WhatsApp" (número + mensagem): conferidos em GET /;
+// - "Restaurar padrão" do título e da lista de depoimentos: as linhas somem e GET / volta ao original;
+// - parte inexistente, História, SEO (prévia do Google) e Postagens (endereço do Instagram inválido não grava).
+// No fim apaga as chaves de conteudo_site criadas (e devolve as que já existiam) e a pasta temporária.
 // Falha (código 1) com erro no console/página, rolagem horizontal ou verificação errada.
 
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -27,6 +31,7 @@ import { parseHTML } from 'linkedom';
 import { chromium } from 'playwright';
 import { AMBIENTE_VAZIO, subirServidor } from '../tests/apoio/servidor.js';
 import { ambienteLocal, clienteServico } from '../tests/apoio/supabase-local.js';
+import { armazenamentoLocal } from './armazenamento-local.mjs';
 
 function argumento(nome, padrao) {
   const i = process.argv.indexOf(`--${nome}`);
@@ -39,6 +44,8 @@ const ALTURAS = { 360: 760, 390: 844, 768: 1024, 1024: 800, 1440: 900 };
 const ADMIN = { email: 'admin@ama.local', senha: 'admin123456' };
 // Chaves que este script grava (as que já existirem são devolvidas no fim).
 const CHAVES = ['quem-somos.titulo', 'quem-somos.texto', 'depoimentos.itens', 'grupo.parcerias.visivel'];
+// Armazenamento numa pasta temporária (criada e apagada em principal()).
+let armazenamento = null;
 
 const problemas = [];
 const falhar = (texto) => {
@@ -237,24 +244,38 @@ async function linhas(chaves) {
   return new Map(data.map((l) => [l.chave, l.valor]));
 }
 
+// GET /: a home publicada pelo painel (X-AMA-CMS: publicado) ou o template (padrao).
 async function home(url) {
   const resposta = await fetch(`${url}/`);
   const html = await resposta.text();
   return { status: resposta.status, cms: resposta.headers.get('x-ama-cms'), documento: parseHTML(html).document };
 }
 
+// Espera GET / passar a entregar a home publicada (o painel publica sozinho ao entrar).
+async function esperarHomePublicada(url, limiteMs = 20_000) {
+  const fim = Date.now() + limiteMs;
+  let site = await home(url);
+  while (site.cms !== 'publicado' && Date.now() < fim) {
+    await new Promise((r) => { setTimeout(r, 250); });
+    site = await home(url);
+  }
+  return site;
+}
+
 const textoDe = (doc, seletor) => (doc.querySelector(seletor)?.textContent || '').replace(/\s+/g, ' ').trim();
 
-// Arquivos do bucket com o sufixo no nome (para a limpeza), em todas as pastas e meses.
+// Caminho no armazenamento a partir da URL pública (/midia/<caminho>); null se não é de lá.
+function caminhoDaMidia(src) {
+  const m = String(src || '').match(/^\/midia\/(.+)$/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+// Arquivos do armazenamento com o sufixo no nome (para a limpeza), em todas as pastas e meses.
 async function arquivosDoTeste(sufixo) {
-  const storage = clienteServico().storage.from('midia');
   const achados = [];
   for (const pasta of ['site', 'produtos', 'videos']) {
-    const { data: meses } = await storage.list(pasta, { limit: 1000 });
-    for (const mes of meses || []) {
-      if (mes.id) continue;
-      const { data } = await storage.list(`${pasta}/${mes.name}`, { limit: 1000 });
-      for (const a of data || []) if (a.name.includes(sufixo)) achados.push(`${pasta}/${mes.name}/${a.name}`);
+    for (const { chave } of await armazenamento.listar(`${pasta}/`)) {
+      if (chave.split('/').pop().includes(sufixo)) achados.push(chave);
     }
   }
   return achados;
@@ -305,6 +326,10 @@ async function rodarLargura(navegador, url, largura) {
     await pagina.waitForSelector('.acesso input[name="email"]');
     await entrar(pagina);
     await pagina.waitForSelector('.pagina[data-pagina="conteudo"] .cms-grupos', { timeout: 20_000 });
+    // Ao entrar, o painel confere a home publicada e publica se o conteúdo (ou o template) mudou.
+    const aoEntrar = await esperarHomePublicada(url);
+    conferir(aoEntrar.status === 200 && aoEntrar.cms === 'publicado', 'depois de entrar no painel, GET / entrega a home publicada (X-AMA-CMS: publicado)',
+      `GET / depois de entrar: HTTP ${aoEntrar.status}, X-AMA-CMS: ${aoEntrar.cms}`);
     const grupos = await pagina.locator('.cms-grupo').count();
     conferir(grupos === 11, `#/conteudo lista os 11 grupos (com Identidade, sem Cabeçalho e menu)`, `#/conteudo mostrou ${grupos} grupos`);
     const qs = await cartaoDoGrupo(pagina, 'quem-somos');
@@ -379,8 +404,8 @@ async function rodarLargura(navegador, url, largura) {
     conferir(depoisTitulo.get('quem-somos.titulo') === tituloNovo && !depoisTitulo.has('quem-somos.texto'),
       'conteudo_site recebeu só quem-somos.titulo', `linhas depois de salvar: ${JSON.stringify([...depoisTitulo])}`);
     let site = await home(url);
-    conferir(site.status === 200 && textoDe(site.documento, '#sobre h2') === tituloNovo,
-      `GET / mostra o título novo (${site.cms || 'sem cabeçalho'})`, `GET / mostrou "${textoDe(site.documento, '#sobre h2')}"`);
+    conferir(site.status === 200 && site.cms === 'publicado' && textoDe(site.documento, '#sobre h2') === tituloNovo,
+      'GET / (X-AMA-CMS: publicado) mostra o título novo', `GET / [${site.cms}] mostrou "${textoDe(site.documento, '#sobre h2')}"`);
     const selosTitulo = (await pagina.locator('[data-chave="quem-somos.titulo"] .cms-campo__estado').textContent()).replace(/\s+/g, ' ');
     conferir(/Editado/.test(selosTitulo) && await pagina.isVisible('[data-chave="quem-somos.titulo"] .cms-campo__restaurar'),
       'campo salvo ganha o selo "Editado" e "Restaurar padrão"', `selos do título: ${selosTitulo}`);
@@ -414,9 +439,15 @@ async function rodarLargura(navegador, url, largura) {
     await seletor.getByRole('button', { name: 'Usar esta imagem' }).click();
     await pagina.waitForSelector('dialog.modal--midia', { state: 'detached' });
     const srcNovo = await corpo.locator('.cms-subcampo[data-campo="foto"] .cms-midia__previa img').getAttribute('src');
-    conferir(srcNovo && srcNovo.includes('/storage/v1/object/public/midia/site/') && srcNovo.includes(sufixo),
-      'foto trocada pela enviada (pasta site/)', `src da prévia: ${srcNovo}`);
-    if (srcNovo) enviadosAqui.push(decodeURIComponent(srcNovo.split('/object/public/midia/')[1] || ''));
+    conferir(srcNovo && srcNovo.startsWith('/midia/site/') && srcNovo.includes(sufixo),
+      'foto trocada pela enviada (/midia/site/...)', `src da prévia: ${srcNovo}`);
+    const caminhoFoto = caminhoDaMidia(srcNovo);
+    if (caminhoFoto) enviadosAqui.push(caminhoFoto);
+    const respostaFoto = srcNovo ? await fetch(new URL(srcNovo, url)) : null;
+    conferir(caminhoFoto && await armazenamento.existe(caminhoFoto) && respostaFoto && respostaFoto.ok
+      && /^image\//.test(respostaFoto.headers.get('content-type') || ''),
+    'foto gravada no armazenamento e servida pela URL pública',
+    `foto ${caminhoFoto}: HTTP ${respostaFoto && respostaFoto.status} ${respostaFoto && respostaFoto.headers.get('content-type')}`);
     const alt = corpo.locator('.cms-subcampo[data-campo="foto"] input[name="alt"]');
     await alt.fill(`Foto de ${nomeNovo}`);
     await fecharToasts(pagina);
@@ -448,15 +479,16 @@ async function rodarLargura(navegador, url, largura) {
     site = await home(url);
     const nomes = [...site.documento.querySelectorAll('#depoimentos [data-cms-campo="nome"]')].map((e) => e.textContent.trim());
     const foto = site.documento.querySelector('#depoimentos .depoimento img')?.getAttribute('src');
-    conferir(nomes.join('|') === `${nomeNovo}|Doraci Silva|Maria Rita` && foto === srcNovo,
-      'GET / mostra o depoimento editado em 1º, com a foto enviada', `GET / depoimentos: ${nomes.join(' | ')} / ${foto}`);
+    conferir(site.cms === 'publicado' && nomes.join('|') === `${nomeNovo}|Doraci Silva|Maria Rita` && foto === srcNovo,
+      'GET / mostra o depoimento editado em 1º, com a foto enviada', `GET / [${site.cms}] depoimentos: ${nomes.join(' | ')} / ${foto}`);
 
     // --- Parcerias: ocultar e mostrar de novo
     await irPara(pagina, '#/conteudo/parcerias', '.cms-visibilidade');
     await pagina.locator('.cms-visibilidade .interruptor').click();
     await salvar(pagina, 'Parcerias (ocultar)');
     site = await home(url);
-    conferir(!site.documento.querySelector('#parcerias'), 'seção oculta some de GET /', 'a seção #parcerias continuou em GET /');
+    conferir(site.cms === 'publicado' && !site.documento.querySelector('#parcerias'), 'seção oculta some de GET /',
+      `a seção #parcerias continuou em GET / [${site.cms}]`);
     await irPara(pagina, '#/conteudo', '.cms-grupos');
     const parc = await cartaoDoGrupo(pagina, 'parcerias');
     conferir(/Oculta no site/.test(parc.selos), 'cartão de "Parcerias" mostra "Oculta no site"', `cartão parcerias: ${parc.selos}`);
@@ -467,8 +499,8 @@ async function rodarLargura(navegador, url, largura) {
     await salvar(pagina, 'Parcerias (mostrar)');
     const visivel = await linhas(['grupo.parcerias.visivel']);
     site = await home(url);
-    conferir(!visivel.size && site.documento.querySelector('#parcerias'), 'mostrar de novo apaga a linha e a seção volta',
-      `parcerias: linha ${JSON.stringify([...visivel])}, seção ${Boolean(site.documento.querySelector('#parcerias'))}`);
+    conferir(!visivel.size && site.cms === 'publicado' && site.documento.querySelector('#parcerias'), 'mostrar de novo apaga a linha e a seção volta',
+      `parcerias: linha ${JSON.stringify([...visivel])}, seção ${Boolean(site.documento.querySelector('#parcerias'))} [${site.cms}]`);
 
     // --- Banner da Loja: as fotos são escolhidas entre os produtos
     await irPara(pagina, '#/conteudo/loja', '[data-chave="loja.imagem-1"] .cms-produto select');
@@ -482,8 +514,10 @@ async function rodarLargura(navegador, url, largura) {
     const banner = (await linhas(['loja.imagem-1'])).get('loja.imagem-1');
     site = await home(url);
     const imgSite = site.documento.querySelector('[data-cms="loja.imagem-1"]');
-    conferir(banner && banner.alt === 'Body Splash Raiz' && banner.src === fotoEscolhida && imgSite && imgSite.getAttribute('src') === fotoEscolhida,
-      'Banner: produto escolhido gravado (foto e nome do produto) e aplicado em GET /', `banner: ${JSON.stringify(banner)} / site: ${imgSite && imgSite.getAttribute('src')}`);
+    conferir(banner && banner.alt === 'Body Splash Raiz' && banner.src === fotoEscolhida && site.cms === 'publicado'
+      && imgSite && imgSite.getAttribute('src') === fotoEscolhida,
+    'Banner: produto escolhido gravado (foto e nome do produto) e aplicado em GET /',
+    `banner: ${JSON.stringify(banner)} / site [${site.cms}]: ${imgSite && imgSite.getAttribute('src')}`);
     await clienteServico().from('conteudo_site').delete().eq('chave', 'loja.imagem-1');
 
     // --- WhatsApp: número + mensagem padrão (sem endereço); o link é montado sozinho
@@ -498,9 +532,10 @@ async function rodarLargura(navegador, url, largura) {
     const linhaWa = (await linhas(['whatsapp.link'])).get('whatsapp.link');
     site = await home(url);
     const hrefs = [...site.documento.querySelectorAll('a[href*="wa.me/"]')].map((a) => a.getAttribute('href'));
-    conferir(linhaWa && linhaWa.href === `https://wa.me/5591988887777?text=${encodeURIComponent(`Olá, AMA! Teste ${sufixo}`)}`
+    conferir(linhaWa && linhaWa.href === `https://wa.me/5591988887777?text=${encodeURIComponent(`Olá, AMA! Teste ${sufixo}`)}` && site.cms === 'publicado'
       && hrefs.length >= 6 && hrefs.every((h) => h.startsWith('https://wa.me/5591988887777')) && hrefs.every((h) => /[?&]text=/.test(h)),
-    'WhatsApp: link montado com número e mensagem; vale para todos os links do site', `link salvo: ${linhaWa && linhaWa.href}; no site: ${hrefs.join(' | ')}`);
+    'WhatsApp: link montado com número e mensagem; vale para todos os links do site',
+    `link salvo: ${linhaWa && linhaWa.href}; no site [${site.cms}]: ${hrefs.join(' | ')}`);
     await clienteServico().from('conteudo_site').delete().eq('chave', 'whatsapp.link');
 
     // --- Restaurar padrão (apaga as linhas) e conferir que GET / voltou
@@ -521,8 +556,9 @@ async function rodarLargura(navegador, url, largura) {
     conferir(!restantes.size, 'restaurar padrão apagou as linhas de conteudo_site', `linhas restantes: ${[...restantes.keys()].join(', ')}`);
     site = await home(url);
     const nomesDepois = [...site.documento.querySelectorAll('#depoimentos [data-cms-campo="nome"]')].map((e) => e.textContent.trim());
-    conferir(textoDe(site.documento, '#sobre h2') === 'Quem Somos' && nomesDepois.join('|') === 'Doraci Silva|Breno Aquino|Maria Rita',
-      'GET / voltou ao conteúdo original', `GET / depois de restaurar: ${textoDe(site.documento, '#sobre h2')} / ${nomesDepois.join(' | ')}`);
+    conferir(site.cms === 'publicado' && textoDe(site.documento, '#sobre h2') === 'Quem Somos' && nomesDepois.join('|') === 'Doraci Silva|Breno Aquino|Maria Rita',
+      'GET / (publicada de novo) voltou ao conteúdo original',
+      `GET / [${site.cms}] depois de restaurar: ${textoDe(site.documento, '#sobre h2')} / ${nomesDepois.join(' | ')}`);
 
     // Grupo que não existe no template.
     await irPara(pagina, '#/conteudo/nao-existe', '.estado-vazio');
@@ -572,9 +608,12 @@ async function rodarLargura(navegador, url, largura) {
     await contexto.close();
     for (const caminho of await arquivosDoTeste(sufixo)) if (!enviadosAqui.includes(caminho)) enviadosAqui.push(caminho);
     if (enviadosAqui.length) {
-      const { error } = await clienteServico().storage.from('midia').remove(enviadosAqui.filter(Boolean));
-      if (error) falhar(`não foi possível apagar ${enviadosAqui.join(', ')}: ${error.message}`);
-      else console.log(`  arquivos de teste apagados: ${enviadosAqui.length}`);
+      try {
+        for (const caminho of enviadosAqui) await armazenamento.apagar(caminho);
+        console.log(`  arquivos de teste apagados: ${enviadosAqui.length}`);
+      } catch (erro) {
+        falhar(`não foi possível apagar ${enviadosAqui.join(', ')}: ${erro.message}`);
+      }
     }
   }
 }
@@ -591,17 +630,25 @@ async function principal() {
   if (anteriores.size) await clienteServico().from('conteudo_site').delete().in('chave', [...anteriores.keys()]);
 
   const navegador = await chromium.launch({ proxy: proxyDoAmbiente() });
-  const servidor = await subirServidor({
-    ...AMBIENTE_VAZIO,
-    SUPABASE_URL: local.url,
-    SUPABASE_ANON_KEY: local.anonKey,
-    SUPABASE_SERVICE_ROLE_KEY: local.serviceKey,
-  });
+  const pastaMidia = mkdtempSync(path.join(os.tmpdir(), 'ama-capturas-conteudo-midia-'));
+  armazenamento = armazenamentoLocal(pastaMidia);
+  let servidor = null;
   try {
+    servidor = await subirServidor({
+      ...AMBIENTE_VAZIO,
+      SUPABASE_URL: local.url,
+      SUPABASE_ANON_KEY: local.anonKey,
+      SUPABASE_SERVICE_ROLE_KEY: local.serviceKey,
+    }, { armazenamento });
+    // Pasta vazia: sem home publicada, GET / entrega o template.
+    const inicial = await home(servidor.url);
+    conferir(inicial.status === 200 && inicial.cms === 'padrao', 'antes de entrar no painel, GET / entrega o template (X-AMA-CMS: padrao)',
+      `GET / antes de entrar: HTTP ${inicial.status}, X-AMA-CMS: ${inicial.cms}`);
     for (const largura of LARGURAS) await rodarLargura(navegador, servidor.url, largura);
   } finally {
-    await servidor.fechar();
+    if (servidor) await servidor.fechar();
     await navegador.close();
+    rmSync(pastaMidia, { recursive: true, force: true });
     const servico = clienteServico();
     const { error } = await servico.from('conteudo_site').delete().in('chave', [...CHAVES, 'postagens.publicacoes', 'loja.imagem-1', 'whatsapp.link']);
     if (error) console.log(`Aviso: não foi possível apagar as chaves de teste: ${error.message}`);

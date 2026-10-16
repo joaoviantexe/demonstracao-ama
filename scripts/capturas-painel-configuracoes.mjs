@@ -11,15 +11,17 @@
 //   fixo com uma opção (PA) e frete grátis; confere no banco e na cotação da loja (/api/loja/cotacao);
 // - Pagamento (parcelas, boleto, prazo) e Avisos por e-mail (erro e lista de e-mails);
 // - sem aba Integrações; aba guardada na URL; aviso de alterações não salvas.
-// As configurações originais são restauradas no fim. Falha (código 1) com erro no console/página,
-// rolagem horizontal, texto "null"/"undefined" na tela ou verificação errada.
+// As configurações originais são restauradas no fim. O armazenamento (a home que o painel publica ao
+// entrar; o bucket R2 em produção) fica numa pasta temporária, apagada no fim. Falha (código 1) com erro
+// no console/página, rolagem horizontal, texto "null"/"undefined" na tela ou verificação errada.
 
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { chromium } from 'playwright';
 import { AMBIENTE_VAZIO, subirServidor } from '../tests/apoio/servidor.js';
 import { ambienteLocal, clienteServico } from '../tests/apoio/supabase-local.js';
+import { armazenamentoLocal } from './armazenamento-local.mjs';
 
 function argumento(nome, padrao) {
   const i = process.argv.indexOf(`--${nome}`);
@@ -276,13 +278,15 @@ async function principal() {
   if (!local.serviceKey) throw new Error('Chave de serviço do Supabase local não encontrada (rode "supabase start").');
   const originais = await lerConfig();
   const navegador = await chromium.launch({ proxy: proxyDoAmbiente() });
-  const servidor = await subirServidor({
-    ...AMBIENTE_VAZIO,
-    SUPABASE_URL: local.url,
-    SUPABASE_ANON_KEY: local.anonKey,
-    SUPABASE_SERVICE_ROLE_KEY: local.serviceKey,
-  });
+  const pastaMidia = mkdtempSync(path.join(os.tmpdir(), 'ama-capturas-configuracoes-midia-'));
+  let servidor = null;
   try {
+    servidor = await subirServidor({
+      ...AMBIENTE_VAZIO,
+      SUPABASE_URL: local.url,
+      SUPABASE_ANON_KEY: local.anonKey,
+      SUPABASE_SERVICE_ROLE_KEY: local.serviceKey,
+    }, { armazenamento: armazenamentoLocal(pastaMidia) });
     for (const largura of LARGURAS) {
       try {
         await rodarLargura(navegador, servidor.url, largura);
@@ -294,8 +298,9 @@ async function principal() {
       }
     }
   } finally {
-    await servidor.fechar();
+    if (servidor) await servidor.fechar();
     await navegador.close();
+    rmSync(pastaMidia, { recursive: true, force: true });
     await restaurar(originais);
   }
   const depois = await lerConfig();
