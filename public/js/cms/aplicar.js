@@ -967,6 +967,9 @@ function descreverCampo(el, chave, tipo, grupo) {
     ajuda: atributo(el, 'data-cms-ajuda').trim(),
     padrao: lerValor(el, tipo)
   };
+  // Editor especial no painel (ex.: "produto": a imagem é escolhida entre os produtos da loja).
+  const editor = atributo(el, 'data-cms-editor').trim();
+  if (editor) campo.editor = editor;
   if (tipo === 'lista') {
     const estado = ESTADO_LISTAS.get(el);
     // O molde guardado na primeira aplicação; num template cru, o primeiro item.

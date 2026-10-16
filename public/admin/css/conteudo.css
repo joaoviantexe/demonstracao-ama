@@ -181,3 +181,13 @@
 /* ---------- Barra de ações ---------- */
 .pagina[data-pagina="conteudo"] .cms-barra__link{font-weight:700;color:var(--verde-600);text-underline-offset:2px}
 .pagina[data-pagina="conteudo"] .cms-barra .barra-acoes__info{min-width:0}
+
+/* ---------- Banner da Loja: seletor de produto ---------- */
+.pagina[data-pagina="conteudo"] .cms-produto{display:grid;grid-template-columns:96px minmax(0,1fr);gap:14px;align-items:center}
+.pagina[data-pagina="conteudo"] .cms-produto__foto{width:96px;aspect-ratio:1;border-radius:var(--raio);overflow:hidden;display:grid;place-items:center;background:var(--creme-200);color:var(--ouro-600);border:1px solid var(--linha)}
+.pagina[data-pagina="conteudo"] .cms-produto__foto img{width:100%;height:100%;object-fit:cover}
+.pagina[data-pagina="conteudo"] .cms-produto__lado{min-width:0}
+@media (min-width:720px){
+  .pagina[data-pagina="conteudo"] .cms-produto{grid-template-columns:120px minmax(0,1fr)}
+  .pagina[data-pagina="conteudo"] .cms-produto__foto{width:120px}
+}

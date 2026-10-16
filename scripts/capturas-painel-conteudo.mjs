@@ -485,6 +485,22 @@ async function rodarLargura(navegador, url, largura) {
     conferir(!visivel.size && site.documento.querySelector('#parcerias'), 'mostrar de novo apaga a linha e a seção volta',
       `parcerias: linha ${JSON.stringify([...visivel])}, seção ${Boolean(site.documento.querySelector('#parcerias'))}`);
 
+    // --- Banner da Loja: as fotos são escolhidas entre os produtos
+    await irPara(pagina, '#/conteudo/loja', '[data-chave="loja.imagem-1"] .cms-produto select');
+    await pagina.waitForFunction(() => document.querySelectorAll('[data-chave="loja.imagem-1"] .cms-produto select option').length > 2, null, { timeout: 20_000 });
+    conferir(await pagina.locator('.cms-produto').count() === 3 && await pagina.locator('[data-chave^="loja.imagem"] input[name="alt"]').count() === 0,
+      'Banner da Loja: 3 seletores de produto, sem envio de foto nem texto alternativo', 'o banner ainda tem os campos de foto');
+    await pagina.locator('[data-chave="loja.imagem-1"] .cms-produto select').selectOption({ label: 'Body Splash Raiz' });
+    const fotoEscolhida = await pagina.locator('[data-chave="loja.imagem-1"] .cms-produto__foto img').getAttribute('src');
+    await capturar(pagina, `banner-produtos-${largura}`, { inteira: false });
+    await salvar(pagina, 'Banner da Loja');
+    const banner = (await linhas(['loja.imagem-1'])).get('loja.imagem-1');
+    site = await home(url);
+    const imgSite = site.documento.querySelector('[data-cms="loja.imagem-1"]');
+    conferir(banner && banner.alt === 'Body Splash Raiz' && banner.src === fotoEscolhida && imgSite && imgSite.getAttribute('src') === fotoEscolhida,
+      'Banner: produto escolhido gravado (foto e nome do produto) e aplicado em GET /', `banner: ${JSON.stringify(banner)} / site: ${imgSite && imgSite.getAttribute('src')}`);
+    await clienteServico().from('conteudo_site').delete().eq('chave', 'loja.imagem-1');
+
     // --- Restaurar padrão (apaga as linhas) e conferir que GET / voltou
     await irPara(pagina, '#/conteudo/quem-somos', '[data-chave="quem-somos.titulo"] .cms-campo__restaurar');
     await limparToasts(pagina);
@@ -560,7 +576,7 @@ async function principal() {
   const local = ambienteLocal();
   if (!local.serviceKey) throw new Error('Chave de serviço do Supabase local não encontrada (rode "supabase start").');
   // Linhas que já existiam nas chaves usadas aqui: devolvidas no fim.
-  const anteriores = await linhas([...CHAVES, 'postagens.publicacoes']);
+  const anteriores = await linhas([...CHAVES, 'postagens.publicacoes', 'loja.imagem-1']);
   if (anteriores.size) console.log(`Aviso: já havia conteúdo salvo em ${[...anteriores.keys()].join(', ')}; ele será devolvido no fim.`);
   if (anteriores.size) await clienteServico().from('conteudo_site').delete().in('chave', [...anteriores.keys()]);
 
@@ -577,7 +593,7 @@ async function principal() {
     await servidor.fechar();
     await navegador.close();
     const servico = clienteServico();
-    const { error } = await servico.from('conteudo_site').delete().in('chave', [...CHAVES, 'postagens.publicacoes']);
+    const { error } = await servico.from('conteudo_site').delete().in('chave', [...CHAVES, 'postagens.publicacoes', 'loja.imagem-1']);
     if (error) console.log(`Aviso: não foi possível apagar as chaves de teste: ${error.message}`);
     if (anteriores.size) {
       const { error: erroVolta } = await servico.from('conteudo_site')

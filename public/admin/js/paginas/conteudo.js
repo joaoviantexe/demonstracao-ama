@@ -1050,6 +1050,70 @@ function editorImagem(ctx, campo, valor, aoMudar, { idRotulo }) {
   };
 }
 
+/** Capa (primeira foto) de um produto, ou ''. */
+export function capaDoProduto(produto) {
+  const imagens = produto && Array.isArray(produto.imagens) ? produto.imagens : [];
+  const primeira = imagens.find((img) => img && typeof img.src === 'string' && img.src.trim());
+  return primeira ? primeira.src.trim() : '';
+}
+
+// Produtos para os seletores do Banner da Loja (uma consulta por página).
+function produtosDoBanner(ctx, recursos) {
+  if (!recursos.produtos) {
+    recursos.produtos = ctx.api.consultar(ctx.supabase.from('produtos').select('id, nome, imagens, ativo').order('ordem').order('nome').limit(1000))
+      .then((r) => (r.ok && Array.isArray(r.dados) ? r.dados : []));
+  }
+  return recursos.produtos;
+}
+
+// Banner da Loja: em vez de enviar fotos, escolhe um produto; a foto e o texto alternativo vêm dele.
+function editorProduto(ctx, campo, valor, aoMudar, { idRotulo, recursos }) {
+  const { ui } = ctx;
+  const { el } = ui;
+  let atual = { src: texto(objeto(valor).src), alt: texto(objeto(valor).alt) };
+  let produtos = [];
+  const foto = el('div', { class: 'cms-produto__foto' });
+  const selecao = ui.campo({ rotulo: 'Produto', nome: 'produto', tipo: 'select', valor: '', opcoes: [{ valor: '', rotulo: 'Carregando os produtos…' }] });
+  esconderRotulo(selecao);
+  selecao.entrada.setAttribute('aria-labelledby', idRotulo);
+  function desenhar() {
+    foto.replaceChildren(atual.src ? el('img', { src: atual.src, alt: '', loading: 'lazy', decoding: 'async' }) : ui.icone('imagem'));
+    const escolhido = produtos.find((p) => capaDoProduto(p) === atual.src);
+    selecao.entrada.value = escolhido ? escolhido.id : '';
+  }
+  produtosDoBanner(ctx, recursos).then((lista) => {
+    if (!ctx.ativo()) return;
+    produtos = lista;
+    const escolhido = produtos.some((p) => capaDoProduto(p) === atual.src);
+    const opcoes = [
+      { valor: '', rotulo: escolhido || !atual.src ? 'Escolha um produto' : 'Foto atual (escolha um produto para trocar)' },
+      ...produtos.map((p) => ({
+        valor: p.id, rotulo: `${p.nome}${p.ativo === false ? ' (fora da loja)' : ''}${capaDoProduto(p) ? '' : ' (sem foto)'}`, desativado: !capaDoProduto(p),
+      })),
+    ];
+    selecao.entrada.replaceChildren(...opcoes.map((o) => el('option', { value: o.valor, disabled: o.desativado || null }, o.rotulo)));
+    desenhar();
+  });
+  selecao.entrada.addEventListener('change', () => {
+    const p = produtos.find((x) => x.id === selecao.entrada.value);
+    if (!p || !capaDoProduto(p)) return;
+    atual = { src: capaDoProduto(p), alt: p.nome };
+    selecao.definirErro(null);
+    desenhar();
+    aoMudar({ ...atual });
+  });
+  desenhar();
+  return {
+    elemento: el('div', { class: 'cms-produto', role: 'group', 'aria-labelledby': idRotulo }, foto, el('div', { class: 'cms-produto__lado' }, selecao.elemento)),
+    mostrarErros(erros) {
+      const e = erros && erros[0];
+      selecao.definirErro(e ? 'Escolha um produto com foto.' : null);
+    },
+    focarErro: () => selecao.entrada.focus(),
+    focar: () => selecao.entrada.focus(),
+  };
+}
+
 function editorVideo(ctx, campo, valor, aoMudar, { idRotulo }) {
   const { ui } = ctx;
   const { el } = ui;
@@ -1284,6 +1348,7 @@ function criarEditor(ctx, campo, valor, aoMudar, opcoes) {
     case 'html':
       return editorRico(ctx, campo, valor, aoMudar, opcoes);
     case 'imagem':
+      if (campo.editor === 'produto') return editorProduto(ctx, campo, valor, aoMudar, opcoes);
       return editorImagem(ctx, campo, valor, aoMudar, opcoes);
     case 'video':
       return editorVideo(ctx, campo, valor, aoMudar, opcoes);
