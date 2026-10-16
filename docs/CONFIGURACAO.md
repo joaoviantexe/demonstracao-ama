@@ -30,10 +30,17 @@ Nos exemplos abaixo, troque `seudominio.com.br` pelo domínio da AMA (ex.: `oscd
 
 ## Parte 1 — Site no ar
 
-### Passo 1. Criar o banco de dados no Supabase
+### Passo 1. Preparar o banco de dados no Supabase
 
-1. Entre em [supabase.com](https://supabase.com) e clique em **Start your project**. Entre com a conta do GitHub.
-2. Clique em **New project**:
+> **A AMA já tem um projeto no Supabase?** Use o mesmo: pule os itens 1 e 2, abra o projeto existente e siga do
+> item 3. A migração é re-executável, não apaga produtos, pedidos nem textos já editados, e o usuário
+> administrador e o bloqueio de cadastro (itens 5 a 7) só precisam ser feitos se ainda não existirem. As chaves do
+> item 8 são as do projeto existente (**Project Settings**). Não precisa criar projeto novo nem mudar nada no
+> Supabase por causa da mudança para o Cloudflare.
+
+1. Só se **não** houver projeto: entre em [supabase.com](https://supabase.com) e clique em **Start your project**
+   (conta do GitHub).
+2. Só se **não** houver projeto: clique em **New project**:
    - **Name**: `ama`
    - **Database Password**: crie uma senha forte e guarde (não será usada no dia a dia).
    - **Region**: *South America (São Paulo)*.
