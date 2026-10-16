@@ -1,18 +1,19 @@
-// Arquivos do bucket "midia" do Supabase Storage (docs/ARQUITETURA.md §4.4 e docs/PAINEL.md).
-// Nome no bucket: <pasta>/<aaaa-mm>/<slug-do-nome>-<6 hex>.<ext>. Upload direto do navegador com o
-// JWT do admin (as policies só deixam admins gravar); a leitura é pela URL pública.
+// Fotos e vídeos do site no bucket R2 do Cloudflare (docs/ARQUITETURA.md §4.4 e docs/PAINEL.md).
+// Nome no bucket: <pasta>/<aaaa-mm>/<slug-do-nome>-<hex>.<ext>. Envio, lista e exclusão pela rota
+// /api/admin/midia (com o JWT do admin); a leitura é pela URL pública /midia/<caminho>.
 // As funções puras (nomeSeguroArquivo, validarArquivo, tipoDoArquivo) rodam no Node para os testes.
 
-import { erroSupabase, obterConfigSupabase, obterSupabase, obterToken } from './api.js';
+import { chamarApi, obterToken } from './api.js';
 import {
   botao, campo, debounce, el, estadoCarregando, estadoErro, estadoVazio, formatarBytes, icone, modal, slugify, toast,
 } from './ui.js';
 
-export const BUCKET = 'midia';
+/** Prefixo das URLs públicas dos arquivos enviados pelo painel. */
+export const PREFIXO_URL = '/midia/';
 /** Pastas usadas pelo site: site/ (CMS), produtos/ e videos/. */
 export const PASTAS = Object.freeze(['site', 'produtos', 'videos']);
 export const ROTULOS_PASTAS = Object.freeze({ site: 'Site', produtos: 'Produtos', videos: 'Vídeos' });
-/** Limite do bucket (50 MB, igual ao plano gratuito do Supabase). */
+/** Limite de cada arquivo (o mesmo da rota /api/admin/midia). */
 export const LIMITE_BYTES = 50 * 1024 * 1024;
 /** Acima disso a imagem gera aviso (deixa o site lento). */
 export const IMAGEM_RECOMENDADA_BYTES = 2 * 1024 * 1024;
@@ -205,23 +206,24 @@ export async function otimizarImagem(arquivo, { maxLado = LADO_MAXIMO_PX, qualid
 // ---------------------------------------------------------------------------
 // Storage
 
-function storage() {
-  return obterSupabase().storage.from(BUCKET);
-}
-
 /** URL pública de um caminho do bucket. */
 export function urlPublica(caminho) {
-  return storage().getPublicUrl(caminho).data.publicUrl;
+  return PREFIXO_URL + String(caminho).split('/').map(encodeURIComponent).join('/');
 }
 
-/** Caminho no bucket a partir da URL pública (null se a URL não é do bucket "midia" deste projeto). */
+/** Caminho no bucket a partir da URL pública (/midia/... ou a mesma URL com o endereço do site); senão null. */
 export function caminhoDaUrl(url) {
-  const { supabaseUrl } = obterConfigSupabase();
-  const prefixo = `${supabaseUrl}/storage/v1/object/public/${BUCKET}/`;
-  const texto = String(url || '');
-  if (!supabaseUrl || !texto.startsWith(prefixo)) return null;
-  const caminho = decodeURIComponent(texto.slice(prefixo.length).split(/[?#]/)[0]);
-  return caminhoValido(caminho) ? caminho : null;
+  let texto = String(url || '');
+  const origem = typeof location !== 'undefined' && location.origin ? location.origin : '';
+  if (origem && texto.startsWith(origem + PREFIXO_URL)) texto = texto.slice(origem.length);
+  if (!texto.startsWith(PREFIXO_URL)) return null;
+  let caminho;
+  try {
+    caminho = decodeURIComponent(texto.slice(PREFIXO_URL.length).split(/[?#]/)[0]);
+  } catch {
+    return null;
+  }
+  return caminhoValido(caminho) && PASTAS.includes(caminho.split('/')[0]) ? caminho : null;
 }
 
 function caminhoValido(caminho) {
@@ -229,14 +231,11 @@ function caminhoValido(caminho) {
   return Boolean(texto) && !texto.startsWith('/') && !texto.split('/').some((p) => !p || p === '.' || p === '..');
 }
 
-function enviarComProgresso({ url, token, chave, arquivo, tipo, aoProgresso, sinal }) {
+function enviarComProgresso({ url, token, arquivo, tipo, aoProgresso, sinal }) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url);
     xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-    xhr.setRequestHeader('apikey', chave);
-    xhr.setRequestHeader('x-upsert', 'false');
-    xhr.setRequestHeader('cache-control', 'max-age=31536000');
     xhr.setRequestHeader('Content-Type', tipo || 'application/octet-stream');
     xhr.upload.onprogress = (evento) => {
       if (evento.lengthComputable && aoProgresso) {
@@ -320,74 +319,47 @@ export async function enviarArquivo(arquivo, pasta = 'site', { otimizar = true, 
     }
   }
   const tipo = tipoDoArquivo(final);
-  const { supabaseUrl, supabaseAnonKey } = obterConfigSupabase();
-  const token = await obterToken();
+  let token = await obterToken();
   if (!token) throw new ErroMidia('Sua sessão expirou. Entre novamente.', 'nao_autenticado');
 
-  for (let tentativa = 0; tentativa < 2; tentativa += 1) {
+  for (let tentativa = 0; tentativa < 3; tentativa += 1) {
     const caminho = nomeSeguroArquivo(arquivo.name, destino, { tipo, sufixo: tentativa === 0 && impressao ? impressao : undefined });
-    const url = `${supabaseUrl}/storage/v1/object/${BUCKET}/${caminho.split('/').map(encodeURIComponent).join('/')}`;
-    const { status, json } = await enviarComProgresso({ url, token, chave: supabaseAnonKey, arquivo: final, tipo, aoProgresso, sinal });
-    if (status >= 200 && status < 300) {
+    const url = `/api/admin/midia?caminho=${encodeURIComponent(caminho)}`;
+    const { status, json } = await enviarComProgresso({ url, token, arquivo: final, tipo, aoProgresso, sinal });
+    if (status >= 200 && status < 300 && json && json.ok) {
       return {
-        url: urlPublica(caminho), caminho, tamanho: final.size, tipo, nome: caminho.split('/').pop(), otimizado,
+        url: json.url || urlPublica(caminho), caminho, tamanho: final.size, tipo, nome: caminho.split('/').pop(), otimizado,
         avisos: otimizado ? [] : validacao.avisos,
       };
     }
-    const codigoStorage = String((json && (json.statusCode || json.error)) || '');
-    if ((status === 409 || codigoStorage === '409' || codigoStorage === 'Duplicate') && tentativa === 0) continue;
-    const normal = erroSupabase({ message: json && (json.message || json.error), statusCode: Number(json && json.statusCode) || status }, status);
-    throw new ErroMidia(normal.mensagem, normal.erro);
+    if (status === 409 && tentativa < 2) continue;
+    if (status === 401 && tentativa < 2) {
+      token = await obterToken({ forcarRenovacao: true });
+      if (token) continue;
+    }
+    const mensagem = (json && typeof json.mensagem === 'string' && json.mensagem)
+      || (status === 413 ? 'O arquivo é grande demais para enviar.' : 'Não foi possível enviar o arquivo. Tente de novo.');
+    throw new ErroMidia(mensagem, (json && json.erro) || `http_${status}`);
   }
   throw new ErroMidia('Não foi possível gerar um nome único para o arquivo. Tente de novo.', 'duplicado');
 }
 
-function itemDoStorage(pasta, item) {
-  const caminho = `${pasta}/${item.name}`;
-  const tipo = (item.metadata && item.metadata.mimetype) || TIPO_DA_EXTENSAO[extensaoDe(item.name)] || '';
-  return {
-    nome: item.name,
-    caminho,
-    pasta: pasta.split('/')[0],
-    url: urlPublica(caminho),
-    tamanho: item.metadata ? Number(item.metadata.size) || 0 : 0,
-    tipo,
-    categoria: categoriaDoTipo(tipo || item.name),
-    criado_em: item.created_at || item.updated_at || null,
-  };
-}
-
-async function listarPrefixo(prefixo) {
-  const { data, error } = await storage().list(prefixo, { limit: 1000, sortBy: { column: 'name', order: 'desc' } });
-  if (error) {
-    const normal = erroSupabase(error);
-    throw new ErroMidia(normal.mensagem, normal.erro);
-  }
-  return data || [];
-}
-
 /**
  * Lista os arquivos de uma pasta ('site', 'produtos', 'videos' ou 'site/2026-10'); sem pasta, de todas.
- * Desce um nível (as subpastas aaaa-mm). Mais novos primeiro.
+ * Mais novos primeiro.
  * → [{ nome, caminho, pasta, url, tamanho, tipo, categoria: 'imagem'|'video'|null, criado_em }]
  */
 export async function listarArquivos(pasta) {
-  const raizes = pasta ? [String(pasta).replace(/^\/+|\/+$/g, '')] : [...PASTAS];
-  if (raizes.some((r) => !caminhoValido(r))) throw new ErroMidia('Pasta inválida.', 'pasta_invalida');
-  const arquivos = [];
-  await Promise.all(raizes.map(async (raiz) => {
-    const itens = await listarPrefixo(raiz);
-    const subpastas = [];
-    for (const item of itens) {
-      if (item.name === '.emptyFolderPlaceholder') continue;
-      if (item.id === null || item.id === undefined) subpastas.push(`${raiz}/${item.name}`);
-      else arquivos.push(itemDoStorage(raiz, item));
-    }
-    const filhos = await Promise.all(subpastas.map(async (sub) => (await listarPrefixo(sub))
-      .filter((i) => i.id !== null && i.id !== undefined && i.name !== '.emptyFolderPlaceholder')
-      .map((i) => itemDoStorage(sub, i))));
-    for (const lista of filhos) arquivos.push(...lista);
-  }));
+  const prefixo = pasta ? String(pasta).replace(/^\/+|\/+$/g, '') : '';
+  if (prefixo && (!caminhoValido(prefixo) || !PASTAS.includes(prefixo.split('/')[0]))) {
+    throw new ErroMidia('Pasta inválida.', 'pasta_invalida');
+  }
+  const raiz = prefixo ? prefixo.split('/')[0] : '';
+  const r = await chamarApi(`/api/admin/midia${raiz ? `?pasta=${encodeURIComponent(raiz)}` : ''}`);
+  if (!r.ok) throw new ErroMidia(r.mensagem, r.erro);
+  const arquivos = (Array.isArray(r.arquivos) ? r.arquivos : [])
+    .filter((a) => a && typeof a.caminho === 'string' && (!prefixo || a.caminho.startsWith(`${prefixo}/`)))
+    .map((a) => ({ ...a, categoria: a.categoria || categoriaDoTipo(a.tipo || a.nome) }));
   arquivos.sort((a, b) => String(b.criado_em || b.caminho).localeCompare(String(a.criado_em || a.caminho)));
   return arquivos;
 }
@@ -395,12 +367,8 @@ export async function listarArquivos(pasta) {
 /** Apaga um arquivo pelo caminho no bucket. Lança ErroMidia se não existir ou faltar permissão. */
 export async function apagarArquivo(caminho) {
   if (!caminhoValido(caminho)) throw new ErroMidia('Caminho de arquivo inválido.', 'caminho_invalido');
-  const { data, error } = await storage().remove([caminho]);
-  if (error) {
-    const normal = erroSupabase(error);
-    throw new ErroMidia(normal.mensagem, normal.erro);
-  }
-  if (!data || !data.length) throw new ErroMidia('Arquivo não encontrado (ou sem permissão para apagar).', 'nao_encontrado');
+  const r = await chamarApi(`/api/admin/midia?caminho=${encodeURIComponent(caminho)}`, { metodo: 'DELETE' });
+  if (!r.ok) throw new ErroMidia(r.erro === 'nao_encontrado' ? 'Arquivo não encontrado.' : r.mensagem, r.erro);
   return true;
 }
 
@@ -546,7 +514,7 @@ export function seletorDeMidia({ tipo = 'imagem', pasta, titulo, permitirEnderec
     rotulo: ehVideo ? 'Ou use o endereço de um vídeo' : 'Ou use o endereço de uma imagem',
     tipo: 'url', placeholder: 'https://… ou /img/…',
     ajuda: 'Endereço completo (https://) ou um caminho do próprio site, como /img/logo-ama.png.',
-    valor: atual && !atual.includes('/storage/v1/object/public/') ? atual : '',
+    valor: atual && !caminhoDaUrl(atual) && !atual.includes('/storage/v1/object/public/') ? atual : '',
   }) : null;
   if (endereco) endereco.entrada.setAttribute('type', 'text');
 

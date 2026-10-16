@@ -11,10 +11,11 @@
 //   imprimir → rastreio) e "Marcar como enviado" com código de rastreio; confere tudo no banco;
 // - pedido aguardando pagamento (frete fixo): "Conferir pagamento" (nenhum pagamento no Mercado Pago falso)
 //   e "Apagar pedido"; pedido pago não oferece "Apagar".
-// Tudo o que foi criado é apagado no fim (e conferido). Falha (código 1) com erro no console/página,
-// rolagem horizontal ou verificação errada.
+// Tudo o que foi criado é apagado no fim (e conferido). O armazenamento (a home que o painel publica ao
+// entrar; o bucket R2 em produção) fica numa pasta temporária, apagada no fim. Falha (código 1) com erro
+// no console/página, rolagem horizontal ou verificação errada.
 
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -23,6 +24,7 @@ import { AMBIENTE_VAZIO, subirServidor } from '../tests/apoio/servidor.js';
 import { ambienteLocal, clienteServico } from '../tests/apoio/supabase-local.js';
 import { iniciar as iniciarMercadoPago } from '../tests/apoio/mercadopago-falso.js';
 import { iniciar as iniciarMelhorEnvio } from '../tests/apoio/melhorenvio-falso.js';
+import { armazenamentoLocal } from './armazenamento-local.mjs';
 
 function argumento(nome, padrao) {
   const i = process.argv.indexOf(`--${nome}`);
@@ -386,19 +388,21 @@ async function principal() {
   const mp = await iniciarMercadoPago({ segredo: 'segredo-teste' });
   const me = await iniciarMelhorEnvio();
   const navegador = await chromium.launch({ proxy: proxyDoAmbiente() });
-  const servidor = await subirServidor({
-    ...AMBIENTE_VAZIO,
-    SUPABASE_URL: local.url,
-    SUPABASE_ANON_KEY: local.anonKey,
-    SUPABASE_SERVICE_ROLE_KEY: local.serviceKey,
-    MP_ACCESS_TOKEN: 'APP_USR-teste-painel',
-    MP_API_BASE: mp.url,
-    MP_WEBHOOK_SECRET: 'segredo-teste',
-    MELHOR_ENVIO_TOKEN: 'token-melhor-envio-teste',
-    MELHOR_ENVIO_API_BASE: me.url,
-    MELHOR_ENVIO_EMAIL: 'tecnico@ama.local',
-  });
+  const pastaMidia = mkdtempSync(path.join(os.tmpdir(), 'ama-capturas-pedidos-midia-'));
+  let servidor = null;
   try {
+    servidor = await subirServidor({
+      ...AMBIENTE_VAZIO,
+      SUPABASE_URL: local.url,
+      SUPABASE_ANON_KEY: local.anonKey,
+      SUPABASE_SERVICE_ROLE_KEY: local.serviceKey,
+      MP_ACCESS_TOKEN: 'APP_USR-teste-painel',
+      MP_API_BASE: mp.url,
+      MP_WEBHOOK_SECRET: 'segredo-teste',
+      MELHOR_ENVIO_TOKEN: 'token-melhor-envio-teste',
+      MELHOR_ENVIO_API_BASE: me.url,
+      MELHOR_ENVIO_EMAIL: 'tecnico@ama.local',
+    }, { armazenamento: armazenamentoLocal(pastaMidia) });
     for (const largura of LARGURAS) {
       try {
         await rodarLargura(navegador, servidor.url, largura, me);
@@ -408,10 +412,11 @@ async function principal() {
       }
     }
   } finally {
-    await servidor.fechar();
+    if (servidor) await servidor.fechar();
     await navegador.close();
     await mp.fechar();
     await me.fechar();
+    rmSync(pastaMidia, { recursive: true, force: true });
   }
   console.log(`\nCapturas em ${SAIDA}`);
   if (problemas.length) {

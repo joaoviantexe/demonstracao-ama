@@ -1,10 +1,12 @@
 #!/usr/bin/env node
-// Compara, pixel a pixel, a home renderizada pelo projeto (templates/home.html servido pelo
+// Compara, pixel a pixel, a home do projeto (templates/home.html com o conteúdo padrão, servido pelo
 // dev-server) com a home do site estático original (commit b289daa, o último da main antes do novo
 // projeto: index.html, css/estilo.css, js/main.js + public/img).
 //
 // Uso: node scripts/comparar-home.mjs [--ref b289daa] [--larguras 1440,768,390]
 //
+// - O dev-server usa um armazenamento vazio numa pasta temporária (apagada no fim): sem home publicada
+//   pelo painel, GET / entrega o template (X-AMA-CMS: padrao), o que é conferido antes de comparar.
 // - Animações desligadas nos dois lados (prefers-reduced-motion, .reveal visível, sem transições),
 //   iframes do Instagram escondidos (não carregam aqui), vídeo pausado e escondido.
 // - Captura cada seção equivalente nos tamanhos pedidos e compara desenhando os dois PNGs num
@@ -14,10 +16,12 @@
 
 import http from 'node:http';
 import { execFileSync } from 'node:child_process';
-import { createReadStream, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { armazenamentoLocal } from './armazenamento-local.mjs';
 import { iniciarServidor } from './dev-server.mjs';
 
 const RAIZ = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -352,12 +356,14 @@ async function alinharPosicao(paginaMain, paginaNovo) {
 const pct = (n, total) => (total ? (100 * n / total) : 0).toFixed(4);
 
 async function main() {
-  // A home do projeto sempre com o conteúdo padrão do template (sem Supabase).
+  // A home do projeto sempre com o conteúdo padrão do template: armazenamento vazio (nenhuma home
+  // publicada pelo painel) e sem Supabase.
   for (const nome of Object.keys(process.env)) {
     if (/SUPABASE/.test(nome)) delete process.env[nome];
   }
+  const pastaMidia = mkdtempSync(path.join(os.tmpdir(), 'ama-comparar-home-midia-'));
   const ladoMain = await servidorMain();
-  const ladoNovo = await iniciarServidor({ porta: 0, host: '127.0.0.1' });
+  const ladoNovo = await iniciarServidor({ porta: 0, host: '127.0.0.1', armazenamento: armazenamentoLocal(pastaMidia) });
   const navegador = await chromium.launch({ proxy: proxyDoAmbiente() });
   const paginaComparacao = await (await navegador.newContext()).newPage();
   await paginaComparacao.setContent('<!doctype html><title>comparação</title>');
@@ -368,6 +374,8 @@ async function main() {
   let falhou = false;
 
   try {
+    const cms = (await fetch(`${ladoNovo.url}/`)).headers.get('x-ama-cms');
+    if (cms !== 'padrao') throw new Error(`GET / deveria entregar o template (X-AMA-CMS: padrao), veio "${cms}"`);
     for (const largura of LARGURAS) {
       const pasta = path.join(SAIDA, String(largura));
       mkdirSync(pasta, { recursive: true });
@@ -418,6 +426,7 @@ async function main() {
     await navegador.close();
     await ladoMain.fechar();
     await ladoNovo.fechar();
+    rmSync(pastaMidia, { recursive: true, force: true });
   }
 
   console.table(linhas);

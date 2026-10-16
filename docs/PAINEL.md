@@ -56,7 +56,8 @@ Público do painel: mulheres da AMA, sem formação técnica, muitas vezes no **
 | `public/admin/js/app.js` | Cliente do Supabase, telas de login/recuperação de senha, verificação de admin (`rpc('eh_admin')`), layout (topo + menu lateral/gaveta), roteador por hash, aviso de alterações não salvas, carregamento das páginas. |
 | `public/admin/js/ui.js` | Construção de elementos, formatação, ícones, componentes (botões, campos, tabelas, abas, estados, avisos, toasts, modais). |
 | `public/admin/js/api.js` | `chamarApi` (rotas `/api/admin/*` com o JWT), `consultar` (normaliza consultas do supabase-js), erros em português. |
-| `public/admin/js/midia.js` | Bucket `midia` do Storage: enviar, listar, apagar, otimizar imagem, área de upload, seletor de mídia. |
+| `public/admin/js/midia.js` | Fotos e vídeos no R2 (via `/api/admin/midia`): enviar, listar, apagar, otimizar imagem, área de upload, seletor de mídia. |
+| `public/admin/js/publicar-home.js` | Monta a página inicial no navegador e publica em `/api/admin/home` (`ctx.publicarHome`). |
 | `public/admin/admin.css` | Sistema de design (tokens, layout, componentes). |
 | `public/admin/js/paginas/visao-geral.js` | Página real que serve de exemplo (métricas, tabela, avisos, integrações). |
 | `public/admin/js/paginas/em-breve.js` | Página provisória usada quando `paginas/<nome>.js` ainda não existe. |
@@ -104,6 +105,7 @@ O `docs/ARQUITETURA.md` §8 lista só uma parte; este é o `ctx` completo criado
 | `ui` | módulo `ui.js` | §8. |
 | `api` | módulo `api.js` | §9. |
 | `midia` | módulo `midia.js` | §10. |
+| `publicarHome({ forcar, sinal })` | função | Publica a página inicial com o conteúdo atual do banco (`publicar-home.js`). Sem `forcar`, só publica se o template ou o conteúdo mudou desde a última vez. → `{ ok, publicado }` ou `{ ok: false, mensagem }`. O editor do site chama depois de salvar. |
 | `ativo()` | `() => boolean` | `true` enquanto esta renderização é a atual; vira `false` quando a rota troca, quando a mesma rota é renderizada de novo ou quando a pessoa sai do painel. |
 | `navegar(destino, opcoes)` | função | Vai para outra rota (§5.3). Não faz nada se `ativo()` for `false`. |
 | `marcarAlterado(sim = true)` | função | Liga/desliga o aviso de alterações não salvas (§6). Não faz nada se inativo. |
@@ -915,24 +917,28 @@ em `api/admin/` e em ARQUITETURA §6.6.
 
 ### 10.1 Bucket, pastas e nomes
 
+Os arquivos ficam no bucket R2 `ama-midia` do Cloudflare (no servidor local, na pasta `.midia-local`). O painel
+envia, lista e apaga pela rota `/api/admin/midia` (só admins); a leitura é pública em `/midia/<caminho>`.
+
 | Constante | Valor |
 |---|---|
-| `BUCKET` | `'midia'` (público para leitura; só admins gravam/apagam) |
+| `PREFIXO_URL` | `'/midia/'` (início das URLs públicas) |
 | `PASTAS` | `['site', 'produtos', 'videos']` — `site/` = CMS, `produtos/` = fotos de produto, `videos/` = vídeos |
 | `ROTULOS_PASTAS` | `{ site: 'Site', produtos: 'Produtos', videos: 'Vídeos' }` |
-| `LIMITE_BYTES` | 50 MB (limite do bucket) |
+| `LIMITE_BYTES` | 50 MB (limite da rota de envio) |
 | `IMAGEM_RECOMENDADA_BYTES` | 2 MB (acima disso: aviso) |
 | `VIDEO_RECOMENDADO_BYTES` | 20 MB (acima disso: aviso) |
 | `LADO_MAXIMO_PX` | 2000 (lado máximo da imagem otimizada) |
 | `TIPOS_ACEITOS` | `imagem`: jpeg, png, webp, gif, avif · `video`: mp4, webm (SVG fica de fora de propósito) |
 
-Nome no bucket: `<pasta>/<aaaa-mm>/<slug-do-nome>-<6 hex>.<ext>`, por exemplo
-`produtos/2026-10/foto-do-creme-1-a1b2c3.jpg`. A URL pública é
-`<supabaseUrl>/storage/v1/object/public/midia/<caminho>`.
+Nome no bucket: `<pasta>/<aaaa-mm>/<slug-do-nome>-<hex>.<ext>`, por exemplo
+`produtos/2026-10/foto-do-creme-1-a1b2c3d4e5f6.jpg` (o `<hex>` é o começo do SHA-256 do arquivo: um arquivo idêntico
+já enviado é reaproveitado). A URL pública é `/midia/<caminho>` (relativa ao site).
 
 **`ErroMidia`** — `Error` com `message` em português (mostre direto) e `.codigo`: `sem_arquivo`, `arquivo_invalido`,
 `nao_autenticado`, `sem_conexao`, `cancelado` (ignore), `duplicado`, `pasta_invalida`, `caminho_invalido`,
-`nao_encontrado`, ou um código de `erroSupabase` (`muito_grande`, `tipo_nao_aceito`, `sem_permissao`, `erro_supabase`…).
+`nao_encontrado`, ou o código de erro da rota (`tipo_nao_aceito`, `extensao_invalida`, `corpo_muito_grande`,
+`nao_autenticado`, `sem_permissao`, `armazenamento_nao_configurado`…).
 
 ### 10.2 Funções puras
 
@@ -951,26 +957,26 @@ do bucket. `pasta` só `a-z0-9` e hífens (sem `/`), senão **`TypeError`**. Ext
 **`enderecoDeMidiaValido(texto) → boolean`** — aceita `https://…` ou caminho do próprio site (`/img/…`); recusa
 `http://`, `//…` e textos com espaço/aspas/`<>`.
 
-### 10.3 Storage
+### 10.3 Envio, lista e exclusão
 
 **`enviarArquivo(arquivo, pasta = 'site', { otimizar = true, aoProgresso, sinal }) → Promise<{ url, caminho, tamanho, tipo, nome, otimizado, avisos }>`**
 — valida (imagem **ou** vídeo, qualquer pasta: para aceitar só imagem, chame `validarArquivo(arquivo, { tipo: 'imagem' })`
-antes), otimiza imagens JPEG/PNG/WebP (`otimizarImagem`), envia direto ao Storage com o JWT e `x-upsert: false`
-(nome repetido: tenta uma vez com outro sufixo). `aoProgresso({ enviados, total, fracao })` acompanha o envio (não a
+antes), otimiza imagens JPEG/PNG/WebP (`otimizarImagem`), envia para `POST /api/admin/midia?caminho=…` com o JWT
+(nome repetido → 409: tenta de novo com outro sufixo; 401: renova o token e tenta de novo). `aoProgresso({ enviados, total, fracao })` acompanha o envio (não a
 otimização). `sinal` cancela (lança `ErroMidia` `cancelado`). `avisos` só vem preenchido quando não otimizou.
 Lança `ErroMidia` em qualquer falha, inclusive `pasta_invalida` (pasta fora de `a-z0-9-`, antes de otimizar ou
 enviar; `pasta` vazia vira `'site'`). Só a função pura `nomeSeguroArquivo` lança `TypeError`.
 
 **`listarArquivos(pasta) → Promise<[{ nome, caminho, pasta, url, tamanho, tipo, categoria, criado_em }]>`** —
 arquivos de `'site'`, `'produtos'`, `'videos'` ou de uma subpasta (`'site/2026-10'`); sem `pasta`, de todas.
-Desce um nível (as pastas `aaaa-mm`), até 1000 itens por pasta, mais novos primeiro. `pasta` no resultado é a raiz
-(`'site'`). Lança `ErroMidia`.
+Inclui todas as subpastas, mais novos primeiro. `pasta` no resultado é a raiz (`'site'`). Lança `ErroMidia`.
 
 **`apagarArquivo(caminho) → Promise<true>`** — apaga pelo caminho no bucket. Caminho inválido → `caminho_invalido`;
-nada apagado → `nao_encontrado` ("Arquivo não encontrado (ou sem permissão para apagar).").
+arquivo inexistente → `nao_encontrado` ("Arquivo não encontrado.").
 
 **`urlPublica(caminho) → url`** e **`caminhoDaUrl(url) → caminho | null`** — conversão entre os dois; `caminhoDaUrl`
-devolve `null` para URLs que não são do bucket `midia` deste projeto (ex.: `/img/…`), útil antes de `apagarArquivo`.
+devolve `null` para URLs que não são `/midia/…` das três pastas (ex.: `/img/…` ou URLs antigas do Supabase Storage),
+útil antes de `apagarArquivo`.
 
 **`otimizarImagem(arquivo, { maxLado = 2000, qualidade = 0.85 }) → Promise<{ arquivo, otimizado, largura, altura, larguraOriginal, alturaOriginal }>`**
 — reduz para no máximo `maxLado` px e comprime em JPEG (WebP, ou PNG, se tiver transparência). Só JPEG/PNG/WebP;

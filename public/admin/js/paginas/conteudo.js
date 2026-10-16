@@ -4,6 +4,7 @@
 // - O valor de cada campo é a linha de conteudo_site ou, sem linha, o padrão do template.
 // - "Salvar" grava só as chaves que mudaram: upsert do valor novo ou, quando ele voltou a ser igual
 //   ao padrão do template, apaga a linha (o mesmo que "Restaurar padrão").
+// - Depois de gravar, publica a home (ctx.publicarHome → publicar-home.js): o site mostra a versão publicada.
 // As funções puras exportadas rodam no Node (tests/unit/painel-conteudo.test.js).
 
 import {
@@ -1703,6 +1704,7 @@ function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
   const rascunho = new Map(campos.map((c) => [c.chave, clonarValor(valorEfetivo(c, salvos.get(c.chave)))]));
   const controles = new Map();
   let acabouDeSalvar = false;
+  let publicacaoPendente = false;
 
   cabecalho.replaceWith(ui.cabecalhoPagina({
     titulo: grupo.rotulo,
@@ -1817,6 +1819,12 @@ function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
     const alteracoes = atualizarEstado();
     for (const c of controles.values()) c.editor.mostrarErros([]);
     if (!alteracoes.total) {
+      if (publicacaoPendente) {
+        await ui.ocupado(salvarBotao, async () => {
+          if (await publicarSite()) ui.toast('Site atualizado.', 'sucesso');
+        });
+        return;
+      }
       ui.toast('Nada para salvar: nada mudou desde a última vez.', 'info');
       return;
     }
@@ -1854,10 +1862,25 @@ function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
         }
         for (const chave of alteracoes.apagar) salvos.delete(chave);
       }
-      acabouDeSalvar = true;
+      const publicou = await publicarSite();
+      if (!ctx.ativo()) return;
+      acabouDeSalvar = publicou;
       const restante = atualizarEstado();
-      if (!restante.total) ui.toast('Salvo!', 'sucesso');
+      if (publicou && !restante.total) ui.toast('Salvo!', 'sucesso');
     });
+  }
+
+  // O site mostra a home publicada: depois de gravar no banco, publica de novo. → true se publicou.
+  // Se falhar, "Salvar" (mesmo sem mudanças) tenta publicar outra vez.
+  async function publicarSite() {
+    if (typeof ctx.publicarHome !== 'function') return true;
+    // Sem o sinal da página: sair no meio não interrompe a publicação (o banco já foi gravado).
+    const r = await ctx.publicarHome({ forcar: true });
+    if (!ctx.ativo()) return false;
+    publicacaoPendente = !(r && r.ok);
+    if (!publicacaoPendente) return true;
+    ui.toast(`Salvo, mas o site ainda não foi atualizado: ${(r && r.mensagem) || 'erro desconhecido'}. Clique em Salvar para tentar de novo.`, 'erro');
+    return false;
   }
 
   // --- restaurar padrão de um campo
@@ -1879,12 +1902,14 @@ function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
       }
       salvos.delete(campo.chave);
     }
+    const publicou = temLinha ? await publicarSite() : true;
+    if (!ctx.ativo()) return;
     rascunho.set(campo.chave, clonarValor(campo.padrao));
     desenharEditor(controle);
-    acabouDeSalvar = temLinha;
+    acabouDeSalvar = temLinha && publicou;
     atualizarEstado();
     if (previaGoogle) previaGoogle.atualizar();
     controle.editor.focar();
-    ui.toast(temLinha ? 'Padrão restaurado.' : 'Mudanças desfeitas.', 'sucesso');
+    if (publicou) ui.toast(temLinha ? 'Padrão restaurado.' : 'Mudanças desfeitas.', 'sucesso');
   }
 }

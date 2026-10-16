@@ -10,7 +10,9 @@
 //   celular, página não encontrada, uma página de vitrine dos componentes (injetada com
 //   page.route no lugar de paginas/categorias.js, usando só o contrato ctx), aviso de alterações
 //   não salvas, modal, toasts e saída. Em 390 px também o seletor de mídia com envio real
-//   para o bucket (o arquivo é apagado no fim).
+//   pela rota /api/admin/midia (URL pública /midia/...).
+// - O armazenamento (fotos e home publicada; o bucket R2 em produção) fica numa pasta temporária,
+//   apagada no fim.
 // - Usuário comum (criado e apagado aqui) recebe "sem permissão"; rota preservada no login;
 //   sessão encerrada em outra aba mostra o login por cima da página; login sem "Esqueci minha senha";
 //   painel sem Supabase mostra "Painel em configuração".
@@ -19,15 +21,16 @@
 //   pelo login por cima, caixa de marcar clicável numa tabela com link.
 // - Falha (código 1) com erro no console/página, rolagem horizontal ou verificação errada.
 
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { AMBIENTE_VAZIO, subirServidor } from '../tests/apoio/servidor.js';
-import { ambienteLocal, clienteServico, criarUsuario, removerUsuario } from '../tests/apoio/supabase-local.js';
+import { ambienteLocal, criarUsuario, removerUsuario } from '../tests/apoio/supabase-local.js';
 import { iniciar as iniciarMelhorEnvio } from '../tests/apoio/melhorenvio-falso.js';
+import { armazenamentoLocal } from './armazenamento-local.mjs';
 
 const RAIZ = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -44,7 +47,8 @@ const ROTA_VITRINE = '#/categorias';
 const IMAGEM_TESTE = path.join(RAIZ, 'public', 'img', 'logo-ama-icone.png');
 
 const problemas = [];
-const enviados = [];
+// Armazenamento numa pasta temporária (criada e apagada em principal()).
+let armazenamento = null;
 // Requisição que o teste faz falhar de propósito (o erro no console é esperado).
 let falhaSimulada = null;
 const falhar = (texto) => {
@@ -356,20 +360,20 @@ async function testarSeletorDeMidia(pagina, largura) {
   await pagina.locator('.modal--midia .area-upload .botao').click();
   await (await escolha).setFiles(IMAGEM_TESTE);
   await pagina.waitForSelector('.modal--midia .midia-item--selecionado', { timeout: 20_000 });
-  ok('seletor de mídia: imagem otimizada e enviada ao bucket');
+  ok('seletor de mídia: imagem otimizada e enviada pela rota /api/admin/midia');
   await capturar(pagina, `seletor-midia-${largura}`, { inteira: false });
   await pagina.getByRole('button', { name: 'Usar esta imagem' }).click();
   await pagina.waitForSelector('dialog.modal--midia', { state: 'detached' });
   const url = (await pagina.locator('#resultado-midia').textContent()).trim();
-  const m = url.match(/\/storage\/v1\/object\/public\/midia\/(site\/\d{4}-\d{2}\/logo-ama-icone-[0-9a-f]{6,16}\.(webp|png|jpg))$/);
+  const m = url.match(/^\/midia\/(site\/\d{4}-\d{2}\/logo-ama-icone-[0-9a-f]{6,16}\.(webp|png|jpg))$/);
   if (!m) {
     falhar(`URL escolhida inesperada: ${url}`);
     return;
   }
-  enviados.push(m[1]);
-  const resposta = await pagina.request.get(url);
+  if (!(await armazenamento.existe(m[1]))) falhar(`arquivo enviado não está no armazenamento: ${m[1]}`);
+  const resposta = await pagina.request.get(new URL(url, pagina.url()).href);
   if (!resposta.ok()) falhar(`arquivo enviado não abre pela URL pública (HTTP ${resposta.status()})`);
-  else ok(`URL pública devolvida: …/${m[1]} (${resposta.headers()['content-type']})`);
+  else ok(`URL pública devolvida: ${url} (${resposta.headers()['content-type']})`);
 }
 
 async function rodarLargura(navegador, base, largura) {
@@ -579,7 +583,7 @@ async function testarAcesso(navegador, base) {
 
 async function testarSemConfiguracao(navegador) {
   console.log('\n== sem Supabase configurado (390px)');
-  const servidor = await subirServidor({ ...AMBIENTE_VAZIO });
+  const servidor = await subirServidor({ ...AMBIENTE_VAZIO }, { armazenamento });
   const { contexto, pagina } = await novaPagina(navegador, 390, 'sem-config');
   try {
     await pagina.goto(`${servidor.url}/admin/`, { waitUntil: 'load' });
@@ -600,6 +604,8 @@ async function principal() {
   if (!local.serviceKey) throw new Error('Chave de serviço do Supabase local não encontrada (rode "supabase start").');
   const me = await iniciarMelhorEnvio();
   const navegador = await chromium.launch({ proxy: proxyDoAmbiente() });
+  const pastaMidia = mkdtempSync(path.join(os.tmpdir(), 'ama-capturas-painel-midia-'));
+  armazenamento = armazenamentoLocal(pastaMidia);
   try {
     await testarSemConfiguracao(navegador);
     const servidor = await subirServidor({
@@ -612,7 +618,7 @@ async function principal() {
       MELHOR_ENVIO_TOKEN: 'token-teste-painel',
       MELHOR_ENVIO_API_BASE: me.url,
       MELHOR_ENVIO_EMAIL: 'tecnico@ama.local',
-    });
+    }, { armazenamento });
     try {
       for (const largura of LARGURAS) await rodarLargura(navegador, servidor.url, largura);
       await testarAcesso(navegador, servidor.url);
@@ -622,11 +628,7 @@ async function principal() {
   } finally {
     await navegador.close();
     await me.fechar();
-    if (enviados.length) {
-      const { error } = await clienteServico().storage.from('midia').remove(enviados);
-      if (error) console.log(`Aviso: não foi possível apagar ${enviados.join(', ')}: ${error.message}`);
-      else console.log(`Arquivos de teste apagados do bucket: ${enviados.join(', ')}`);
-    }
+    rmSync(pastaMidia, { recursive: true, force: true });
   }
   console.log(`\nCapturas em ${SAIDA}`);
   if (problemas.length) {

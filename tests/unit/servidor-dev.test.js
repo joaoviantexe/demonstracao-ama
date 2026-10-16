@@ -7,7 +7,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { carregarEnv, fonteParaRegex } from '../../scripts/dev-server.mjs';
+import { carregarEnv } from '../../scripts/dev-server.mjs';
+import { cabecalhosPara, lerRegrasCabecalhos, padraoParaRegex } from '../../lib/cabecalhos.js';
 import { AMBIENTE_VAZIO, aplicarAmbiente, subirServidor } from '../apoio/servidor.js';
 
 const RAIZ = fileURLToPath(new URL('../../', import.meta.url));
@@ -38,7 +39,7 @@ describe('dev-server com public/ e api/ reais', () => {
   before(async () => { servidor = await subirServidor(AMBIENTE_VAZIO); });
   after(async () => { await servidor.fechar(); });
 
-  test('GET / devolve a home (rewrite para api/render) com os cabeçalhos do vercel.json', async () => {
+  test('GET / devolve a home (api/render) com os cabeçalhos de public/_headers', async () => {
     const r = await pedir(servidor.url, '/');
     assert.equal(r.status, 200);
     assert.equal(r.headers['content-type'], 'text/html; charset=utf-8');
@@ -131,7 +132,7 @@ describe('dev-server com public/ e api/ reais', () => {
   });
 });
 
-describe('dev-server com pastas de teste (cleanUrls, req.body da Vercel, recarga)', () => {
+describe('dev-server com pastas de teste (URLs sem .html, req.body, recarga)', () => {
   let pasta;
   let dirApi;
   let servidor;
@@ -148,6 +149,7 @@ describe('dev-server com pastas de teste (cleanUrls, req.body da Vercel, recarga
     writeFileSync(path.join(publico, 'sub', 'dir', 'arquivo.json'), '{"a":1}');
     writeFileSync(path.join(publico, '.env'), 'SEGREDO=1');
     writeFileSync(path.join(publico, 'evil.com.html'), 'x');
+    writeFileSync(path.join(publico, '_headers'), readFileSync(path.join(RAIZ, 'public', '_headers')));
 
     writeFileSync(path.join(dirApi, 'eco.js'), `
 import { lerCorpo, lerQuery, responderJson, tratarErro } from '${HTTP_JS}';
@@ -162,7 +164,7 @@ export default async function handler(req, res) {
 `);
     writeFileSync(path.join(dirApi, 'cru.js'), `
 export default function handler(req, res) {
-  const corpo = req.body; // lança com JSON inválido, como na Vercel
+  const corpo = req.body; // lança com JSON inválido
   res.statusCode = 200;
   res.setHeader('Content-Type', 'application/json');
   res.end(JSON.stringify({ tipo: Buffer.isBuffer(corpo) ? 'buffer' : typeof corpo, corpo: Buffer.isBuffer(corpo) ? corpo.toString() : corpo }));
@@ -242,7 +244,7 @@ export default function handler(req, res) {
     assert.equal(chunked.status, 413);
   });
 
-  test('req.body imita a Vercel: getter lança em JSON inválido; tipos por Content-Type', async () => {
+  test('req.body: getter lança em JSON inválido; tipos por Content-Type', async () => {
     const lanca = await pedir(servidor.url, '/api/cru', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: '{x',
     });
@@ -269,7 +271,7 @@ export default function handler(req, res) {
     assert.deepEqual(json(multipart), { tipo: 'undefined' });
   });
 
-  test('req.query (repetido vira array na Vercel; lerQuery pega o último) e req.cookies', async () => {
+  test('req.query (repetido vira array; lerQuery pega o último) e req.cookies', async () => {
     const r = await pedir(servidor.url, '/api/eco?data.id=123&a=1&a=2', { headers: { cookie: 'x=1; y=a%20b' } });
     assert.equal(r.status, 200);
     assert.deepEqual(json(r).query, { 'data.id': '123', a: '2' });
@@ -315,17 +317,33 @@ export default (req, res) => res.end("${versao}:" + globalThis.${marca});
   });
 });
 
-describe('fonteParaRegex (sources do vercel.json)', () => {
-  test('grupos e parâmetros', () => {
-    assert.equal(fonteParaRegex('/(.*)').test('/'), true);
-    assert.equal(fonteParaRegex('/(.*)').test('/qualquer/coisa'), true);
-    assert.equal(fonteParaRegex('/admin/(.*)').test('/admin/'), true);
-    assert.equal(fonteParaRegex('/admin/(.*)').test('/admin/js/app.js'), true);
-    assert.equal(fonteParaRegex('/admin/(.*)').test('/administrador'), false);
-    assert.equal(fonteParaRegex('/admin').test('/admin'), true);
-    assert.equal(fonteParaRegex('/p/:slug').test('/p/colar'), true);
-    assert.equal(fonteParaRegex('/p/:slug').test('/p/a/b'), false);
-    assert.equal(fonteParaRegex('/a.b').test('/aXb'), false);
+describe('public/_headers (lib/cabecalhos.js)', () => {
+  test('padrões com * e :nome', () => {
+    assert.equal(padraoParaRegex('/*').test('/'), true);
+    assert.equal(padraoParaRegex('/*').test('/qualquer/coisa'), true);
+    assert.equal(padraoParaRegex('/admin/*').test('/admin/'), true);
+    assert.equal(padraoParaRegex('/admin/*').test('/admin/js/app.js'), true);
+    assert.equal(padraoParaRegex('/admin/*').test('/administrador'), false);
+    assert.equal(padraoParaRegex('/admin').test('/admin'), true);
+    assert.equal(padraoParaRegex('/p/:slug').test('/p/colar'), true);
+    assert.equal(padraoParaRegex('/p/:slug').test('/p/a/b'), false);
+    assert.equal(padraoParaRegex('/a.b').test('/aXb'), false);
+  });
+
+  test('o arquivo do repositório: segurança em tudo e X-Frame-Options no painel', () => {
+    const regras = lerRegrasCabecalhos(readFileSync(path.join(RAIZ, 'public', '_headers'), 'utf8'));
+    assert.deepEqual(cabecalhosPara('/loja/produto', regras), [
+      ['X-Content-Type-Options', 'nosniff'],
+      ['Referrer-Policy', 'strict-origin-when-cross-origin'],
+    ]);
+    for (const caminho of ['/admin', '/admin/', '/admin/js/app.js']) {
+      assert.deepEqual(cabecalhosPara(caminho, regras).filter(([n]) => n === 'X-Frame-Options'), [['X-Frame-Options', 'DENY']], caminho);
+    }
+  });
+
+  test('comentários, linhas soltas e cabeçalho sem padrão são ignorados', () => {
+    const regras = lerRegrasCabecalhos('# comentário\n  Solto: sim\n/x\n  A: 1\n  linha ruim\nsem-barra\n  B: 2\n');
+    assert.deepEqual(regras.map((r) => [r.padrao, r.cabecalhos]), [['/x', [['A', '1']]]]);
   });
 });
 
@@ -370,21 +388,18 @@ describe('carregarEnv (.env do dev-server)', () => {
   });
 });
 
-describe('vercel.json', () => {
-  test('segue o contrato da §2.1', () => {
-    const config = JSON.parse(readFileSync(path.join(RAIZ, 'vercel.json'), 'utf8'));
-    assert.equal(config.outputDirectory, 'public');
-    assert.equal(config.cleanUrls, true);
-    assert.deepEqual(config.rewrites, [{ source: '/', destination: '/api/render' }]);
-    assert.deepEqual(config.functions, { 'api/render.js': { includeFiles: 'templates/**' } });
-    assert.equal(typeof config.functions['api/render.js'].includeFiles, 'string');
-    assert.deepEqual(config.crons, [{ path: '/api/cron/manter-ativo', schedule: '17 9 * * *' }]);
-    const todos = config.headers.find((h) => h.source === '/(.*)');
-    assert.deepEqual(todos.headers, [
-      { key: 'X-Content-Type-Options', value: 'nosniff' },
-      { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-    ]);
-    const admin = config.headers.find((h) => h.source === '/admin/(.*)');
-    assert.deepEqual(admin.headers, [{ key: 'X-Frame-Options', value: 'DENY' }]);
+describe('wrangler.jsonc', () => {
+  test('Worker com os arquivos de public/, o bucket MIDIA, o agendamento diário e o template como texto', () => {
+    const texto = readFileSync(path.join(RAIZ, 'wrangler.jsonc'), 'utf8');
+    const config = JSON.parse(texto.replace(/^\s*\/\/.*$/gm, ''));
+    assert.equal(config.main, 'worker/index.js');
+    assert.ok(config.compatibility_flags.includes('nodejs_compat'));
+    assert.ok(config.compatibility_date >= '2025-04-01', 'process.env preenchido com as variáveis do Worker');
+    assert.equal(config.assets.directory, './public');
+    assert.equal(config.assets.binding, 'ASSETS');
+    assert.deepEqual(config.r2_buckets, [{ binding: 'MIDIA', bucket_name: 'ama-midia' }]);
+    assert.deepEqual(config.triggers.crons, ['17 9 * * *']);
+    assert.ok(config.rules.some((r) => r.type === 'Text' && r.globs.includes('**/*.html') && r.globs.includes('**/_headers')));
+    assert.equal(config.keep_vars, true);
   });
 });

@@ -8,6 +8,7 @@
 
 import * as api from './api.js';
 import * as midia from './midia.js';
+import { publicarHome } from './publicar-home.js';
 import * as ui from './ui.js';
 
 const { el, icone } = ui;
@@ -391,6 +392,7 @@ async function entrarComSessao(sessao) {
     estado.usuario = usuario;
     fecharAcesso();
     montarPainel();
+    conferirPublicacaoDaHome();
     await mostrarRotaAtual();
   } finally {
     estado.verificando = false;
@@ -704,7 +706,18 @@ function criarCtx(raiz, rota, sinal, geracao) {
     marcarAlterado: (sim = true) => { if (ativo()) definirAlterado(sim); },
     definirTitulo: (titulo) => { if (ativo()) definirTitulo(titulo); },
     atualizarContadores: () => atualizarContadores(true),
+    publicarHome: (opcoes = {}) => publicarHome({ supabase: estado.supabase, ...opcoes }),
   };
+}
+
+// Ao entrar: se o template ou o conteúdo mudaram desde a última publicação, publica a home de novo.
+async function conferirPublicacaoDaHome() {
+  try {
+    const r = await publicarHome({ supabase: estado.supabase });
+    if (!r.ok) console.warn('[painel] não foi possível conferir a publicação do site:', r.mensagem || r.erro);
+  } catch (erro) {
+    console.warn('[painel] não foi possível conferir a publicação do site:', erro);
+  }
 }
 
 function paginaNaoEncontrada(raiz) {

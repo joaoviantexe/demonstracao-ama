@@ -7,19 +7,21 @@
 // Em cada largura, com dados próprios (sufixo aleatório):
 // - lista de produtos: busca, filtro de situação guardado na URL;
 // - produto novo: erros por campo, endereço gerado do nome, categoria criada pelo atalho,
-//   2 fotos PNG (geradas aqui) enviadas ao bucket, descrição e ordem das fotos, preço R$ 49,90 e
-//   estoque 3; confere no banco e na loja (/loja/produto?slug=) que aparece com o preço;
+//   2 fotos PNG (geradas aqui) enviadas pela rota /api/admin/midia (URL /midia/produtos/...), descrição
+//   e ordem das fotos, preço R$ 49,90 e estoque 3; confere no banco e na loja (/loja/produto?slug=)
+//   que aparece com o preço;
 // - sem campos de endereço, promoção, SKU, medidas nem "Controlar estoque"; edição do estoque,
 //   aviso de alterações não salvas, "à venda" desligado pela lista (some da loja) e
 //   apagar o produto; fotos idênticas reaproveitadas;
 // - barra "Cancelar / Salvar" visível no meio do formulário (presa no rodapé da tela);
 // - categorias: quantidade de produtos, editar no modal, criar e apagar outra pela página, subir/descer,
 //   apagar (produto fica sem categoria); por fim apaga o produto pelo formulário.
-// Tudo o que foi criado (produtos, categorias, arquivos do bucket) é apagado no fim (e conferido), e a
-// ordem das categorias do seed é restaurada. Falha (código 1) com erro no console/página, rolagem
-// horizontal ou verificação errada.
+// Tudo o que foi criado (produtos, categorias, fotos enviadas) é apagado no fim (e conferido), e a
+// ordem das categorias do seed é restaurada. O armazenamento (o bucket R2 em produção) fica numa pasta
+// temporária, apagada no fim. Falha (código 1) com erro no console/página, rolagem horizontal ou
+// verificação errada.
 
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -27,6 +29,7 @@ import { deflateSync } from 'node:zlib';
 import { chromium } from 'playwright';
 import { AMBIENTE_VAZIO, subirServidor } from '../tests/apoio/servidor.js';
 import { ambienteLocal, clienteServico } from '../tests/apoio/supabase-local.js';
+import { armazenamentoLocal } from './armazenamento-local.mjs';
 
 function argumento(nome, padrao) {
   const i = process.argv.indexOf(`--${nome}`);
@@ -38,6 +41,8 @@ const LARGURAS = argumento('larguras', '390,1440').split(',').map(Number).filter
 const ALTURAS = { 360: 760, 390: 844, 768: 1024, 1024: 800, 1440: 900 };
 const ADMIN = { email: 'admin@ama.local', senha: 'admin123456' };
 const UUID = /^#\/produtos\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+// Armazenamento numa pasta temporária (criada e apagada em principal()).
+let armazenamento = null;
 
 const problemas = [];
 const falhar = (texto) => {
@@ -223,12 +228,19 @@ async function produtoPorSlug(slug) {
   return data;
 }
 
+// Caminho no armazenamento a partir da URL pública (/midia/<caminho>); null se não é de lá.
 function caminhoNoBucket(src) {
-  const m = String(src || '').match(/\/storage\/v1\/object\/public\/midia\/(.+)$/);
+  const m = String(src || '').match(/^\/midia\/(.+)$/);
   return m ? decodeURIComponent(m[1]) : null;
 }
 
-// Arquivos enviados pelo roteiro (o produto apagado pelo painel deixa as fotos na biblioteca de Mídia).
+// Fotos enviadas pelo roteiro (o nome começa com "foto-teste-<sufixo>"), em qualquer mês.
+async function fotosDoTeste(sufixo) {
+  return (await armazenamento.listar('produtos/')).map((a) => a.chave)
+    .filter((chave) => chave.split('/').pop().startsWith(`foto-teste-${sufixo}`));
+}
+
+// Arquivos enviados pelo roteiro (o produto apagado pelo painel deixa as fotos no armazenamento).
 const arquivosEnviados = new Set();
 
 async function limpar(sufixo) {
@@ -242,16 +254,14 @@ async function limpar(sufixo) {
   if (produtos && produtos.length) await supa.from('produtos').delete().in('id', produtos.map((p) => p.id));
   const { data: categorias } = await supa.from('categorias').select('id').like('slug', `%${sufixo}%`);
   if (categorias && categorias.length) await supa.from('categorias').delete().in('id', categorias.map((c) => c.id));
-  const mes = new Date().toISOString().slice(0, 7);
-  for (const pasta of [`produtos/${mes}`]) {
-    // A busca do Storage é pelo começo do nome.
-    const { data: arquivos } = await supa.storage.from('midia').list(pasta, { limit: 1000, search: `foto-teste-${sufixo}` });
-    for (const a of arquivos || []) caminhos.add(`${pasta}/${a.name}`);
-  }
+  for (const chave of await fotosDoTeste(sufixo)) caminhos.add(chave);
   arquivosEnviados.clear();
-  if (caminhos.size) {
-    const { error } = await supa.storage.from('midia').remove([...caminhos]);
-    if (error) console.log(`  Aviso: não foi possível apagar ${[...caminhos].join(', ')}: ${error.message}`);
+  for (const caminho of caminhos) {
+    try {
+      await armazenamento.apagar(caminho);
+    } catch (erro) {
+      console.log(`  Aviso: não foi possível apagar ${caminho}: ${erro.message}`);
+    }
   }
   const resto = (produtos || []).length + (categorias || []).length;
   console.log(`  limpeza (${sufixo}): ${(produtos || []).length} produto(s), ${(categorias || []).length} categoria(s), ${caminhos.size} arquivo(s)${resto ? ' que sobraram' : ''}`);
@@ -259,11 +269,9 @@ async function limpar(sufixo) {
   // Confere que nada do roteiro ficou para trás.
   const { data: produtosDepois } = await supa.from('produtos').select('id').like('slug', `%${sufixo}%`);
   const { data: categoriasDepois } = await supa.from('categorias').select('id').like('slug', `%${sufixo}%`);
-  const sobras = [];
+  const sobras = await fotosDoTeste(sufixo);
   for (const caminho of caminhos) {
-    const [pasta, nome] = [caminho.slice(0, caminho.lastIndexOf('/')), caminho.slice(caminho.lastIndexOf('/') + 1)];
-    const { data: achados } = await supa.storage.from('midia').list(pasta, { limit: 10, search: nome });
-    if ((achados || []).some((a) => a.name === nome)) sobras.push(caminho);
+    if (!sobras.includes(caminho) && await armazenamento.existe(caminho)) sobras.push(caminho);
   }
   if ((produtosDepois || []).length || (categoriasDepois || []).length || sobras.length) {
     falhar(`limpeza (${sufixo}) incompleta: ${(produtosDepois || []).length} produto(s), ${(categoriasDepois || []).length} categoria(s), arquivos ${sobras.join(', ')}`);
@@ -389,13 +397,9 @@ async function rodarLargura(navegador, base, largura) {
     await (await escolha).setFiles(fotos);
     await pagina.waitForFunction(() => document.querySelectorAll('.produto-foto').length === 2, null, { timeout: 30_000 });
     await pagina.waitForFunction(() => !document.querySelector('.produto-form .area-upload--desativada'), null, { timeout: 30_000 });
-    ok('2 fotos enviadas ao bucket (pasta produtos/)');
+    ok('2 fotos enviadas ao armazenamento (pasta produtos/)');
     // As mesmas fotos de novo: o arquivo idêntico é reaproveitado, sem gastar armazenamento.
-    const arquivosDasFotos = async () => {
-      const mes = new Date().toISOString().slice(0, 7);
-      const { data } = await servico().storage.from('midia').list(`produtos/${mes}`, { limit: 1000, search: `foto-teste-${sufixo}` });
-      return (data || []).length;
-    };
+    const arquivosDasFotos = async () => (await fotosDoTeste(sufixo)).length;
     const antesRepetir = await arquivosDasFotos();
     const escolhaRepetida = pagina.waitForEvent('filechooser');
     await pagina.locator('.produto-form .area-upload .botao').click();
@@ -404,7 +408,7 @@ async function rodarLargura(navegador, base, largura) {
     await pagina.waitForTimeout(500);
     const depoisRepetir = await arquivosDasFotos();
     conferir(antesRepetir === 2 && depoisRepetir === 2 && await pagina.locator('.produto-foto').count() === 2,
-      'mesmas fotos enviadas de novo: reaproveitadas, nenhum arquivo novo no bucket', `arquivos antes ${antesRepetir}, depois ${depoisRepetir}`);
+      'mesmas fotos enviadas de novo: reaproveitadas, nenhum arquivo novo no armazenamento', `arquivos antes ${antesRepetir}, depois ${depoisRepetir}`);
     await fecharToasts(pagina);
     const srcAntes = await pagina.locator('.produto-foto img').evaluateAll((imgs) => imgs.map((i) => i.getAttribute('src')));
     await pagina.locator('.produto-foto').nth(0).locator('input.produto-foto__alt').fill('Foto verde com círculo dourado');
@@ -596,13 +600,16 @@ async function principal() {
   if (error) throw new Error(`Supabase local não respondeu: ${error.message}`);
   const ordemAntes = new Map(categoriasAntes.map((c) => [c.id, c.ordem]));
   const navegador = await chromium.launch({ proxy: proxyDoAmbiente() });
-  const servidor = await subirServidor({
-    ...AMBIENTE_VAZIO,
-    SUPABASE_URL: local.url,
-    SUPABASE_ANON_KEY: local.anonKey,
-    SUPABASE_SERVICE_ROLE_KEY: local.serviceKey,
-  });
+  const pastaMidia = mkdtempSync(path.join(os.tmpdir(), 'ama-capturas-produtos-midia-'));
+  armazenamento = armazenamentoLocal(pastaMidia);
+  let servidor = null;
   try {
+    servidor = await subirServidor({
+      ...AMBIENTE_VAZIO,
+      SUPABASE_URL: local.url,
+      SUPABASE_ANON_KEY: local.anonKey,
+      SUPABASE_SERVICE_ROLE_KEY: local.serviceKey,
+    }, { armazenamento });
     for (const largura of LARGURAS) {
       try {
         await rodarLargura(navegador, servidor.url, largura);
@@ -612,8 +619,9 @@ async function principal() {
       }
     }
   } finally {
-    await servidor.fechar();
+    if (servidor) await servidor.fechar();
     await navegador.close();
+    rmSync(pastaMidia, { recursive: true, force: true });
     await restaurarOrdemCategorias(ordemAntes);
   }
   rmSync(path.join(SAIDA, 'fotos'), { recursive: true, force: true });

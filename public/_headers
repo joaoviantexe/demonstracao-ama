@@ -1,0 +1,12 @@
+# Cabeçalhos de segurança (formato do Cloudflare). O Worker aplica as mesmas regras às respostas dele
+# (home, /api e /midia); o servidor local (npm run dev) também lê este arquivo.
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+
+/admin
+  X-Frame-Options: DENY
+
+/admin/*
+  X-Frame-Options: DENY

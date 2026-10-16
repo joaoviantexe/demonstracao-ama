@@ -612,17 +612,20 @@ describe('enviarArquivo e caminhos do bucket', () => {
     await assert.rejects(midia.enviarArquivo({ name: 'x.svg', type: 'image/svg+xml', size: 10 }, 'site'), { name: 'ErroMidia', codigo: 'arquivo_invalido' });
   });
 
-  test('caminhoDaUrl só aceita URLs públicas do bucket deste projeto', () => {
-    const base = 'http://127.0.0.1:54321/storage/v1/object/public/midia/';
-    assert.equal(midia.caminhoDaUrl(`${base}site/2026-10/a-123456.png`), 'site/2026-10/a-123456.png');
-    assert.equal(midia.caminhoDaUrl(`${base}site/2026-10/foto%20x-123456.png?v=1`), 'site/2026-10/foto x-123456.png');
-    assert.equal(midia.caminhoDaUrl(`${base}site/../../segredo.png`), null);
-    assert.equal(midia.caminhoDaUrl(`${base}site/%2e%2e/x.png`), null);
-    assert.equal(midia.caminhoDaUrl('https://outro.supabase.co/storage/v1/object/public/midia/site/a.png'), null);
+  test('caminhoDaUrl só aceita URLs /midia/ das pastas de mídia', () => {
+    assert.equal(midia.caminhoDaUrl('/midia/site/2026-10/a-123456.png'), 'site/2026-10/a-123456.png');
+    assert.equal(midia.caminhoDaUrl('/midia/site/2026-10/foto%20x-123456.png?v=1'), 'site/2026-10/foto x-123456.png');
+    assert.equal(midia.urlPublica('site/2026-10/foto x-123456.png'), '/midia/site/2026-10/foto%20x-123456.png');
+    assert.equal(midia.caminhoDaUrl('/midia/site/../../segredo.png'), null);
+    assert.equal(midia.caminhoDaUrl('/midia/site/%2e%2e/x.png'), null);
+    assert.equal(midia.caminhoDaUrl('/midia/_publicado/home.html'), null);
+    assert.equal(midia.caminhoDaUrl('/midia/%E0%A4%A'), null);
+    assert.equal(midia.caminhoDaUrl('https://outro.site/midia/site/a.png'), null);
+    assert.equal(midia.caminhoDaUrl('https://x.supabase.co/storage/v1/object/public/midia/site/a.png'), null);
     assert.equal(midia.caminhoDaUrl('/img/logo-ama.png'), null);
   });
 
-  test('apagarArquivo recusa caminho inválido antes de chamar o Storage', async () => {
+  test('apagarArquivo recusa caminho inválido antes de chamar o servidor', async () => {
     for (const caminho of ['', '/site/a.png', 'site/../x.png', 'site//a.png']) {
       await assert.rejects(midia.apagarArquivo(caminho), { name: 'ErroMidia', codigo: 'caminho_invalido' }, caminho);
     }

@@ -1,4 +1,4 @@
-// Testes da home editável (templates/home.html), do public/js/main.js e do render com o template real.
+// Testes da home editável (templates/home.html), do public/js/main.js e da home publicada com o template real.
 // Contrato: docs/ARQUITETURA.md §5. Requer o cwd na raiz do repositório (npm test).
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,9 +9,11 @@ import { fileURLToPath } from 'node:url';
 import { parseHTML } from 'linkedom';
 import { aplicarConteudo, extrairEsquema, lerValor } from '../../public/js/cms/aplicar.js';
 import render, { ogImagemAbsoluta } from '../../api/render.js';
-import {
-  AMBIENTE_VAZIO, aplicarAmbiente, chamarHandler, respostaJson, simularFetch,
-} from '../apoio/servidor.js';
+import { CHAVE_HOME, definirArmazenamento } from '../../lib/armazenamento.js';
+import { validarHomePublicada } from '../../lib/home.js';
+import { montarHome } from '../../public/admin/js/publicar-home.js';
+import { armazenamentoMemoria } from '../apoio/armazenamento.js';
+import { AMBIENTE_VAZIO, aplicarAmbiente, chamarHandler } from '../apoio/servidor.js';
 
 const RAIZ = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const TEMPLATE = readFileSync(path.join(RAIZ, 'templates', 'home.html'), 'utf8');
@@ -553,39 +555,51 @@ describe('public/js/main.js', () => {
 });
 
 // ---------------------------------------------------------------------------
-// api/render.js com o template real e fetch simulado (linhas de conteudo_site).
+// Home publicada com o template real: o painel monta (publicar-home.js), o servidor valida
+// (lib/home.js) e o api/render.js entrega.
 
-describe('api/render.js com templates/home.html', () => {
+describe('home publicada com templates/home.html', () => {
+  const analisar = (html) => parseHTML(html).document;
   let restaurarAmbiente;
-  let fetchSimulado;
-  beforeEach(() => { restaurarAmbiente = aplicarAmbiente(AMBIENTE_VAZIO); });
+  let armazenamento;
+  beforeEach(() => {
+    restaurarAmbiente = aplicarAmbiente(AMBIENTE_VAZIO);
+    armazenamento = armazenamentoMemoria();
+    definirArmazenamento(armazenamento);
+  });
   afterEach(() => {
-    if (fetchSimulado) fetchSimulado.restaurar();
-    fetchSimulado = null;
+    definirArmazenamento(null);
     restaurarAmbiente();
   });
 
-  test('sem Supabase devolve o template como está', async () => {
+  test('sem home publicada devolve o template como está', async () => {
     const res = await chamarHandler(render, { url: '/' });
     assert.equal(res.statusCode, 200);
     assert.equal(res.cabecalhos['x-ama-cms'], 'padrao');
     assert.equal(res.corpo, TEMPLATE);
   });
 
-  test('aplica as linhas de conteudo_site de verdade', async () => {
-    aplicarAmbiente({ SUPABASE_URL: 'http://supabase.teste', SUPABASE_ANON_KEY: 'sb_publishable_teste' });
-    fetchSimulado = simularFetch(() => respostaJson(200, [
-      { chave: 'quem-somos.titulo', valor: 'Quem somos nós' },
-      { chave: 'cabecalho.menu', valor: [{ link: { href: '/loja/', texto: 'Loja virtual' } }] },
-      { chave: 'loja.botao', valor: { href: '/loja/?c=cremes', texto: 'Ver os cremes' } },
-      { chave: 'projetos.itens', valor: [{ cartaz: { src: '/img/novo.jpg', alt: 'Novo' } }] },
-      { chave: 'grupo.parcerias.visivel', valor: false },
-      { chave: 'quem-somos.texto', valor: '<p onclick="x()">Oi<img src=x onerror=alert(1)></p>' },
-    ]));
+  test('o template sem mudanças passa na validação', () => {
+    assert.equal(validarHomePublicada(TEMPLATE, TEMPLATE), null);
+    assert.equal(validarHomePublicada(montarHome(TEMPLATE, {}, analisar), TEMPLATE), null);
+  });
+
+  test('aplica o conteúdo de verdade, passa na validação e o render entrega', async () => {
+    const html = montarHome(TEMPLATE, {
+      'quem-somos.titulo': 'Quem somos nós',
+      'cabecalho.menu': [{ link: { href: '/loja/', texto: 'Loja virtual' } }],
+      'loja.botao': { href: '/loja/?c=cremes', texto: 'Ver os cremes' },
+      'projetos.itens': [{ cartaz: { src: '/img/novo.jpg', alt: 'Novo' } }],
+      'grupo.parcerias.visivel': false,
+      'quem-somos.texto': '<p onclick="x()">Oi<img src=x onerror=alert(1)></p>',
+    }, analisar);
+    assert.ok(html.startsWith('<!doctype html>'));
+    assert.equal(validarHomePublicada(html, TEMPLATE), null);
+    await armazenamento.gravar(CHAVE_HOME, html);
+
     const res = await chamarHandler(render, { url: '/' });
     assert.equal(res.statusCode, 200);
-    assert.equal(res.cabecalhos['x-ama-cms'], 'banco');
-    assert.ok(res.corpo.startsWith('<!doctype html>'));
+    assert.equal(res.cabecalhos['x-ama-cms'], 'publicado');
     const doc = montar(res.corpo);
     assert.equal(texto($(doc, '#sobre h2')), 'Quem somos nós');
     for (const menu of ['.nav-desktop', '#menu-mobile']) {
@@ -598,22 +612,40 @@ describe('api/render.js com templates/home.html', () => {
     assert.equal($(doc, '#parcerias'), null);
     assert.equal($(doc, '.sobre-descricao').innerHTML, '<p>Oi</p>');
     assert.doesNotMatch(res.corpo, /onerror|onclick/);
-    assert.equal(fetchSimulado.chamadas.length, 1);
+  });
+
+  test('a validação recusa script, on*, javascript: e iframe de fora do Instagram', () => {
+    const base = montarHome(TEMPLATE, {}, analisar);
+    const casos = {
+      'script novo': base.replace('</body>', '<script>alert(1)</script></body>'),
+      'script de outro endereço': base.replace('<script src="/js/main.js">', '<script src="https://mal.example/x.js">'),
+      'on*': base.replace('<main', '<main onmouseover="alert(1)"'),
+      'javascript:': base.replace('href="/loja/"', 'href="javascript:alert(1)"'),
+      'javascript: com entidade': base.replace('href="/loja/"', 'href="java&#x73;cript&colon;alert(1)"'),
+      'iframe': base.replace('https://www.instagram.com/reel/', 'https://mal.example/reel/'),
+      'srcdoc': base.replace('<iframe ', '<iframe srcdoc="&lt;script&gt;x&lt;/script&gt;" '),
+      'object': base.replace('</main>', '<object data="/x"></object></main>'),
+      'base': base.replace('</head>', '<base href="https://mal.example/"></head>'),
+      'meta refresh': base.replace('</head>', '<meta http-equiv="refresh" content="0;url=https://mal.example"></head>'),
+      'dois títulos': base.replace('</head>', '<title>x</title></head>'),
+      'documento cortado': base.slice(0, 5000),
+    };
+    for (const [nome, html] of Object.entries(casos)) {
+      assert.notEqual(html, base, `o caso "${nome}" não mudou nada`);
+      assert.ok(validarHomePublicada(html, TEMPLATE), `deveria recusar: ${nome}`);
+    }
   });
 
   // WhatsApp e Facebook só mostram a imagem do link com endereço completo; o template usa /img/...
   test('og:image sai com endereço completo quando há SITE_URL', async () => {
     const ogImagem = (html) => $(montar(html), 'meta[property="og:image"]').getAttribute('content');
     aplicarAmbiente({ SITE_URL: 'https://ama.exemplo.org' });
-    const semBanco = await chamarHandler(render, { url: '/' });
-    assert.equal(ogImagem(semBanco.corpo), 'https://ama.exemplo.org/img/logo-ama.png');
+    const semPublicar = await chamarHandler(render, { url: '/' });
+    assert.equal(ogImagem(semPublicar.corpo), 'https://ama.exemplo.org/img/logo-ama.png');
 
-    aplicarAmbiente({ SUPABASE_URL: 'http://supabase.teste', SUPABASE_ANON_KEY: 'sb_publishable_teste' });
-    fetchSimulado = simularFetch(() => respostaJson(200, [
-      { chave: 'seo.og-imagem', valor: '/img/produtos/body-splash-raiz.jpg' },
-    ]));
-    const comBanco = await chamarHandler(render, { url: '/' });
-    assert.equal(ogImagem(comBanco.corpo), 'https://ama.exemplo.org/img/produtos/body-splash-raiz.jpg');
+    await armazenamento.gravar(CHAVE_HOME, montarHome(TEMPLATE, { 'seo.og-imagem': '/img/produtos/body-splash-raiz.jpg' }, analisar));
+    const publicada = await chamarHandler(render, { url: '/' });
+    assert.equal(ogImagem(publicada.corpo), 'https://ama.exemplo.org/img/produtos/body-splash-raiz.jpg');
 
     // Endereço completo e "//host" ficam como estão; o modelo cru do painel não muda.
     assert.equal(ogImagemAbsoluta('<meta property="og:image" content="https://x.org/a.jpg">', 'https://ama.exemplo.org'),
