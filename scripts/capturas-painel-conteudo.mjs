@@ -306,7 +306,7 @@ async function rodarLargura(navegador, url, largura) {
     await entrar(pagina);
     await pagina.waitForSelector('.pagina[data-pagina="conteudo"] .cms-grupos', { timeout: 20_000 });
     const grupos = await pagina.locator('.cms-grupo').count();
-    conferir(grupos === 11, `#/conteudo lista os 11 grupos do template`, `#/conteudo mostrou ${grupos} grupos`);
+    conferir(grupos === 12, `#/conteudo lista os 12 grupos do template (com Identidade)`, `#/conteudo mostrou ${grupos} grupos`);
     const qs = await cartaoDoGrupo(pagina, 'quem-somos');
     conferir(qs.titulo === 'Quem somos' && /Visível no site/.test(qs.selos) && /Conteúdo original/.test(qs.selos) && /3 campos/.test(qs.selos),
       `cartão "Quem somos": ${qs.selos}`, `cartão "Quem somos" inesperado: ${JSON.stringify(qs)}`);
