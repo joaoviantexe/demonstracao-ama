@@ -933,7 +933,7 @@ async function renderizarDetalhe(ctx) {
     const etapas = etapasEnvio(pedido, eventos);
     const semToken = integracoes && integracoes.melhor_envio && integracoes.melhor_envio.configurado === false;
     trocar(areaEnvio, 
-      semToken ? ui.aviso('O Melhor Envio não está configurado (falta o MELHOR_ENVIO_TOKEN na Vercel). Sem ele não dá para gerar a etiqueta por aqui.', 'alerta', { titulo: 'Melhor Envio desligado' }) : null,
+      semToken ? ui.aviso('O Melhor Envio não está configurado (falta o MELHOR_ENVIO_TOKEN no Cloudflare). Sem ele não dá para gerar a etiqueta por aqui.', 'alerta', { titulo: 'Melhor Envio desligado' }) : null,
       erroEnvio ? ui.aviso(erroEnvio, 'erro', { titulo: 'O Melhor Envio não concluiu a ação' }) : null,
       el('ol', { class: 'envio-etapas', 'aria-label': 'Passos do envio pelo Melhor Envio' }, etapas.map((etapa, i) => {
         const textos = TEXTO_ETAPA[etapa.id];
