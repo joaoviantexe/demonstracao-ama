@@ -681,20 +681,6 @@ async function renderizarDetalhe(ctx) {
   const areaEntrega = el('div', { class: 'pilha pilha--estreita' });
   // Só existe para pedidos que podem ser apagados (aguardando pagamento, cancelados ou reembolsados).
   const cartaoApagar = el('section', { class: 'cartao pedido-bloco--mais', 'aria-label': 'Apagar pedido', hidden: true });
-  // Nota interna (fica fora de desenhar() para não perder o que foi digitado).
-  const nota = ui.campo({
-    rotulo: 'Nova nota da equipe', nome: 'nota', tipo: 'textarea', linhas: 3,
-    ajuda: 'Só a equipe vê. Ex.: "Cliente pediu para entregar depois das 14 h".', attrs: { maxlength: '2000' },
-  });
-  const botaoNota = ui.botao({ texto: 'Adicionar nota', icone: 'mais', tipoHtml: 'submit' });
-  const formNota = el('form', { class: 'pedido-nota', novalidate: true, 'aria-label': 'Adicionar nota interna' },
-    nota.elemento, el('div', { class: 'grupo-botoes pedido-nota__acoes' }, botaoNota));
-  formNota.addEventListener('input', () => ctx.marcarAlterado(nota.ler().trim() !== ''));
-  formNota.addEventListener('submit', (evento) => {
-    evento.preventDefault();
-    adicionarNota();
-  });
-
   corpo.replaceChildren(
     areaProxima,
     // Uma coluna só, na ordem de quem cuida do pedido.
@@ -705,7 +691,7 @@ async function renderizarDetalhe(ctx) {
       cartao('pd-cliente', 'Cliente', areaCliente),
       cartao('pd-entrega', 'Entrega', areaEntrega),
       cartao('pd-pagamento', 'Pagamento', areaPagamento),
-      cartao('pd-tempo', 'Linha do tempo', formNota, listaEventos),
+      cartao('pd-tempo', 'Linha do tempo', listaEventos),
       cartaoApagar),
   );
   montado = true;
@@ -859,9 +845,7 @@ async function renderizarDetalhe(ctx) {
           el('p', { class: 'pedido-evento__meta' },
             el('time', { datetime: e.criado_em, title: ui.formatarData(e.criado_em) }, ui.formatarData(e.criado_em)),
             ` · ${rotuloAutor(e.autor)}`)),
-        e.tipo === 'nota'
-          ? ui.botao({ tipo: 'fantasma', tamanho: 'pequeno', icone: 'lixeira', rotulo: 'Apagar esta nota', aoClicar: () => apagarNota(e) })
-          : null);
+        null);
     }));
   }
 
@@ -1144,44 +1128,6 @@ async function renderizarDetalhe(ctx) {
       ctx.atualizarContadores();
       await recarregar({ silencioso: true });
     });
-  }
-
-  async function adicionarNota() {
-    const texto = nota.ler().trim();
-    if (!texto) {
-      nota.definirErro('Escreva a nota antes de adicionar.');
-      nota.entrada.focus();
-      return;
-    }
-    await ui.ocupado(botaoNota, async () => {
-      const r = await api.consultar(supabase.from('pedido_eventos').insert({
-        pedido_id: pedido.id, tipo: 'nota', descricao: texto, autor: ctx.usuario.email || 'equipe',
-      }));
-      if (!ctx.ativo()) return;
-      if (!r.ok) {
-        ui.toast(r.mensagem, 'erro');
-        return;
-      }
-      nota.entrada.value = '';
-      ctx.marcarAlterado(false);
-      ui.toast('Nota adicionada.', 'sucesso');
-      await recarregar({ silencioso: true });
-    });
-  }
-
-  async function apagarNota(evento) {
-    const sim = await ui.confirmar(`Apagar a nota "${String(evento.descricao).slice(0, 120)}"?`, {
-      perigo: true, titulo: 'Apagar nota?', textoConfirmar: 'Apagar nota',
-    });
-    if (!sim || !ctx.ativo()) return;
-    const r = await api.consultar(supabase.from('pedido_eventos').delete().eq('id', evento.id).eq('tipo', 'nota'));
-    if (!ctx.ativo()) return;
-    if (!r.ok) {
-      ui.toast(r.mensagem, 'erro');
-      return;
-    }
-    ui.toast('Nota apagada.', 'sucesso');
-    await recarregar({ silencioso: true });
   }
 
   async function apagarPedido() {

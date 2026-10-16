@@ -306,7 +306,7 @@ async function rodarLargura(navegador, url, largura) {
     await entrar(pagina);
     await pagina.waitForSelector('.pagina[data-pagina="conteudo"] .cms-grupos', { timeout: 20_000 });
     const grupos = await pagina.locator('.cms-grupo').count();
-    conferir(grupos === 12, `#/conteudo lista os 12 grupos do template (com Identidade)`, `#/conteudo mostrou ${grupos} grupos`);
+    conferir(grupos === 11, `#/conteudo lista os 11 grupos (com Identidade, sem Cabeçalho e menu)`, `#/conteudo mostrou ${grupos} grupos`);
     const qs = await cartaoDoGrupo(pagina, 'quem-somos');
     conferir(qs.titulo === 'Quem somos' && /Visível no site/.test(qs.selos) && /Conteúdo original/.test(qs.selos) && /3 campos/.test(qs.selos),
       `cartão "Quem somos": ${qs.selos}`, `cartão "Quem somos" inesperado: ${JSON.stringify(qs)}`);
@@ -369,23 +369,8 @@ async function rodarLargura(navegador, url, largura) {
     conferir(/alterações não salvas/.test(msgDescartar) && (await pagina.locator('[data-chave="quem-somos.titulo"] input').inputValue()) === tituloNovo,
       'sair sem salvar pede confirmação e "Continuar editando" mantém o texto', 'aviso de saída sem salvar falhou');
 
-    // Pré-visualizar (aba nova com Blob URL).
-    const [previa] = await Promise.all([contexto.waitForEvent('page'), pagina.locator('.cms-previsualizar').click()]);
-    await previa.waitForLoadState('load');
-    const dadosPrevia = await previa.evaluate(() => ({
-      url: window.location.href,
-      base: document.querySelector('base')?.getAttribute('href'),
-      titulo: document.querySelector('[data-cms="quem-somos.titulo"]')?.textContent,
-      faixa: document.querySelector('[data-previa-painel]')?.textContent,
-      css: [...document.styleSheets].some((f) => /\/css\/estilo\.css$/.test(f.href || '')),
-    }));
-    conferir(dadosPrevia.url.startsWith('blob:') && dadosPrevia.base === `${url}/` && dadosPrevia.titulo === tituloNovo && dadosPrevia.css,
-      'pré-visualização: Blob URL, <base> na origem, rascunho aplicado e CSS do site', `pré-visualização: ${JSON.stringify(dadosPrevia)}`);
-    conferir(/ainda não foram salvas/.test(dadosPrevia.faixa || ''), 'pré-visualização avisa que não está salvo', `faixa: ${dadosPrevia.faixa}`);
-    await previa.setViewportSize({ width: largura, height: ALTURAS[largura] || 900 });
-    await previa.evaluate(() => document.querySelector('#sobre')?.scrollIntoView());
-    await capturar(previa, `previa-quem-somos-${largura}`, { inteira: false });
-    await previa.close();
+    // Sem prévia nos editores do site (nem o botão "Pré-visualizar" nem a prévia ao vivo).
+    conferir(await pagina.locator('.cms-previsualizar, .cms-previa, .cms-previa__quadro').count() === 0, 'editor de "Quem somos" sem prévia', 'o editor ainda tem prévia');
 
     // Salvar: só a chave do título vai para o banco.
     await salvar(pagina, 'Quem somos');
@@ -530,22 +515,19 @@ async function rodarLargura(navegador, url, largura) {
 
     // Outras telas só para conferir o visual.
     await irPara(pagina, '#/conteudo/historia', '[data-chave="historia.trechos"] .cms-item');
-    // Prévia ao vivo: digitar no título do quadro "Palavra de coragem" muda a prévia na hora e marca o campo.
-    const quadroPrevia = pagina.frameLocator('.cms-previa__quadro');
-    await quadroPrevia.locator('[data-cms="historia.coragem-titulo"]').waitFor({ state: 'attached', timeout: 20_000 });
-    const tituloQuadro = `Coragem ${sufixo}`;
-    await pagina.locator('[data-chave="historia.coragem-titulo"] input').fill(tituloQuadro);
-    await pagina.waitForTimeout(600);
-    const naPrevia = await quadroPrevia.locator('[data-cms="historia.coragem-titulo"]').evaluate((e) => ({ texto: e.textContent.trim(), foco: e.hasAttribute('data-cms-previa-foco') }));
-    conferir(naPrevia.texto === tituloQuadro && naPrevia.foco, 'prévia ao vivo: o título digitado aparece na hora e o campo fica marcado',
-      `prévia ao vivo: ${JSON.stringify(naPrevia)}`);
-    await capturar(pagina, `previa-ao-vivo-${largura}`, { inteira: false });
-    await pagina.locator('[data-chave="historia.coragem-titulo"] input').fill('Palavra de coragem');
     await pagina.locator('[data-chave="historia.trechos"] .cms-item__alternar').first().click();
     await pagina.waitForSelector('[data-chave="historia.trechos"] .cms-item__corpo .cms-rico__area');
     await capturar(pagina, `historia-${largura}`);
     await semRolagemHorizontal(pagina, 'História');
     await irPara(pagina, '#/conteudo/seo', '.cms-meta-imagem');
+    // Google mantém a prévia (resultado da busca e link compartilhado), que acompanha o que se digita.
+    const tituloSeo = pagina.locator('[data-chave="seo.titulo"] input, [data-chave="seo.titulo"] textarea').first();
+    const tituloSeoOriginal = await tituloSeo.inputValue();
+    await tituloSeo.fill(`Título de busca ${sufixo}`);
+    await pagina.waitForTimeout(400);
+    conferir((await pagina.locator('.cms-google__titulo').textContent()).includes(`Título de busca ${sufixo}`)
+      && await pagina.locator('.cms-google__cartao').count() === 1, 'Google: a prévia mostra o título digitado', 'a prévia do Google não acompanhou o título');
+    await tituloSeo.fill(tituloSeoOriginal);
     await capturar(pagina, `seo-${largura}`);
     await semRolagemHorizontal(pagina, 'SEO');
     await irPara(pagina, '#/conteudo/postagens', '[data-chave="postagens.publicacoes"] .cms-item');

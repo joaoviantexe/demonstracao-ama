@@ -4,12 +4,14 @@
 // - O valor de cada campo é a linha de conteudo_site ou, sem linha, o padrão do template.
 // - "Salvar" grava só as chaves que mudaram: upsert do valor novo ou, quando ele voltou a ser igual
 //   ao padrão do template, apaga a linha (o mesmo que "Restaurar padrão").
-// - "Pré-visualizar" abre o template com o rascunho aplicado numa aba nova (Blob URL).
 // As funções puras exportadas rodam no Node (tests/unit/painel-conteudo.test.js).
 
 import {
   aplicarConteudo, embedParaInstagram, extrairEsquema, instagramParaEmbed, sanitizarHtml, urlSegura,
 } from '../../../js/cms/aplicar.js';
+
+/** Partes da página inicial que o painel não edita (por enquanto: o cabeçalho e o menu). */
+export const GRUPOS_DESATIVADOS = new Set(['cabecalho']);
 
 /** Máximo de itens numa lista (o motor do CMS ignora o que passar disso). */
 export const LIMITE_ITENS = 200;
@@ -503,39 +505,6 @@ export function resumirGrupos(esquema, salvos) {
   });
 }
 
-const ESTILO_FAIXA = [
-  'position:fixed', 'left:12px', 'bottom:14px', 'z-index:2147483647',
-  'max-width:min(420px,calc(100% - 210px))', 'padding:8px 14px', 'border-radius:14px', 'background:#0B2A1C', 'color:#FBF6EA',
-  'font:600 13px/1.3 system-ui,sans-serif', 'text-align:center', 'box-shadow:0 6px 18px rgba(0,0,0,.3)',
-  'pointer-events:none',
-].join(';');
-
-/**
- * HTML da pré-visualização: template + conteúdo aplicado + <base> na origem do site (os caminhos
- * /css, /img e /js continuam funcionando dentro de um blob:) + faixa "Pré-visualização".
- * analisar(html) → Document (DOMParser no navegador, linkedom nos testes).
- */
-export function htmlDaPrevia(template, conteudo, { analisar, origem = '', aviso = '' } = {}) {
-  const doc = analisar(template);
-  aplicarConteudo(doc, conteudo);
-  const head = doc.head || doc.querySelector('head');
-  if (head) {
-    const base = doc.createElement('base');
-    base.setAttribute('href', `${origem}/`);
-    head.insertBefore(base, head.firstChild);
-  }
-  const corpo = doc.body || doc.querySelector('body');
-  if (aviso && corpo) {
-    const faixa = doc.createElement('div');
-    faixa.setAttribute('style', ESTILO_FAIXA);
-    faixa.setAttribute('role', 'status');
-    faixa.setAttribute('data-previa-painel', '');
-    faixa.textContent = aviso;
-    corpo.appendChild(faixa);
-  }
-  return `<!doctype html>\n${doc.documentElement.outerHTML}`;
-}
-
 // ---------------------------------------------------------------------------
 // Página
 
@@ -582,6 +551,8 @@ async function carregarDados(ctx) {
   try {
     documento = new DOMParser().parseFromString(modelo.html, 'text/html');
     esquema = extrairEsquema(documento);
+    // Partes desativadas no painel: não aparecem na lista nem abrem por endereço (o site segue com o que já está salvo).
+    esquema = { ...esquema, grupos: esquema.grupos.filter((g) => !GRUPOS_DESATIVADOS.has(g.id)) };
   } catch (erro) {
     console.error('[conteudo] não foi possível ler o modelo:', erro);
     esquema = { grupos: [] };
@@ -1381,8 +1352,6 @@ function subcampo(ctx, sub, valor, aoMudar, recursos, padrao) {
   };
 }
 
-const LISTAS_SEM_ADICIONAR = new Set(['cabecalho.menu']);
-
 function editorLista(ctx, campo, valor, aoMudar, { idRotulo, recursos }) {
   const { ui } = ctx;
   const { el } = ui;
@@ -1403,10 +1372,8 @@ function editorLista(ctx, campo, valor, aoMudar, { idRotulo, recursos }) {
   const anuncio = el('p', { class: 'sr-only', 'aria-live': 'polite' });
   const erroGeral = el('p', { class: 'campo__erro', id: ui.novoId('cms-erro'), hidden: true });
   const adicionar = ui.botao({ texto: `Adicionar ${minusculo}`, icone: 'mais', tipo: 'secundario', aoClicar: () => adicionarNovo() });
-  // Os itens do menu são fixos (as seções da página): dá para mudar, subir/descer e tirar, mas não criar novos.
-  const podeAdicionar = !LISTAS_SEM_ADICIONAR.has(campo.chave);
   const elemento = el('div', { class: 'cms-lista-editor', role: 'group', 'aria-labelledby': idRotulo },
-    lista, vazio, erroGeral, podeAdicionar ? el('div', { class: 'cms-lista__rodape' }, adicionar) : null, anuncio);
+    lista, vazio, erroGeral, el('div', { class: 'cms-lista__rodape' }, adicionar), anuncio);
 
   const emitir = () => aoMudar(itens.map((i) => i.valores));
   const anunciar = (mensagem) => { anuncio.textContent = mensagem; };
@@ -1588,173 +1555,8 @@ function editorLista(ctx, campo, valor, aoMudar, { idRotulo, recursos }) {
 }
 
 // ---------------------------------------------------------------------------
-// Prévia ao vivo: a parte da página inicial que está sendo editada, mudando enquanto a pessoa digita.
+// Google: a única prévia do editor do site. Mostra o resultado da busca e o cartão do link compartilhado.
 
-const ESTILO_PREVIA_VIVA = [
-  // Sem JavaScript na prévia: as animações de entrada já começam visíveis.
-  '.reveal{opacity:1!important;transform:none!important;transition:none!important}',
-  'html{scroll-behavior:auto!important}',
-  '[data-cms-previa-foco]{outline:3px dashed #C9982B!important;outline-offset:4px!important}',
-].join('');
-const LARGURA_COMPUTADOR = 1280;
-const LARGURA_CELULAR = 390;
-
-/** HTML da prévia ao vivo: o da pré-visualização + estilo que mostra tudo e marca o campo em foco. */
-export function htmlDaPreviaViva(template, conteudo, { mostrarWhatsapp = false, ...opcoes } = {}) {
-  // O botão flutuante do WhatsApp cobriria a parte editada: só aparece quando é ele que está sendo editado.
-  const estilo = ESTILO_PREVIA_VIVA + (mostrarWhatsapp ? '' : '.wa-flutuante{display:none!important}');
-  return htmlDaPrevia(template, conteudo, opcoes)
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '') // a prévia não roda JavaScript (iframe sem allow-scripts)
-    .replace(/<\/head>/i, `<style data-previa-viva>${estilo}</style></head>`);
-}
-
-function criarPreviaAoVivo(ctx, { template, grupoId, conteudo, recursos }) {
-  const { ui } = ctx;
-  const { el } = ui;
-  let modo = null; // 'computador' | 'celular' (escolhido pela largura na primeira medida)
-  let doc = null;
-  let carregada = false;
-  let pendente = false;
-  let foco = null;
-  let visibilidade = null;
-  const janela = el('div', { class: 'cms-previa__janela' });
-  const quadro = el('iframe', { class: 'cms-previa__quadro', title: 'Prévia ao vivo desta parte do site', sandbox: 'allow-same-origin', tabindex: '-1' });
-  janela.append(quadro);
-  const botaoModo = (id, texto, icone) => ui.botao({
-    texto, icone, tipo: 'fantasma', tamanho: 'pequeno', classe: 'cms-previa__modo', rotulo: `Ver como no ${texto.toLowerCase()}`,
-    attrs: { 'aria-pressed': 'false', 'data-modo': id },
-    aoClicar: () => trocarModo(id),
-  });
-  const computador = botaoModo('computador', 'Computador', 'computador');
-  const celular = botaoModo('celular', 'Celular', 'celular');
-  const esconder = ui.botao({
-    texto: 'Esconder', icone: 'olho-fechado', tipo: 'fantasma', tamanho: 'pequeno', classe: 'cms-previa__esconder', rotulo: 'Esconder a prévia',
-    attrs: { 'aria-expanded': 'true' }, aoClicar: () => alternar(),
-  });
-  const elemento = el('section', { class: 'cartao cms-previa', 'aria-label': 'Prévia ao vivo' },
-    el('div', { class: 'cms-previa__barra' },
-      el('p', { class: 'cms-previa__titulo' }, ui.icone('olho'), 'Prévia ao vivo'),
-      el('div', { class: 'cms-previa__acoes' }, computador, celular, esconder)),
-    janela);
-
-  const valorVisibilidade = (c) => c[chaveVisibilidade(grupoId)] !== false;
-  const alvoDoGrupo = () => doc && (doc.querySelector(`[data-cms-grupo="${grupoId}"]`) || doc.body);
-
-  function rolarPara(alvo, { suave = false } = {}) {
-    if (!doc || !alvo || !doc.defaultView) return;
-    const janelaDoc = doc.defaultView;
-    const topo = alvo.getBoundingClientRect().top + janelaDoc.scrollY;
-    // O cabeçalho do site fica fixo no alto: desconta a altura dele.
-    janelaDoc.scrollTo({ top: Math.max(0, topo - 110), behavior: suave ? 'smooth' : 'auto' });
-  }
-
-  function marcarFoco() {
-    if (!doc) return;
-    for (const antigo of doc.querySelectorAll('[data-cms-previa-foco]')) antigo.removeAttribute('data-cms-previa-foco');
-    if (!foco) return null;
-    const alvo = [...doc.querySelectorAll('[data-cms]')].find((e) => e.getAttribute('data-cms') === foco);
-    if (alvo) alvo.setAttribute('data-cms-previa-foco', '');
-    return alvo || null;
-  }
-
-  function montar() {
-    carregada = false;
-    const atual = conteudo();
-    visibilidade = valorVisibilidade(atual);
-    const rolagem = doc && doc.defaultView ? doc.defaultView.scrollY : null;
-    let html;
-    try {
-      html = htmlDaPreviaViva(template, atual, {
-        analisar: (t) => new DOMParser().parseFromString(t, 'text/html'), origem: window.location.origin, mostrarWhatsapp: grupoId === 'whatsapp',
-      });
-    } catch (erro) {
-      console.error('[conteudo] falha ao montar a prévia ao vivo:', erro);
-      return;
-    }
-    quadro.onload = () => {
-      doc = quadro.contentDocument;
-      carregada = true;
-      if (!doc) return;
-      const alvo = marcarFoco();
-      if (rolagem !== null) doc.defaultView.scrollTo(0, rolagem);
-      else rolarPara(alvo || alvoDoGrupo());
-      if (pendente) {
-        pendente = false;
-        atualizar();
-      }
-    };
-    quadro.srcdoc = html;
-  }
-
-  function atualizar() {
-    if (!carregada || !doc) {
-      pendente = true;
-      return;
-    }
-    const atual = conteudo();
-    // Ligar/desligar a seção tira ou devolve o elemento: aí monta de novo.
-    if (valorVisibilidade(atual) !== visibilidade) {
-      montar();
-      return;
-    }
-    try {
-      aplicarConteudo(doc, atual);
-    } catch (erro) {
-      console.warn('[conteudo] prévia ao vivo: montando de novo', erro);
-      montar();
-      return;
-    }
-    marcarFoco();
-  }
-
-  function focar(chave) {
-    if (chave === foco) return;
-    foco = chave;
-    const alvo = marcarFoco();
-    if (alvo) rolarPara(alvo);
-  }
-
-  function medir() {
-    const largura = janela.clientWidth;
-    if (!largura) return;
-    if (!modo) modo = largura < 700 ? 'celular' : 'computador';
-    for (const b of [computador, celular]) b.setAttribute('aria-pressed', String(b.dataset.modo === modo));
-    const virtual = modo === 'celular' ? LARGURA_CELULAR : LARGURA_COMPUTADOR;
-    const escala = Math.min(1, largura / virtual);
-    const altura = janela.clientHeight || 300;
-    quadro.style.width = `${virtual}px`;
-    quadro.style.height = `${Math.round(altura / escala)}px`;
-    quadro.style.transform = `scale(${escala})`;
-    quadro.style.left = `${Math.max(0, Math.round((largura - virtual * escala) / 2))}px`;
-  }
-
-  function trocarModo(novo) {
-    modo = novo;
-    medir();
-  }
-
-  function alternar() {
-    const escondidaAgora = !elemento.classList.contains('cms-previa--escondida');
-    elemento.classList.toggle('cms-previa--escondida', escondidaAgora);
-    const rotulo = esconder.querySelector('.botao__texto');
-    if (rotulo) rotulo.textContent = escondidaAgora ? 'Mostrar' : 'Esconder';
-    esconder.setAttribute('aria-label', escondidaAgora ? 'Mostrar a prévia' : 'Esconder a prévia');
-    esconder.setAttribute('aria-expanded', String(!escondidaAgora));
-    if (!escondidaAgora) medir();
-  }
-
-  let observador = null;
-  if (typeof ResizeObserver === 'function') {
-    observador = new ResizeObserver(() => medir());
-    observador.observe(janela);
-  }
-  recursos.limpezas.add(() => { if (observador) observador.disconnect(); });
-  // Monta depois de entrar na página (o iframe precisa estar no documento para carregar).
-  setTimeout(() => { if (ctx.ativo() && elemento.isConnected) { medir(); montar(); } }, 0);
-  return { elemento, atualizar, focar };
-}
-
-// Google não mostra a página: a prévia é o resultado da busca e o cartão do link compartilhado.
 function criarPreviaGoogle(ctx, { conteudo }) {
   const { ui } = ctx;
   const { el } = ui;
@@ -1764,8 +1566,8 @@ function criarPreviaGoogle(ctx, { conteudo }) {
   const ogTitulo = el('p', { class: 'cms-google__og-titulo' });
   const ogDescricao = el('p', { class: 'cms-google__og-descricao' });
   const endereco = window.location.host || 'ama.org.br';
-  const elemento = el('section', { class: 'cartao cms-previa cms-previa--google', 'aria-label': 'Prévia ao vivo' },
-    el('div', { class: 'cms-previa__barra' }, el('p', { class: 'cms-previa__titulo' }, ui.icone('olho'), 'Prévia ao vivo')),
+  const elemento = el('section', { class: 'cartao cms-previa', 'aria-label': 'Prévia do Google e do link compartilhado' },
+    el('div', { class: 'cms-previa__barra' }, el('p', { class: 'cms-previa__titulo' }, ui.icone('olho'), 'Prévia')),
     el('div', { class: 'cms-google' },
       el('div', { class: 'cms-google__resultado' }, el('p', { class: 'cms-google__url' }, endereco), titulo, descricao),
       el('div', { class: 'cms-google__cartao' }, imagem,
@@ -1781,7 +1583,7 @@ function criarPreviaGoogle(ctx, { conteudo }) {
     imagem.replaceChildren(src ? el('img', { src, alt: '', loading: 'lazy' }) : ui.icone('imagem'));
   }
   atualizar();
-  return { elemento, atualizar, focar() {} };
+  return { elemento, atualizar };
 }
 
 // ---------------------------------------------------------------------------
@@ -1817,17 +1619,18 @@ function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
     acoes: [ui.botao({ texto: 'Ver no site', iconeDireita: 'externo', href: enderecoSite, classe: 'cms-ver-site', attrs: { target: '_blank', rel: 'noopener' } })],
   }));
 
-  // Tudo o que o site mostraria agora: o que está salvo + o rascunho deste grupo.
-  const conteudoAtual = () => {
-    const conteudo = {};
-    for (const [chave, linha] of salvos) conteudo[chave] = linha.valor;
-    for (const campo of campos) conteudo[campo.chave] = normalizarValor(campo, rascunho.get(campo.chave), document);
-    return conteudo;
-  };
-  const previaViva = grupo.id === 'seo'
-    ? criarPreviaGoogle(ctx, { conteudo: conteudoAtual })
-    : criarPreviaAoVivo(ctx, { template: dados.template, grupoId: grupo.id, conteudo: conteudoAtual, recursos });
-  const atualizarPreviaDepois = ui.debounce(() => previaViva.atualizar(), 200);
+  // Só "Google" tem prévia: o que o rascunho mostraria na busca e no link compartilhado.
+  const previaGoogle = grupo.id === 'seo'
+    ? criarPreviaGoogle(ctx, {
+      conteudo: () => {
+        const c = {};
+        for (const [chave, linha] of salvos) c[chave] = linha.valor;
+        for (const campo of campos) c[campo.chave] = normalizarValor(campo, rascunho.get(campo.chave), document);
+        return c;
+      },
+    })
+    : null;
+  const atualizarPreviaDepois = ui.debounce(() => { if (previaGoogle) previaGoogle.atualizar(); }, 200);
   recursos.limpezas.add(() => atualizarPreviaDepois.cancelar());
 
   const aoMudar = (chave, valor) => {
@@ -1882,19 +1685,13 @@ function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
 
   // --- barra de ações
   const info = el('p', { class: 'barra-acoes__info cms-barra__info', 'aria-live': 'polite' });
-  const previa = ui.botao({ texto: 'Pré-visualizar', tipo: 'secundario', icone: 'olho', classe: 'cms-previsualizar', aoClicar: () => previsualizar() });
   const salvarBotao = ui.botao({ texto: 'Salvar', tipo: 'primario', icone: 'check', classe: 'cms-salvar', aoClicar: () => salvar() });
   const form = el('form', { class: 'pilha cms-formulario', novalidate: true, 'aria-label': `Conteúdo: ${grupo.rotulo}` },
-    previaViva.elemento,
+    previaGoogle ? previaGoogle.elemento : null,
     grupo.campos.length ? null : ui.aviso('Esta parte não tem textos para editar: aqui você só escolhe se ela aparece no site.', 'info'),
     Array.from(controles.values(), (c) => c.cartao),
-    el('div', { class: 'barra-acoes cms-barra' }, info, previa, salvarBotao));
+    el('div', { class: 'barra-acoes cms-barra' }, info, salvarBotao));
   form.addEventListener('submit', (evento) => evento.preventDefault());
-  // Campo em foco: a prévia vai até ele e o marca.
-  form.addEventListener('focusin', (evento) => {
-    const cartao = evento.target.closest('[data-chave]');
-    if (cartao) previaViva.focar(cartao.dataset.chave);
-  });
   corpo.replaceChildren(form);
 
   // --- estado (selos, aviso de alterações, texto da barra)
@@ -1994,34 +1791,8 @@ function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
     desenharEditor(controle);
     acabouDeSalvar = temLinha;
     atualizarEstado();
-    previaViva.atualizar();
+    if (previaGoogle) previaGoogle.atualizar();
     controle.editor.focar();
     ui.toast(temLinha ? 'Padrão restaurado.' : 'Mudanças desfeitas.', 'sucesso');
-  }
-
-  // --- pré-visualizar (template + tudo o que está salvo + o rascunho deste grupo)
-  function previsualizar() {
-    const conteudo = conteudoAtual();
-    const pendente = montarAlteracoes({ campos, rascunho, salvos, documento: document }).total > 0;
-    let html;
-    try {
-      html = htmlDaPrevia(dados.template, conteudo, {
-        analisar: (t) => new DOMParser().parseFromString(t, 'text/html'),
-        origem: window.location.origin,
-        aviso: pendente ? 'Pré-visualização: as mudanças ainda não foram salvas' : 'Pré-visualização',
-      });
-    } catch (erro) {
-      console.error('[conteudo] falha ao montar a pré-visualização:', erro);
-      ui.toast('Não foi possível montar a pré-visualização. Tente de novo.', 'erro');
-      return;
-    }
-    const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
-    recursos.urls.add(url);
-    const janela = window.open(ancora ? `${url}#${ancora}` : url, '_blank');
-    if (!janela) {
-      ui.toast('O navegador bloqueou a nova aba. Permita janelas pop-up para este site e tente de novo.', 'aviso');
-      return;
-    }
-    try { janela.opener = null; } catch { /* outra origem */ }
   }
 }

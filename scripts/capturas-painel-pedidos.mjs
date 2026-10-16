@@ -6,7 +6,7 @@
 //
 // Em cada largura, com dados próprios (sufixo aleatório; pedidos criados pelas RPCs do banco):
 // - lista: busca por e-mail e por número, filtro "Para enviar" guardado na URL, linha que abre o detalhe;
-// - pedido pago pelo Melhor Envio: próxima ação, nota interna (e apagar a nota), "Marcar como em
+// - pedido pago pelo Melhor Envio: próxima ação, "Marcar como em
 //   separação", o assistente de envio inteiro contra o Melhor Envio falso (carrinho → pagar → gerar →
 //   imprimir → rastreio) e "Marcar como enviado" com código de rastreio; confere tudo no banco;
 // - pedido aguardando pagamento (frete fixo): "Conferir pagamento" (nenhum pagamento no Mercado Pago falso)
@@ -276,20 +276,8 @@ async function rodarLargura(navegador, base, largura, me) {
     await capturar(pagina, `detalhe-pago-${largura}`);
     await semRolagemHorizontal(pagina, `detalhe ${largura}px`);
 
-    // Nota interna.
-    const textoNota = `Cliente pediu entrega depois das 14 h (${sufixo})`;
-    await pagina.locator('.pedido-nota textarea').fill(textoNota);
-    await pagina.getByRole('button', { name: 'Adicionar nota' }).click();
-    await esperarToast(pagina, 'Nota adicionada');
-    await pagina.waitForSelector(`.pedido-evento--nota:has-text("${textoNota}")`);
-    const comNota = await eventosDoBanco(pedidoMe.id);
-    conferir(comNota.some((e) => e.tipo === 'nota' && e.descricao === textoNota), 'nota interna gravada no banco', 'a nota não foi gravada');
-    await fecharToasts(pagina);
-    await pagina.locator('.pedido-evento--nota', { hasText: textoNota }).getByRole('button', { name: 'Apagar esta nota' }).click();
-    await confirmarModal(pagina, 'Apagar nota');
-    await esperarToast(pagina, 'Nota apagada');
-    const semNota = await eventosDoBanco(pedidoMe.id);
-    conferir(!semNota.some((e) => e.tipo === 'nota'), 'nota apagada', 'a nota continua no banco');
+    // Sem "Nova nota da equipe": a linha do tempo só mostra o histórico.
+    conferir(await pagina.locator('.pedido-nota, textarea[name="nota"]').count() === 0, 'pedido sem o campo de nova nota', 'o pedido ainda tem o campo de nota');
     await fecharToasts(pagina);
 
     // Em separação pela próxima ação.

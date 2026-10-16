@@ -629,10 +629,8 @@ Editor de conteúdo: grupos vindos de `extrairEsquema` (template de `/api/render
 (texto, textarea, editor rico com barra Negrito/Itálico/Link/Lista/Parágrafo + `sanitizarHtml`, imagem com prévia,
 upload, biblioteca e texto alternativo, vídeo com upload e capa, link, URL, Instagram, listas com adicionar/remover/
 subir/descer; o menu do cabeçalho não cria itens novos), "Restaurar padrão" por campo (apaga a linha), "Salvar"
-(upsert só do que mudou), "Pré-visualizar" (nova aba com o template + `<base href="/">` + rascunho) e "Ver no site".
-Prévia ao vivo no alto de cada parte: iframe `sandbox="allow-same-origin"` sem scripts com o template + rascunho,
-atualizado no lugar (`aplicarConteudo`) a cada mudança; o campo em foco é marcado e a prévia rola até ele;
-modos computador (1280 px, em escala) e celular (390 px). Em "Google" a prévia é o resultado da busca e o cartão do link.
+(upsert só do que mudou) e "Ver no site".
+Os editores do site não têm prévia (nem botão "Pré-visualizar" nem prévia ao vivo); "Ver no site" abre a página.
 Campos com `data-cms-editor="produto"` (fotos do Banner da Loja) são escolhidos entre os produtos (capa + nome).
 "Identidade" (`identidade.logo`) é a logo do topo, do menu do celular e do rodapé (espelhos da mesma chave).
 
@@ -642,7 +640,7 @@ que ajusta `ordem`). Nada é obrigatório: nome vazio vira "Produto sem Nome"; p
 
 Pedidos: lista com busca (nome, e-mail, telefone, CPF ou número), filtro por situação (guardado na URL) e páginas
 de 20; detalhe com a próxima ação sugerida, itens, cliente (link do WhatsApp), entrega, pagamento ("Conferir no
-Mercado Pago" → `/api/admin/pagamento`), linha do tempo com notas internas (`pedido_eventos` tipo `nota`),
+Mercado Pago" → `/api/admin/pagamento`), linha do tempo (só histórico: não há campo de nova nota),
 "Mudar situação" (`/api/admin/pedido-status`, com rastreio, repor estoque e aviso por e-mail) e o assistente de
 envio do Melhor Envio (`/api/admin/envio`: carrinho com NF-e opcional → pagar com o saldo → gerar → imprimir →
 buscar rastreio → marcar como enviado). Pedido aguardando pagamento pode ser apagado. Lista e detalhe se atualizam

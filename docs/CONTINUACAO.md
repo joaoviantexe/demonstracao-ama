@@ -96,7 +96,7 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
 
 1. **(Feito)** **Páginas do painel ainda não feitas:**
    - `public/admin/js/paginas/pedidos.js`: lista com filtros e busca; detalhe com itens, cliente, entrega e pagamento;
-     linha do tempo; notas (insert em `pedido_eventos` só com `tipo = 'nota'`); mudar status pela
+     linha do tempo (sem campo de nota); mudar status pela
      `/api/admin/pedido-status`; "Conferir pagamento"; assistente de envio pelo Melhor Envio
      (`/api/admin/envio`: adicionar_carrinho → comprar → gerar → imprimir → rastrear).
    - `public/admin/js/paginas/configuracoes.js`: abas Loja, Frete (sem retirada), Pagamento e Avisos por e-mail (sem tela de integrações).
