@@ -642,7 +642,7 @@ Pedidos: lista com busca (nome, e-mail, telefone, CPF ou número), filtro por si
 de 20; detalhe com a próxima ação sugerida, itens, cliente (link do WhatsApp), entrega, pagamento ("Conferir no
 Mercado Pago" → `/api/admin/pagamento`), linha do tempo (só histórico: não há campo de nova nota),
 "Mudar situação" (`/api/admin/pedido-status`, com rastreio, repor estoque e aviso por e-mail) e o assistente de
-envio do Melhor Envio (`/api/admin/envio`: carrinho com NF-e opcional → pagar com o saldo → gerar → imprimir →
+envio do Melhor Envio (`/api/admin/envio`: carrinho sempre com declaração de conteúdo; a API ainda aceita `chave_nfe` → pagar com o saldo → gerar → imprimir →
 buscar rastreio → marcar como enviado). Pedido aguardando pagamento pode ser apagado. Lista e detalhe se atualizam
 sozinhos a cada 20 s e ao voltar para a aba (sem botão "Atualizar"); o painel inteiro usa uma coluna.
 

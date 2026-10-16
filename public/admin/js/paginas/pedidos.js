@@ -343,14 +343,6 @@ export function etapasEnvio(pedido, eventos) {
   return ETAPAS_ENVIO.map((id) => ({ id, feito: feito[id], atual: id === atual }));
 }
 
-/** Chave da NF-e digitada: '' (sem nota) ou 44 dígitos. → mensagem de erro ou null. */
-export function erroChaveNfe(texto) {
-  const t = String(texto ?? '').trim();
-  if (!t) return null;
-  return t.replace(/\D/g, '').length === 44 && /^[\d\s.\-/]+$/.test(t)
-    ? null : 'A chave da NF-e tem 44 números (fica no alto da nota). Deixe vazio para usar a declaração de conteúdo.';
-}
-
 /** Itens do pedido: total de unidades. */
 export function totalUnidades(itens) {
   return (Array.isArray(itens) ? itens : []).reduce((soma, i) => soma + (Number(i.quantidade) || 0), 0);
@@ -864,11 +856,6 @@ async function renderizarDetalhe(ctx) {
     },
   };
 
-  const chaveNfe = ui.campo({
-    rotulo: 'Chave da nota fiscal (NF-e)', nome: 'chave_nfe', placeholder: '44 números (opcional)',
-    ajuda: 'Opcional. Sem nota fiscal, a etiqueta vai com declaração de conteúdo.', attrs: { inputmode: 'numeric', autocomplete: 'off', maxlength: '60' },
-  });
-
   function botaoEnvio(texto, acao, { tipo = 'primario', icone = 'check', extra } = {}) {
     const b = ui.botao({ texto, tipo, icone, tamanho: 'pequeno' });
     b.addEventListener('click', () => executarEnvio(acao, b, typeof extra === 'function' ? extra() : extra));
@@ -881,7 +868,7 @@ async function renderizarDetalhe(ctx) {
     const total = etiquetas.reduce((s, e) => s + (Number.isSafeInteger(e.preco_centavos) ? e.preco_centavos : 0), 0);
     const n = etiquetas.length || (Array.isArray(pedido.me_ordens) ? pedido.me_ordens.length : 0);
     if (!n) return null;
-    return `${n} ${n === 1 ? 'etiqueta' : 'etiquetas'}${total ? ` · ${formatarPreco(total)}` : ''}${evento && evento.dados.nfe ? ' · com NF-e' : ' · declaração de conteúdo'}`;
+    return `${n} ${n === 1 ? 'etiqueta' : 'etiquetas'}${total ? ` · ${formatarPreco(total)}` : ''}`;
   }
 
   function conteudoEtapa(etapa) {
@@ -894,8 +881,8 @@ async function renderizarDetalhe(ctx) {
         refazer.addEventListener('click', () => refazerEtiquetas(refazer));
         blocos.push(refazer);
       } else {
-        blocos.push(chaveNfe.elemento, el('div', { class: 'grupo-botoes' },
-          botaoEnvio('Adicionar ao carrinho', 'adicionar_carrinho', { icone: 'mais', extra: () => ({ chave_nfe: chaveNfe.ler().replace(/\D/g, '') || undefined }) })));
+        blocos.push(el('div', { class: 'grupo-botoes' },
+          botaoEnvio('Adicionar ao carrinho', 'adicionar_carrinho', { icone: 'mais' })));
       }
     } else if (etapa.id === 'compra' && etapa.atual) {
       const me = integracoes && integracoes.melhor_envio;
@@ -973,30 +960,16 @@ async function renderizarDetalhe(ctx) {
   };
 
   async function executarEnvio(acao, botao, extra = {}) {
-    if (acao === 'adicionar_carrinho') {
-      const erro = erroChaveNfe(chaveNfe.ler());
-      if (erro) {
-        chaveNfe.definirErro(erro);
-        chaveNfe.entrada.focus();
-        return;
-      }
-    }
     erroEnvio = null;
     const r = await ui.ocupado(botao, () => api.chamarApi('/api/admin/envio', { corpo: { pedido_id: pedido.id, acao, ...extra }, sinal: ctx.sinal }));
     if (!r || !ctx.ativo() || r.erro === 'cancelado') return;
     if (!r.ok) {
-      if (r.campo === 'chave_nfe') {
-        chaveNfe.definirErro(r.mensagem);
-        chaveNfe.entrada.focus();
-        return;
-      }
       erroEnvio = r.mensagem;
       ui.toast(r.mensagem, 'erro');
       // Etiqueta criada no Melhor Envio mas não salva, órfãs etc.: o pedido pode ter mudado.
       await recarregar({ silencioso: true });
       return;
     }
-    if (acao === 'adicionar_carrinho') chaveNfe.entrada.value = '';
     if (acao === 'comprar') consultarIntegracoes();
     ui.toast(MENSAGEM_SUCESSO_ENVIO[acao](r), acao === 'rastrear' && !r.codigo_rastreio ? 'info' : 'sucesso');
     await recarregar({ silencioso: true });
@@ -1007,7 +980,7 @@ async function renderizarDetalhe(ctx) {
       titulo: 'Refazer as etiquetas?', textoConfirmar: 'Refazer etiquetas',
     });
     if (!sim || !ctx.ativo()) return;
-    await executarEnvio('adicionar_carrinho', botao, { refazer: true, chave_nfe: chaveNfe.ler().replace(/\D/g, '') || undefined });
+    await executarEnvio('adicionar_carrinho', botao, { refazer: true });
   }
 
   // --- Ações -----------------------------------------------------------------

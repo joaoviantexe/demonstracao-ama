@@ -292,11 +292,6 @@ async function rodarLargura(navegador, base, largura, me) {
 
     // --- Assistente do Melhor Envio --------------------------------------------------
     const etapaAtual = () => pagina.locator('.envio-etapa--atual .envio-etapa__titulo').textContent().then((t) => t.trim());
-    await pagina.locator('.envio-etapa--atual input[name="chave_nfe"]').fill('123');
-    await pagina.getByRole('button', { name: 'Adicionar ao carrinho' }).click();
-    await pagina.waitForSelector('.envio-etapa--atual .campo--erro', { timeout: 10_000 });
-    ok('chave da NF-e inválida mostra o erro no campo');
-    await pagina.locator('.envio-etapa--atual input[name="chave_nfe"]').fill('');
     await pagina.getByRole('button', { name: 'Adicionar ao carrinho' }).click();
     await esperarToast(pagina, 'carrinho do Melhor Envio');
     await pagina.waitForFunction(() => /Pagar/.test(document.querySelector('.envio-etapa--atual .envio-etapa__titulo')?.textContent || ''));
