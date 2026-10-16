@@ -17,7 +17,7 @@ const {
   EXPLICACAO_SEM_PRECO, MAX_IMAGENS, SITUACOES, adicionarImagens, campoDaRestricao, contarPorSituacao,
   erroSlug, filtrarProdutos, formatarDecimal, gerarSlug, imagemValida, lerDecimal, lerInteiro, mensagemAlternarAtivo,
   montarRegistro, moverImagem, normalizarImagens, ordenarProdutos, removerImagem, selosProduto,
-  situacaoProduto, sugerirSlug, validarProduto,
+  situacaoProduto, sugerirSlug, validarProduto, NOME_PADRAO, vitrineComProduto, ordemParaMover,
 } = produtos;
 const {
   mensagemApagarCategoria, montarCategoria, planejarReordenacao, proximaOrdem, quantidadeDeProdutos, validarCategoria,
@@ -211,14 +211,19 @@ describe('validarProduto', () => {
     for (const chave of Object.keys(erros)) assert.ok(COLUNAS_PRODUTOS.includes(chave), chave);
   });
 
-  test('formulário vazio: nome, preço e estoque', () => {
-    assert.deepEqual(Object.keys(validarProduto({ imagens: [] })).sort(), ['estoque', 'nome', 'preco_centavos']);
+  test('formulário vazio é válido: nome vira "Produto sem Nome", preço e estoque 0', () => {
+    assert.deepEqual(validarProduto({ imagens: [] }), {});
+    const r = montarRegistro({ imagens: [] });
+    assert.equal(r.nome, NOME_PADRAO);
+    assert.equal(NOME_PADRAO, 'Produto sem Nome');
+    assert.equal(r.preco_centavos, 0);
+    assert.equal(r.estoque, 0);
   });
 
-  test('preço: obrigatório, 0 permitido; a mensagem explica o R$ 00,00', () => {
+  test('preço: opcional (vazio = 0), nunca negativo', () => {
     assert.deepEqual(com({ preco: '0' }), {});
     assert.deepEqual(com({ preco: '0,00' }), {});
-    assert.ok(com({ preco: '' }).preco_centavos.includes(EXPLICACAO_SEM_PRECO));
+    assert.deepEqual(com({ preco: '' }), {});
     assert.match(com({ preco: '12,345' }).preco_centavos, /inválido/);
     assert.match(com({ preco: '-5' }).preco_centavos, /inválido/);
   });
@@ -227,12 +232,12 @@ describe('validarProduto', () => {
     assert.deepEqual(com({ estoque: '0' }), {});
     assert.match(com({ estoque: '-1' }).estoque, /negativo/);
     assert.match(com({ estoque: '2,5' }).estoque, /inteiro/);
-    assert.match(com({ estoque: '' }).estoque, /pode ser 0/);
+    assert.deepEqual(com({ estoque: '' }), {});
     assert.match(com({ estoque: '99999999999' }).estoque, /grande/);
   });
 
   test('nome, ordem e categoria', () => {
-    assert.match(com({ nome: '   ' }).nome, /Informe/);
+    assert.deepEqual(com({ nome: '   ' }), {});
     assert.equal(com({ nome: 'x'.repeat(120) }).nome, undefined);
     assert.match(com({ nome: 'x'.repeat(121) }).nome, /120/);
     assert.deepEqual(com({ ordem: '-3' }), {});
@@ -633,15 +638,15 @@ describe('tela: formulário do produto', () => {
     atualizado_em: '2026-10-15T10:00:00Z',
   };
 
-  test('produto novo: erros por campo, endereço gerado do nome (sem campo), insert com o registro e abre a edição', async () => {
-    let inserido = null;
-    const { ctx, supabase, registro } = criarCtx({
+  test('produto novo: nada obrigatório, seções em uma coluna, salvar vazio cria "Produto sem Nome" com preço e estoque 0', async () => {
+    const inseridos = [];
+    const { ctx, registro } = criarCtx({
       params: { id: 'novo' },
       responder: (c) => {
         if (c.tabela === 'categorias') return { data: CATEGORIAS };
         if (operacao(c) === 'insert') {
-          inserido = passo(c, 'insert')[1];
-          return { data: { ...inserido, id: ID2 } };
+          inseridos.push(passo(c, 'insert')[1]);
+          return { data: { ...inseridos.at(-1), id: ID2 } };
         }
         if (passo(c, 'like')) return { data: [{ slug: 'creme-de-cupuacu-200-ml' }] }; // o endereço do nome já existe
         return { data: [] };
@@ -651,54 +656,114 @@ describe('tela: formulário do produto', () => {
     const form = ctx.raiz.querySelector('form.produto-form');
     const campo = (nome) => form.querySelector(`[name="${nome}"]`);
     assert.equal(textoDe(ctx.raiz.querySelector('h1')), 'Novo produto');
+    assert.equal(textoDe(ctx.raiz.querySelector('.pagina-cabecalho__descricao')), '');
+    assert.deepEqual(Array.from(form.querySelectorAll('.cartao__titulo'), textoDe), ['Informações', 'Fotos', 'Preço', 'Disponibilidade', 'Visualização']);
+    assert.equal(form.querySelector('.grade--painel'), null, 'uma coluna só');
+    assert.equal(form.querySelectorAll('[required]').length, 0, 'nenhum campo obrigatório');
     assert.equal(campo('ativo').checked, true, 'produto novo começa à venda');
-    for (const removido of ['slug', 'preco_promocional', 'sku', 'controlar_estoque', 'peso_gramas', 'altura_cm']) {
+    assert.equal(campo('preco').value, '0,00');
+    assert.equal(campo('estoque').value, '0');
+    assert.equal(campo('categoria_id').closest('.cartao').querySelector('.cartao__titulo').textContent, 'Informações');
+    assert.equal(campo('estoque').closest('.cartao').querySelector('.cartao__titulo').textContent, 'Disponibilidade');
+    assert.equal(campo('destaque').closest('.cartao').querySelector('.cartao__titulo').textContent, 'Visualização');
+    for (const removido of ['slug', 'preco_promocional', 'sku', 'controlar_estoque', 'peso_gramas', 'altura_cm', 'ordem']) {
       assert.equal(campo(removido), null, `${removido} não existe mais no formulário`);
     }
-    assert.equal(textoDe(form).includes('Escolher da biblioteca'), false);
-    assert.equal(textoDe(ctx.raiz).includes('Duplicar'), false);
+    for (const texto of ['Escolher da biblioteca', 'Duplicar', 'Nenhuma foto ainda', 'A primeira foto é a capa', 'Quantas unidades', 'Digite 0 se']) {
+      assert.equal(textoDe(ctx.raiz).includes(texto), false, texto);
+    }
+    assert.match(textoDe(form.querySelector('.produto-previa__cartao--atual')), /Produto sem Nome/);
 
+    // Salvar vazio: sem aviso, vira "Produto sem Nome".
     disparar(form, 'submit');
-    await esperar(() => form.querySelector('.campo--erro'), 'erros');
-    const comErro = Array.from(form.querySelectorAll('.campo--erro [name]'), (e) => e.getAttribute('name')).sort();
-    assert.deepEqual(comErro, ['estoque', 'nome', 'preco']);
-    // O aviso fica na barra, ao lado do "Salvar" (um toast cobriria o botão).
-    assert.equal(textoDe(form.querySelector('.barra-acoes__info')), 'Confira os 3 campos marcados em vermelho.');
-    assert.equal(registro.toasts.length, 0);
-    assert.equal(supabase.chamadas.filter((c) => operacao(c) === 'insert').length, 0);
+    await esperar(() => registro.navegacoes.length, 'navegar');
+    assert.equal(form.querySelector('.campo--erro'), null);
+    assert.deepEqual(inseridos[0], {
+      nome: 'Produto sem Nome', slug: 'produto-sem-nome', descricao: '', preco_centavos: 0,
+      estoque: 0, ativo: true, destaque: false, categoria_id: null, imagens: [], ordem: 0,
+    });
+    assert.deepEqual(registro.navegacoes.at(-1), [`#/produtos/${ID2}`, { substituir: true }]);
+    assert.equal(registro.alterado.at(-1), false, 'desliga o aviso antes de navegar');
+  });
 
+  test('produto novo com dados: endereço gerado do nome, categoria; preço e estoque nunca negativos', async () => {
+    let inserido = null;
+    const { ctx, registro } = criarCtx({
+      params: { id: 'novo' },
+      responder: (c) => {
+        if (c.tabela === 'categorias') return { data: CATEGORIAS };
+        if (operacao(c) === 'insert') {
+          inserido = passo(c, 'insert')[1];
+          return { data: { ...inserido, id: ID2 } };
+        }
+        if (passo(c, 'like')) return { data: [{ slug: 'creme-de-cupuacu-200-ml' }] };
+        return { data: [] };
+      },
+    });
+    await produtos.renderizar(ctx);
+    const form = ctx.raiz.querySelector('form.produto-form');
+    const campo = (nome) => form.querySelector(`[name="${nome}"]`);
     digitar(campo('nome'), 'Creme de Cupuaçu 200 mL');
-    assert.equal(form.querySelector('.produto-endereco'), null);
-    digitar(campo('preco'), '49,90');
-    assert.match(textoDe(form.querySelector('.barra-acoes__info')), /Confira/, 'ainda falta o estoque');
-    digitar(campo('estoque'), '3');
-    assert.equal(textoDe(form.querySelector('.barra-acoes__info')), '');
+    digitar(campo('preco'), '-49,90');
+    assert.equal(campo('preco').value, '49,90', 'o sinal de menos não entra no preço');
+    digitar(campo('estoque'), '-3');
+    assert.equal(campo('estoque').value, '3', 'o sinal de menos não entra no estoque');
     campo('categoria_id').value = CAT2;
     disparar(campo('categoria_id'), 'change');
     assert.equal(registro.alterado.at(-1), true);
-
     disparar(form, 'submit');
     await esperar(() => registro.navegacoes.length, 'navegar');
     assert.deepEqual(inserido, {
       nome: 'Creme de Cupuaçu 200 mL', slug: 'creme-de-cupuacu-200-ml-2', descricao: '', preco_centavos: 4990,
       estoque: 3, ativo: true, destaque: false, categoria_id: CAT2, imagens: [], ordem: 0,
     });
-    assert.deepEqual(registro.navegacoes.at(-1), [`#/produtos/${ID2}`, { substituir: true }]);
-    assert.equal(registro.alterado.at(-1), false, 'desliga o aviso antes de navegar');
   });
 
-  test('preço 0 e estoque 0: dicas com a frase combinada', async () => {
-    const { ctx } = criarCtx({ params: { id: 'novo' }, responder: (c) => (c.tabela === 'categorias' ? { data: [] } : { data: [] }) });
+  test('Visualização: posição na vitrine, vizinhos, destaque e "Mais para o começo/fim"', async () => {
+    const vitrine = [
+      P({ id: 'v1', nome: 'Primeiro', destaque: true, ordem: 0, criado_em: '2026-10-01T00:00:00Z' }),
+      P({ id: 'v2', nome: 'Segundo', ordem: 1, criado_em: '2026-10-01T00:00:00Z' }),
+      P({ id: 'v3', nome: 'Terceiro', ordem: 5, criado_em: '2026-10-01T00:00:00Z' }),
+    ];
+    let salvo = null;
+    const PRODUTO_V = { ...P({ id: ID1, nome: 'Body Splash Raiz', ordem: 3, preco_centavos: 5990, estoque: 4 }), descricao: '', atualizado_em: '2026-10-15T10:00:00Z' };
+    const { ctx } = criarCtx({
+      params: { id: ID1 },
+      responder: (c) => {
+        if (c.tabela === 'categorias') return { data: CATEGORIAS };
+        if (operacao(c) === 'update') {
+          salvo = passo(c, 'update')[1];
+          return { data: { ...PRODUTO_V, ...salvo } };
+        }
+        if (passo(c, 'maybeSingle')) return { data: PRODUTO_V };
+        return { data: [...vitrine, PRODUTO_V] };
+      },
+    });
     await produtos.renderizar(ctx);
     const form = ctx.raiz.querySelector('form.produto-form');
-    const dica = () => textoDe(form.querySelector('.produto-dica'));
-    digitar(form.querySelector('[name="preco"]'), '0');
-    assert.ok(dica().includes(EXPLICACAO_SEM_PRECO), dica());
-    digitar(form.querySelector('[name="preco"]'), '49,90');
-    assert.equal(dica(), '');
-    digitar(form.querySelector('[name="estoque"]'), '0');
-    assert.match(dica(), /esgotado/);
-    assert.doesNotMatch(textoDe(ctx.raiz), /em breve/i);
+    const posicao = () => textoDe(form.querySelector('.produto-previa__posicao'));
+    const nomes = () => Array.from(form.querySelectorAll('.produto-previa__cartao .produto-previa__nome'), textoDe);
+    assert.equal(posicao(), '3º de 4 na loja');
+    assert.deepEqual(nomes(), ['Segundo', 'Body Splash Raiz', 'Terceiro']);
+    botaoPorTexto(form, 'Mais para o começo').click();
+    assert.equal(posicao(), '2º de 4 na loja');
+    assert.deepEqual(nomes(), ['Primeiro', 'Body Splash Raiz', 'Segundo']);
+    assert.equal(botaoPorTexto(form, 'Mais para o começo').disabled, true, 'não passa na frente dos destaques');
+    const destaque = form.querySelector('[name="destaque"]');
+    destaque.checked = true;
+    disparar(destaque, 'change');
+    assert.match(textoDe(form.querySelector('.produto-previa__cartao--atual')), /Destaque/);
+    const ativo = form.querySelector('[name="ativo"]');
+    ativo.checked = false;
+    disparar(ativo, 'change');
+    assert.match(posicao(), /Fora da loja/);
+    ativo.checked = true;
+    disparar(ativo, 'change');
+    destaque.checked = false;
+    disparar(destaque, 'change');
+    disparar(form, 'submit');
+    await esperar(() => salvo, 'update');
+    assert.equal(salvo.ordem, 0, 'a nova posição vai para o banco');
   });
 
   test('fotos: envio na pasta produtos/, só imagens, reordenar, texto alternativo e remover', async () => {
@@ -847,7 +912,7 @@ describe('tela: formulário do produto', () => {
       },
     });
     await produtos.renderizar(ctx);
-    botaoPorTexto(ctx.raiz, 'Apagar produto').click();
+    botaoPorTexto(ctx.raiz, 'Apagar').click(); // no topo da página, ao lado de "Ver na loja"
     await esperar(() => dialogo(), 'confirmação');
     assert.match(textoDe(dialogo().querySelector('.modal__mensagem')), /pedidos antigos continuam mostrando o nome/);
     botaoPorTexto(dialogo(), 'Apagar produto').click();

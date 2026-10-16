@@ -66,15 +66,7 @@
 }
 .pagina[data-pagina="produtos"] .produto-endereco .mono{color:var(--verde-700);overflow-wrap:anywhere;min-width:0}
 .pagina[data-pagina="produtos"] .produto-endereco__gerar{font-size:.85rem;min-height:36px}
-.pagina[data-pagina="produtos"] .produto-dica{display:grid;gap:10px}
-.pagina[data-pagina="produtos"] .produto-dica:empty{display:none}
 
-.pagina[data-pagina="produtos"] .produto-medidas{display:grid;gap:16px;grid-template-columns:repeat(2,minmax(0,1fr))}
-@media (min-width:720px){
-  .pagina[data-pagina="produtos"] .produto-medidas{grid-template-columns:repeat(4,minmax(0,1fr))}
-}
-.pagina[data-pagina="produtos"] .produto-medidas .entrada-grupo__extra{padding:0 10px}
-.pagina[data-pagina="produtos"] .produto-medidas__padrao .botao-link{font-size:.88rem;text-align:left}
 
 /* Formulário longo: no desktop a barra "Cancelar / Salvar" também acompanha a rolagem
    (no celular o admin.css já a prende no rodapé). */
@@ -91,11 +83,6 @@
 .pagina[data-pagina="produtos"] .produto-categoria__nova{align-self:flex-start}
 
 /* Fotos */
-.pagina[data-pagina="produtos"] .produto-fotos__vazio{
-  display:flex;align-items:center;gap:10px;padding:14px;border-radius:var(--raio);
-  background:var(--superficie-2);border:1px dashed var(--linha-forte);color:var(--tinta-suave);font-size:.92rem;
-}
-.pagina[data-pagina="produtos"] .produto-fotos__vazio .icone{color:var(--ouro-600)}
 .pagina[data-pagina="produtos"] .produto-foto{align-items:flex-start;padding:10px}
 .pagina[data-pagina="produtos"] .produto-foto__miniatura{width:72px;height:72px;border:1px solid var(--linha)}
 .pagina[data-pagina="produtos"] .produto-foto__conteudo{display:flex;flex-direction:column;gap:6px}
@@ -131,4 +118,29 @@
   .pagina[data-pagina="categorias"] .categorias-tabela td.categorias-col-acoes::before{display:none}
   .pagina[data-pagina="categorias"] .categorias-tabela td.categorias-col-ordem,
   .pagina[data-pagina="categorias"] .categorias-tabela td.categorias-col-acoes{padding-top:4px}
+}
+
+/* ---------- Visualização: o produto na vitrine da loja ---------- */
+.pagina[data-pagina="produtos"] .produto-previa__controles{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px}
+.pagina[data-pagina="produtos"] .produto-previa__posicao{font-weight:700;color:var(--verde-950)}
+.pagina[data-pagina="produtos"] .produto-previa{padding:16px;border-radius:var(--raio-grande);background:var(--creme-100);border:1px solid var(--linha)}
+.pagina[data-pagina="produtos"] .produto-previa__vitrine{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;max-width:620px;margin:0 auto}
+.pagina[data-pagina="produtos"] .produto-previa__vitrine--fora{grid-template-columns:minmax(0,200px);justify-content:center}
+.pagina[data-pagina="produtos"] .produto-previa__cartao{display:flex;flex-direction:column;min-width:0;background:var(--superficie);border-radius:14px;overflow:hidden;box-shadow:var(--sombra-1);opacity:.62;transition:opacity .2s}
+.pagina[data-pagina="produtos"] .produto-previa__cartao--atual{opacity:1;outline:3px solid var(--ouro-500);outline-offset:2px}
+.pagina[data-pagina="produtos"] .produto-previa__vitrine--fora .produto-previa__cartao{opacity:.6;outline-style:dashed;filter:grayscale(.6)}
+.pagina[data-pagina="produtos"] .produto-previa__foto{position:relative;aspect-ratio:1;display:grid;place-items:center;background:var(--creme-200);color:var(--ouro-600)}
+.pagina[data-pagina="produtos"] .produto-previa__foto img{width:100%;height:100%;object-fit:cover}
+.pagina[data-pagina="produtos"] .produto-previa__foto .icone{width:28px;height:28px}
+.pagina[data-pagina="produtos"] .produto-previa__selos{position:absolute;top:6px;left:6px;display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+.pagina[data-pagina="produtos"] .produto-previa__selo{padding:2px 8px;border-radius:999px;background:var(--verde-950);color:var(--creme-50);font-size:.66rem;font-weight:700}
+.pagina[data-pagina="produtos"] .produto-previa__selo--esgotado{background:var(--tinta-suave)}
+.pagina[data-pagina="produtos"] .produto-previa__corpo{display:flex;flex-direction:column;gap:3px;padding:8px 10px 12px;min-width:0}
+.pagina[data-pagina="produtos"] .produto-previa__categoria{font-size:.62rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--ouro-700)}
+.pagina[data-pagina="produtos"] .produto-previa__nome{font-family:var(--serif);font-weight:600;font-size:.88rem;line-height:1.25;color:var(--verde-950);overflow-wrap:anywhere}
+.pagina[data-pagina="produtos"] .produto-previa__preco{font-weight:700;font-size:.85rem;color:var(--verde-800)}
+.pagina[data-pagina="produtos"] .produto-previa__vazio{border:1px dashed var(--linha-forte);border-radius:14px;opacity:.5}
+@media (min-width:720px){
+  .pagina[data-pagina="produtos"] .produto-previa{padding:22px}
+  .pagina[data-pagina="produtos"] .produto-previa__vitrine{gap:16px}
 }
