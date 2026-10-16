@@ -359,6 +359,10 @@ function erroDoCampo(campo, valor, padrao) {
       if (valor.poster && !urlSegura(valor.poster)) return { parte: 'poster', mensagem: 'Endereço da capa não aceito. Escolha a capa de novo.' };
       return null;
     case 'link': {
+      if (campo.editor === 'whatsapp') {
+        if (!numeroDoLinkWhatsapp(valor.href)) return { parte: 'numero', mensagem: 'Escreva o número do WhatsApp com DDD, por exemplo (91) 98105-6049.' };
+        return textoEditavel(padrao) && !valor.texto ? { parte: 'texto', mensagem: 'Escreva o texto do botão.' } : null;
+      }
       const m = validarEndereco(valor.href);
       if (m) return { parte: 'href', mensagem: m };
       if (textoEditavel(padrao) && !valor.texto) return { parte: 'texto', mensagem: 'Escreva o texto do link.' };
@@ -1209,7 +1213,6 @@ function editorLink(ctx, campo, valor, aoMudar, { idRotulo, padrao }) {
   }
   const endereco = campoEndereco(ctx, {
     rotulo: 'Endereço (para onde o link leva)', valor: atual.href,
-    ajuda: 'Pode ser um site (https://…), um WhatsApp (https://wa.me/5591…), a loja (/loja/) ou uma parte desta página (#sobre).',
     aoMudar: (v) => {
       atual = { ...atual, href: v };
       aoMudar({ ...atual });
@@ -1228,6 +1231,94 @@ function editorLink(ctx, campo, valor, aoMudar, { idRotulo, padrao }) {
     },
     focarErro: () => (parteComErro === 'texto' && campoTexto ? campoTexto.entrada.focus() : endereco.entrada.focus()),
     focar: () => (campoTexto || endereco).entrada.focus(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// WhatsApp: a pessoa escreve o número (e uma mensagem padrão); o link wa.me é montado sozinho.
+
+/** Dígitos do número num link https://wa.me/<número>…; '' se não for um link assim. */
+export function numeroDoLinkWhatsapp(href) {
+  const m = /^https:\/\/wa\.me\/(\d{10,15})(?=$|[/?#])/i.exec(String(href ?? '').trim());
+  return m ? m[1] : '';
+}
+
+/** Mensagem padrão (?text=) de um link wa.me; '' se não tiver. */
+export function mensagemDoLinkWhatsapp(href) {
+  const m = /[?&]text=([^&#]*)/.exec(String(href ?? ''));
+  if (!m) return '';
+  try {
+    return decodeURIComponent(m[1].replace(/\+/g, ' '));
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Número digitado → dígitos com o 55 do Brasil ("(91) 98105-6049" → "5591981056049");
+ * '' se vazio ou se não parecer um telefone brasileiro.
+ */
+export function numeroWhatsappDigitado(valor) {
+  let d = String(valor ?? '').replace(/\D+/g, '');
+  if (d.length === 10 || d.length === 11) d = `55${d}`;
+  return /^55\d{10,11}$/.test(d) ? d : '';
+}
+
+/** '5591981056049' → '(91) 98105-6049' (para mostrar no campo). */
+export function formatarNumeroWhatsapp(digitos) {
+  const d = String(digitos ?? '').replace(/\D+/g, '').replace(/^55(?=\d{10,11}$)/, '');
+  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return String(digitos ?? '');
+}
+
+/** Número e mensagem → https://wa.me/<número>[?text=<mensagem>]; '' se o número não servir. */
+export function montarLinkWhatsapp(numeroDigitado, mensagem) {
+  const numero = numeroWhatsappDigitado(numeroDigitado);
+  if (!numero) return '';
+  const texto = colapsar(mensagem);
+  return `https://wa.me/${numero}${texto ? `?text=${encodeURIComponent(texto)}` : ''}`;
+}
+
+function editorWhatsapp(ctx, campo, valor, aoMudar, { idRotulo, padrao }) {
+  const { ui } = ctx;
+  const { el } = ui;
+  const inicial = { href: texto(objeto(valor).href), texto: texto(objeto(valor).texto) };
+  let atual = { ...inicial };
+  const numeroInicial = numeroDoLinkWhatsapp(inicial.href);
+  const campoTexto = ui.campo({ rotulo: 'Texto do botão', nome: 'texto', valor: inicial.texto, attrs: { maxlength: '200', autocomplete: 'off' } });
+  const campoNumero = ui.campo({
+    rotulo: 'Número do WhatsApp', nome: 'numero', tipo: 'tel', valor: numeroInicial ? formatarNumeroWhatsapp(numeroInicial) : '',
+    placeholder: '(91) 98105-6049', attrs: { inputmode: 'tel', autocomplete: 'off', maxlength: '20' },
+  });
+  const campoMensagem = ui.campo({
+    rotulo: 'Mensagem padrão', nome: 'mensagem', tipo: 'textarea', linhas: 2, valor: mensagemDoLinkWhatsapp(inicial.href),
+    placeholder: 'Olá! Gostaria de saber mais.', attrs: { maxlength: '300' },
+  });
+  // Mantém o número que já estava salvo se o link atual não for do formato esperado e nada foi digitado.
+  function recompor() {
+    const href = montarLinkWhatsapp(campoNumero.entrada.value, campoMensagem.entrada.value);
+    atual = { href, texto: campoTexto.entrada.value };
+    aoMudar({ ...atual });
+  }
+  for (const c of [campoTexto, campoNumero, campoMensagem]) c.entrada.addEventListener('input', recompor);
+  campoNumero.entrada.addEventListener('change', () => {
+    const d = numeroWhatsappDigitado(campoNumero.entrada.value);
+    if (d) campoNumero.entrada.value = formatarNumeroWhatsapp(d);
+  });
+  const elemento = el('div', { class: 'pilha cms-whatsapp', role: 'group', 'aria-labelledby': idRotulo },
+    campoTexto.elemento, campoNumero.elemento, campoMensagem.elemento);
+  let parte = null;
+  return {
+    elemento,
+    mostrarErros(erros) {
+      const e = erros && erros[0];
+      parte = e ? e.parte : null;
+      campoNumero.definirErro(e && e.parte !== 'texto' ? e.mensagem : null);
+      campoTexto.definirErro(e && e.parte === 'texto' ? e.mensagem : null);
+    },
+    focarErro: () => (parte === 'texto' ? campoTexto : campoNumero).entrada.focus(),
+    focar: () => campoNumero.entrada.focus(),
   };
 }
 
@@ -1324,6 +1415,7 @@ function criarEditor(ctx, campo, valor, aoMudar, opcoes) {
     case 'video':
       return editorVideo(ctx, campo, valor, aoMudar, opcoes);
     case 'link':
+      if (campo.editor === 'whatsapp') return editorWhatsapp(ctx, campo, valor, aoMudar, opcoes);
       return editorLink(ctx, campo, valor, aoMudar, opcoes);
     case 'url':
       return editorUrl(ctx, campo, valor, aoMudar, opcoes);

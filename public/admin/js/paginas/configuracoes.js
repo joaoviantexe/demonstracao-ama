@@ -119,10 +119,10 @@ export function idOpcaoFixa(nome, existentes = []) {
 }
 
 /**
- * Campos da aba Frete → { erros, frete, freteGratisCentavos }.
+ * Campos da aba Frete → { erros, frete }.
  * v = { origem: {...}, melhor_envio: { ativo, servicos: [ids], seguro, prazo_extra_dias, taxa_extra_centavos },
  *       fixo: { ativo, opcoes: [{ id?, nome, preco_centavos, prazo_dias, ufs (texto) }] },
- *       embalagem_padrao: {...textos}, frete_gratis_centavos }
+ *       embalagem_padrao: {...textos} }
  * Chaves de erro: 'origem.cep', 'melhor_envio.servicos', 'fixo.opcoes.0.nome', 'embalagem_padrao.peso_gramas'…
  */
 export function validarFrete(v) {
@@ -193,11 +193,6 @@ export function validarFrete(v) {
     embalagem[campo] = Number.isNaN(n) ? null : n;
   }
 
-  const gratis = v.frete_gratis_centavos;
-  if (gratis !== null && gratis !== undefined && (!Number.isSafeInteger(gratis) || gratis <= 0 || gratis > MAIOR_INT)) {
-    erros.frete_gratis_centavos = 'Informe um valor maior que zero, ou deixe vazio para não ter frete grátis.';
-  }
-
   return {
     erros,
     frete: {
@@ -209,7 +204,6 @@ export function validarFrete(v) {
       fixo: { ativo: f.ativo === true, opcoes },
       embalagem_padrao: embalagem,
     },
-    freteGratisCentavos: Number.isSafeInteger(gratis) && gratis > 0 ? gratis : null,
   };
 }
 
@@ -331,7 +325,7 @@ export async function renderizar(ctx) {
       subtitulo ? el('p', { class: 'cartao__subtitulo' }, subtitulo) : null),
     el('div', { class: 'cartao__corpo' }, ...conteudo));
 
-  function montarFormulario(aba, rotulo, conteudo, aoSalvar, { info = 'As mudanças valem na loja assim que você salvar.' } = {}) {
+  function montarFormulario(aba, rotulo, conteudo, aoSalvar, { info = '' } = {}) {
     const botao = ui.botao({ texto: 'Salvar', tipo: 'primario', icone: 'check', tipoHtml: 'submit' });
     const infoBarra = el('p', { class: 'barra-acoes__info', 'aria-live': 'polite' }, info);
     const form = el('form', { class: 'pilha config-form', novalidate: true, 'aria-label': rotulo }, ...conteudo, el('div', { class: 'barra-acoes' }, infoBarra, botao));
@@ -499,14 +493,11 @@ export async function renderizar(ctx) {
     desenharFixo();
     const cartaoFixo = cartao('cf-fixo', 'Frete fixo', null, fixoAtivo.elemento, listaFixo, erroFixo, el('div', { class: 'grupo-botoes' }, adicionarFixo));
 
-    // Frete grátis e embalagem
-    const lojaGratis = Number.isSafeInteger(valores.loja.frete_gratis_acima_centavos) ? valores.loja.frete_gratis_acima_centavos : null;
-    campos.frete_gratis_centavos = ui.campo({ rotulo: 'Frete grátis nas compras a partir de', nome: 'frete_gratis', tipo: 'preco', valor: lojaGratis, placeholder: 'Sem frete grátis', ajuda: 'Vazio = sem frete grátis. A entrega mais barata fica grátis e o carrinho mostra quanto falta.' });
+    // Embalagem
     const medida = (campo, rotulo, sufixo, padrao) => {
       campos[`embalagem_padrao.${campo}`] = ui.campo({ rotulo, nome: `emb_${campo}`, sufixo, valor: formatarDecimal(emb[campo] ?? padrao), attrs: { inputmode: campo === 'peso_gramas' ? 'numeric' : 'decimal', maxlength: '7' } });
       return campos[`embalagem_padrao.${campo}`].elemento;
     };
-    const cartaoGratis = cartao('cf-gratis', 'Frete grátis', null, campos.frete_gratis_centavos.elemento);
     const cartaoEmbalagem = cartao('cf-embalagem', 'Embalagem padrão', 'Usada no cálculo do frete dos produtos que estão sem peso ou medidas.',
       el('div', { class: 'config-medidas' },
         medida('peso_gramas', 'Peso', 'g', 300), medida('altura_cm', 'Altura', 'cm', 4),
@@ -524,7 +515,6 @@ export async function renderizar(ctx) {
           opcoes: opcoesFixas.map((item) => ({ id: item.id, nome: item.nome.ler(), preco_centavos: precoDe(item.preco), prazo_dias: item.prazo.ler(), ufs: item.ufs.ler() })),
         },
         embalagem_padrao: Object.fromEntries(['peso_gramas', 'altura_cm', 'largura_cm', 'comprimento_cm'].map((k) => [k, campos[`embalagem_padrao.${k}`].ler()])),
-        frete_gratis_centavos: precoDe(campos.frete_gratis_centavos),
       };
     }
 
@@ -538,10 +528,10 @@ export async function renderizar(ctx) {
     const form = montarFormulario('frete', 'Frete', [
       avisoEntrega,
       el('div', { class: 'grade grade--painel' },
-        el('div', { class: 'pilha' }, cartaoMe, cartaoFixo, cartaoGratis),
+        el('div', { class: 'pilha' }, cartaoMe, cartaoFixo),
         el('div', { class: 'pilha' }, cartaoOrigem, cartaoEmbalagem)),
     ], async () => {
-      const { erros, frete, freteGratisCentavos } = validarFrete(lerValores());
+      const { erros, frete } = validarFrete(lerValores());
       // Erros das opções de frete fixo vão para os campos de cada opção.
       const camposComOpcoes = { ...campos };
       opcoesFixas.forEach((item, i) => {
@@ -557,17 +547,11 @@ export async function renderizar(ctx) {
         ui.toast(r1.mensagem, 'erro');
         return false;
       }
-      const r2 = await salvarChave('loja', { frete_gratis_acima_centavos: freteGratisCentavos });
-      if (!ctx.ativo()) return false;
-      if (!r2.ok) {
-        ui.toast(`O frete foi salvo, mas o frete grátis não: ${r2.mensagem}`, 'erro');
-        return false;
-      }
       frete.fixo.opcoes.forEach((op, i) => { if (opcoesFixas[i]) opcoesFixas[i].id = op.id; });
       atualizarAviso();
       ui.toast('Configurações de frete salvas.', 'sucesso');
       return true;
-    }, { info: 'O novo frete vale nas próximas cotações da loja (em até 1 minuto).' });
+    });
     form.addEventListener('change', atualizarAviso);
     atualizarAviso();
     form.atualizarAviso = atualizarAviso;
@@ -602,7 +586,7 @@ export async function renderizar(ctx) {
       }
       ui.toast('Pagamento salvo. Vale para os próximos pedidos.', 'sucesso');
       return true;
-    }, { info: 'Vale para os próximos pedidos.' });
+    });
   }
 
   // --- Aba Avisos ---------------------------------------------------------------

@@ -877,12 +877,16 @@ function numeroDoWhatsapp(url) {
 // (menu, projetos, rodapé) passa a usar esse número, mantendo a mensagem (?text=) de cada um.
 function aplicarWhatsappUniversal(raiz, valores) {
   const valor = valores.get('whatsapp.link');
-  const numero = objetoSimples(valor) ? numeroDoWhatsapp(urlDoObjeto(valor, 'href')) : '';
+  const hrefBotao = objetoSimples(valor) ? urlDoObjeto(valor, 'href') : '';
+  const numero = numeroDoWhatsapp(hrefBotao);
   if (!numero) return;
+  // A mensagem padrão do botão (?text=) vale para os links wa.me que não têm mensagem própria.
+  const mensagem = /[?&]text=([^&#]*)/.exec(String(hrefBotao || ''));
   for (const a of raiz.querySelectorAll('a[href]')) {
     const href = atributo(a, 'href');
     if (typeof href !== 'string') continue;
-    const novo = href.replace(/^(https:\/\/wa\.me\/)\d{10,15}(?=$|[/?#])/i, `$1${numero}`);
+    let novo = href.replace(/^(https:\/\/wa\.me\/)\d{10,15}(?=$|[/?#])/i, `$1${numero}`);
+    if (mensagem && novo !== href && !/[?&]text=/.test(novo) && !/[?#]/.test(novo)) novo = `${novo}?text=${mensagem[1]}`;
     if (novo !== href) a.setAttribute('href', novo);
   }
 }

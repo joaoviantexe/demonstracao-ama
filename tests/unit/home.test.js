@@ -219,8 +219,11 @@ describe('templates/home.html — aplicação do conteúdo', () => {
     const links = $$(doc, 'a[href*="wa.me/"]');
     assert.ok(links.length >= 6);
     for (const a of links) assert.match(a.getAttribute('href'), /^https:\/\/wa\.me\/5591977776666/, a.getAttribute('href'));
-    assert.deepEqual($$(doc, 'a[href*="wa.me/"][href*="text="]').map((a) => a.getAttribute('href').split('?')[1]).sort(),
-      [...mensagens, 'text=ignorado'].sort());
+    // Cada link mantém a própria mensagem; os que não tinham (menu do celular, rodapé, o próprio botão) usam a padrão.
+    const textos = links.map((a) => a.getAttribute('href').split('?')[1]);
+    assert.ok(textos.every(Boolean), 'todos os links wa.me têm mensagem');
+    assert.deepEqual(textos.filter((t) => t !== 'text=ignorado').sort(), [...mensagens].sort());
+    assert.ok(textos.filter((t) => t === 'text=ignorado').length >= 3, 'a mensagem padrão vale para os links sem mensagem');
     // Endereço que não é wa.me não muda nada.
     const outro = montar();
     aplicarConteudo(outro, { 'whatsapp.link': { href: 'https://exemplo.com/zap', texto: 'Oi' } });

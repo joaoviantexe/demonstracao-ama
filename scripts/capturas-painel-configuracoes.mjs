@@ -190,14 +190,13 @@ async function rodarLargura(navegador, base, largura) {
     await opcao.locator('input[name="fixo_prazo"]').fill('2');
     await opcao.locator('input[name="fixo_ufs"]').fill('PA, XX');
     await formFrete.locator('input[name="origem_cep"]').fill('123');
-    await formFrete.locator('input[name="frete_gratis"]').fill('abc');
     await salvarAba(pagina, 'Frete');
     await formFrete.locator('.campo--erro input[name="fixo_ufs"]').last().waitFor({ timeout: 10_000 });
     const errosFrete = await formFrete.locator('.campo--erro').count();
-    conferir(errosFrete >= 3, `erros por campo no frete (${errosFrete}: CEP, estado e frete grátis)`, `só ${errosFrete} erro(s) no frete`);
+    conferir(errosFrete >= 2, `erros por campo no frete (${errosFrete}: CEP e estado)`, `só ${errosFrete} erro(s) no frete`);
     await opcao.locator('input[name="fixo_ufs"]').fill('pa');
     await formFrete.locator('input[name="origem_cep"]').fill('67125-866');
-    await formFrete.locator('input[name="frete_gratis"]').fill('300,00');
+    conferir(await formFrete.locator('input[name="frete_gratis"]').count() === 0, 'aba Frete sem "Frete grátis"', 'a aba Frete ainda tem frete grátis');
     await capturar(pagina, `frete-${largura}`);
     await salvarAba(pagina, 'Frete');
     await esperarToast(pagina, 'frete salvas');
@@ -205,9 +204,9 @@ async function rodarLargura(navegador, base, largura) {
     const fixo = config.frete.valor.fixo;
     const nova = fixo.opcoes.find((o) => o.nome === 'Entrega na Grande Belém');
     conferir(fixo.ativo === true && nova && nova.preco_centavos === 1250 && nova.prazo_dias === 2 && nova.ufs.join() === 'PA'
-      && /^fixo-/.test(nova.id) && config.frete.valor.origem.cep === '67125866' && config.loja.valor.frete_gratis_acima_centavos === 30000
+      && /^fixo-/.test(nova.id) && config.frete.valor.origem.cep === '67125866'
       && !('retirada' in config.frete.valor),
-    'frete salvo (opção fixa, CEP de origem e frete grátis em loja)', `frete no banco: ${JSON.stringify(config.frete.valor.fixo)} / ${config.loja.valor.frete_gratis_acima_centavos}`);
+    'frete salvo (opção fixa e CEP de origem)', `frete no banco: ${JSON.stringify(config.frete.valor.fixo)} / ${config.loja.valor.frete_gratis_acima_centavos}`);
     await fecharToasts(pagina);
 
     // A cotação da loja já oferece a opção nova (o cache de configurações dura até 15 s).

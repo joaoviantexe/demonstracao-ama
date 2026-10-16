@@ -12,7 +12,7 @@ import * as conteudo from '../../public/admin/js/paginas/conteudo.js';
 
 const {
   LIMITE_ITENS, adicionarItem, chaveVisibilidade, clonarValor, ehMetaDeImagem,
-  limiteIdeal, mapaDeLinhas, montarAlteracoes, moverItem, nomeDoArquivo, normalizarEndereco,
+  limiteIdeal, numeroDoLinkWhatsapp, mensagemDoLinkWhatsapp, numeroWhatsappDigitado, formatarNumeroWhatsapp, montarLinkWhatsapp, mapaDeLinhas, montarAlteracoes, moverItem, nomeDoArquivo, normalizarEndereco,
   normalizarHtml, normalizarValor, ordenarGrupos, removerItem, resumirGrupos, resumoDoItem, textoDoHtml,
   validarEndereco, validarValor, valorEfetivo, valoresDoMolde, valoresIguais,
 } = conteudo;
@@ -446,6 +446,26 @@ describe('operações de lista', () => {
 // Visão geral e pré-visualização
 
 describe('visão geral dos grupos', () => {
+  test('WhatsApp: número digitado + mensagem padrão viram o link wa.me', () => {
+    assert.equal(numeroWhatsappDigitado('(91) 98105-6049'), '5591981056049');
+    assert.equal(numeroWhatsappDigitado('+55 91 98105-6049'), '5591981056049');
+    assert.equal(numeroWhatsappDigitado('9132221234'), '559132221234');
+    assert.equal(numeroWhatsappDigitado('1234'), '');
+    assert.equal(numeroWhatsappDigitado(''), '');
+    assert.equal(numeroWhatsappDigitado('5491981056049'), '', 'outro país');
+    assert.equal(formatarNumeroWhatsapp('5591981056049'), '(91) 98105-6049');
+    assert.equal(formatarNumeroWhatsapp('559132221234'), '(91) 3222-1234');
+    assert.equal(montarLinkWhatsapp('(91) 98105-6049', ''), 'https://wa.me/5591981056049');
+    assert.equal(montarLinkWhatsapp('91981056049', ' Olá!  Quero saber mais '), 'https://wa.me/5591981056049?text=Ol%C3%A1!%20Quero%20saber%20mais');
+    assert.equal(montarLinkWhatsapp('123', 'oi'), '');
+    assert.equal(numeroDoLinkWhatsapp('https://wa.me/5591981056049?text=oi'), '5591981056049');
+    assert.equal(numeroDoLinkWhatsapp('https://exemplo.com/5591981056049'), '');
+    assert.equal(mensagemDoLinkWhatsapp(montarLinkWhatsapp('91981056049', 'Olá, tudo bem?')), 'Olá, tudo bem?');
+    assert.equal(mensagemDoLinkWhatsapp('https://wa.me/5591981056049'), '');
+    assert.match(validarValor({ tipo: 'link', editor: 'whatsapp', padrao: { href: '', texto: 'Falar' } }, { href: '', texto: 'Falar' })[0].mensagem, /número do WhatsApp/);
+    assert.deepEqual(validarValor({ tipo: 'link', editor: 'whatsapp', padrao: { href: '', texto: 'Falar' } }, { href: 'https://wa.me/5591981056049', texto: 'Falar' }), []);
+  });
+
   test('Identidade vem primeiro, SEO vai para o fim; a ordem dos demais é a do template', () => {
     const ids = ordenarGrupos(esquemaDaHome().grupos).map((g) => g.id);
     assert.equal(ids.at(-1), 'seo');

@@ -486,6 +486,23 @@ async function rodarLargura(navegador, url, largura) {
       'Banner: produto escolhido gravado (foto e nome do produto) e aplicado em GET /', `banner: ${JSON.stringify(banner)} / site: ${imgSite && imgSite.getAttribute('src')}`);
     await clienteServico().from('conteudo_site').delete().eq('chave', 'loja.imagem-1');
 
+    // --- WhatsApp: número + mensagem padrão (sem endereço); o link é montado sozinho
+    await irPara(pagina, '#/conteudo/whatsapp', '[data-chave="whatsapp.link"] input[name="numero"]');
+    const textoWa = await pagina.locator('[data-chave="whatsapp.link"]').innerText();
+    conferir(!/wa\.me|Endereço|Pode ser um site|Vale para o site todo/.test(textoWa) && await pagina.locator('[data-chave="whatsapp.link"] input[name="endereco"]').count() === 0,
+      'WhatsApp: pede o número e a mensagem, sem endereço nem legendas de link', `texto do WhatsApp: ${textoWa}`);
+    await pagina.locator('[data-chave="whatsapp.link"] input[name="numero"]').fill('91 98888-7777');
+    await pagina.locator('[data-chave="whatsapp.link"] textarea[name="mensagem"]').fill(`Olá, AMA! Teste ${sufixo}`);
+    await capturar(pagina, `whatsapp-${largura}`, { inteira: false });
+    await salvar(pagina, 'WhatsApp');
+    const linhaWa = (await linhas(['whatsapp.link'])).get('whatsapp.link');
+    site = await home(url);
+    const hrefs = [...site.documento.querySelectorAll('a[href*="wa.me/"]')].map((a) => a.getAttribute('href'));
+    conferir(linhaWa && linhaWa.href === `https://wa.me/5591988887777?text=${encodeURIComponent(`Olá, AMA! Teste ${sufixo}`)}`
+      && hrefs.length >= 6 && hrefs.every((h) => h.startsWith('https://wa.me/5591988887777')) && hrefs.every((h) => /[?&]text=/.test(h)),
+    'WhatsApp: link montado com número e mensagem; vale para todos os links do site', `link salvo: ${linhaWa && linhaWa.href}; no site: ${hrefs.join(' | ')}`);
+    await clienteServico().from('conteudo_site').delete().eq('chave', 'whatsapp.link');
+
     // --- Restaurar padrão (apaga as linhas) e conferir que GET / voltou
     await irPara(pagina, '#/conteudo/quem-somos', '[data-chave="quem-somos.titulo"] .cms-campo__restaurar');
     await limparToasts(pagina);
@@ -569,7 +586,7 @@ async function principal() {
   const local = ambienteLocal();
   if (!local.serviceKey) throw new Error('Chave de serviço do Supabase local não encontrada (rode "supabase start").');
   // Linhas que já existiam nas chaves usadas aqui: devolvidas no fim.
-  const anteriores = await linhas([...CHAVES, 'postagens.publicacoes', 'loja.imagem-1']);
+  const anteriores = await linhas([...CHAVES, 'postagens.publicacoes', 'loja.imagem-1', 'whatsapp.link']);
   if (anteriores.size) console.log(`Aviso: já havia conteúdo salvo em ${[...anteriores.keys()].join(', ')}; ele será devolvido no fim.`);
   if (anteriores.size) await clienteServico().from('conteudo_site').delete().in('chave', [...anteriores.keys()]);
 
@@ -586,7 +603,7 @@ async function principal() {
     await servidor.fechar();
     await navegador.close();
     const servico = clienteServico();
-    const { error } = await servico.from('conteudo_site').delete().in('chave', [...CHAVES, 'postagens.publicacoes', 'loja.imagem-1']);
+    const { error } = await servico.from('conteudo_site').delete().in('chave', [...CHAVES, 'postagens.publicacoes', 'loja.imagem-1', 'whatsapp.link']);
     if (error) console.log(`Aviso: não foi possível apagar as chaves de teste: ${error.message}`);
     if (anteriores.size) {
       const { error: erroVolta } = await servico.from('conteudo_site')
