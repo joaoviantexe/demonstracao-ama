@@ -628,16 +628,25 @@ Ao voltar do pagamento aprovado o carrinho é limpo.
 Editor de conteúdo: grupos vindos de `extrairEsquema` (template de `/api/render?modelo=1`); editores por tipo
 (texto, textarea, editor rico com barra Negrito/Itálico/Link/Lista/Parágrafo + `sanitizarHtml`, imagem com prévia,
 upload, biblioteca e texto alternativo, vídeo com upload e capa, link, URL, Instagram, listas com adicionar/remover/
-duplicar/subir/descer), "Restaurar padrão" por campo (apaga a linha), "Salvar" (upsert só do que mudou),
-"Pré-visualizar" (abre nova aba com o template + `<base href="/">` + rascunho aplicado) e "Ver no site".
-Aviso: as mudanças aparecem no site em até ~15 segundos.
+subir/descer; o menu do cabeçalho não cria itens novos), "Restaurar padrão" por campo (apaga a linha), "Salvar"
+(upsert só do que mudou), "Pré-visualizar" (nova aba com o template + `<base href="/">` + rascunho) e "Ver no site".
+Prévia ao vivo no alto de cada parte: iframe `sandbox="allow-same-origin"` sem scripts com o template + rascunho,
+atualizado no lugar (`aplicarConteudo`) a cada mudança; o campo em foco é marcado e a prévia rola até ele;
+modos computador (1280 px, em escala) e celular (390 px). Em "Google" a prévia é o resultado da busca e o cartão do link.
+Campos com `data-cms-editor="produto"` (fotos do Banner da Loja) são escolhidos entre os produtos (capa + nome).
+"Identidade" (`identidade.logo`) é a logo do topo, do menu do celular e do rodapé (espelhos da mesma chave).
+
+Produtos: formulário em uma coluna — Informações (nome, descrição, categoria), Fotos, Preço, Disponibilidade (à venda e
+estoque) e Visualização (destaque e posição, com o cartão na vitrine entre os vizinhos e "Mais para o começo/fim",
+que ajusta `ordem`). Nada é obrigatório: nome vazio vira "Produto sem Nome"; preço e estoque começam em 0.
 
 Pedidos: lista com busca (nome, e-mail, telefone, CPF ou número), filtro por situação (guardado na URL) e páginas
 de 20; detalhe com a próxima ação sugerida, itens, cliente (link do WhatsApp), entrega, pagamento ("Conferir no
 Mercado Pago" → `/api/admin/pagamento`), linha do tempo com notas internas (`pedido_eventos` tipo `nota`),
 "Mudar situação" (`/api/admin/pedido-status`, com rastreio, repor estoque e aviso por e-mail) e o assistente de
 envio do Melhor Envio (`/api/admin/envio`: carrinho com NF-e opcional → pagar com o saldo → gerar → imprimir →
-buscar rastreio → marcar como enviado). Pedido aguardando pagamento pode ser apagado.
+buscar rastreio → marcar como enviado). Pedido aguardando pagamento pode ser apagado. Lista e detalhe se atualizam
+sozinhos a cada 20 s e ao voltar para a aba (sem botão "Atualizar"); o painel inteiro usa uma coluna.
 
 Configurações (`?aba=` na URL): Loja (nome e descrição; o WhatsApp vem de Site → Botão do WhatsApp, que vale para o site todo e a loja), Frete
 (Melhor Envio com prazo e valor a mais e seguro; frete fixo com nome, valor, prazo e estados; remetente; frete

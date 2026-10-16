@@ -156,7 +156,7 @@ describe('fluxo completo da loja', { concurrency: false }, () => {
     await campo.waitFor({ timeout: 20_000 });
     await campo.fill(TITULO_NOVO);
     await painel.locator('.cms-salvar').click();
-    await painel.locator('.cms-barra__info', { hasText: 'Salvo!' }).waitFor({ timeout: 20_000 });
+    await painel.locator('.cms-barra__info', { hasText: 'Salvo' }).waitFor({ timeout: 20_000 });
 
     const linha = await semErro(servico.from('conteudo_site').select('valor').eq('chave', CHAVE_TITULO).single(), 'ler título salvo');
     assert.equal(linha.valor, TITULO_NOVO);
