@@ -439,7 +439,7 @@ a.metrica:hover{border-color:var(--ouro-500);box-shadow:var(--sombra-2);color:va
 .tabela tbody tr:hover{background:#FCFAF4}
 .tabela .alinhar-direita{text-align:right;font-variant-numeric:tabular-nums}
 .tabela .alinhar-centro{text-align:center}
-.tabela td.truncar{max-width:220px}
+.tabela td.truncar{display:table-cell;max-width:220px}
 .tabela__linha--link{position:relative;cursor:pointer}
 .tabela__link{color:var(--verde-950);font-weight:700;text-decoration:none}
 .tabela__link::after{content:"";position:absolute;inset:0}

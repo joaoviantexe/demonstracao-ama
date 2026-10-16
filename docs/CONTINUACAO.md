@@ -11,6 +11,17 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
   Supabase e aplicou a migração.
   **Sempre que a migração mudar, avise o dono para rodar o arquivo inteiro de novo no SQL Editor.** Ela é re-executável,
   e as atualizações de valores padrão antigos ficam no fim da seção 10.
+- **Conta do Supabase:** o projeto do Supabase da AMA está na conta do e-mail **joaoviantexe@gmail.com**. Entre com
+  ele em supabase.com para ver o banco, os usuários do painel e as chaves. Esse projeto é reaproveitado (não crie outro).
+- **Conta do Cloudflare:** foi configurada pelo e-mail **joaoviantexe@hotmail.com** (Worker `ama-site`, bucket R2
+  `ama-midia` e o DNS do domínio).
+- **Conta do GitHub:** o repositório pertence à conta do e-mail **joaoviantexe@hotmail.com**.
+- **Conta do Registro.br** (domínio `oscama.com.br`): pertence ao e-mail **rayssacarv.moura@gmail.com**. O DNS do domínio
+  fica no Cloudflare (nameservers trocados no Registro.br por essa conta).
+- **Administradores do painel da AMA** (devem estar em `public.admins` e em Authentication → Users do Supabase):
+  - monica@oscama.com.br
+  - rayssa@oscama.com.br
+  - joao@oscama.com.br
 
 ## Leia primeiro
 
