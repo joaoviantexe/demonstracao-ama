@@ -1588,6 +1588,203 @@ function editorLista(ctx, campo, valor, aoMudar, { idRotulo, recursos }) {
 }
 
 // ---------------------------------------------------------------------------
+// Prévia ao vivo: a parte da página inicial que está sendo editada, mudando enquanto a pessoa digita.
+
+const ESTILO_PREVIA_VIVA = [
+  // Sem JavaScript na prévia: as animações de entrada já começam visíveis.
+  '.reveal{opacity:1!important;transform:none!important;transition:none!important}',
+  'html{scroll-behavior:auto!important}',
+  '[data-cms-previa-foco]{outline:3px dashed #C9982B!important;outline-offset:4px!important}',
+].join('');
+const LARGURA_COMPUTADOR = 1280;
+const LARGURA_CELULAR = 390;
+
+/** HTML da prévia ao vivo: o da pré-visualização + estilo que mostra tudo e marca o campo em foco. */
+export function htmlDaPreviaViva(template, conteudo, { mostrarWhatsapp = false, ...opcoes } = {}) {
+  // O botão flutuante do WhatsApp cobriria a parte editada: só aparece quando é ele que está sendo editado.
+  const estilo = ESTILO_PREVIA_VIVA + (mostrarWhatsapp ? '' : '.wa-flutuante{display:none!important}');
+  return htmlDaPrevia(template, conteudo, opcoes)
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '') // a prévia não roda JavaScript (iframe sem allow-scripts)
+    .replace(/<\/head>/i, `<style data-previa-viva>${estilo}</style></head>`);
+}
+
+function criarPreviaAoVivo(ctx, { template, grupoId, conteudo, recursos }) {
+  const { ui } = ctx;
+  const { el } = ui;
+  let modo = null; // 'computador' | 'celular' (escolhido pela largura na primeira medida)
+  let doc = null;
+  let carregada = false;
+  let pendente = false;
+  let foco = null;
+  let visibilidade = null;
+  const janela = el('div', { class: 'cms-previa__janela' });
+  const quadro = el('iframe', { class: 'cms-previa__quadro', title: 'Prévia ao vivo desta parte do site', sandbox: 'allow-same-origin', tabindex: '-1' });
+  janela.append(quadro);
+  const botaoModo = (id, texto, icone) => ui.botao({
+    texto, icone, tipo: 'fantasma', tamanho: 'pequeno', classe: 'cms-previa__modo', rotulo: `Ver como no ${texto.toLowerCase()}`,
+    attrs: { 'aria-pressed': 'false', 'data-modo': id },
+    aoClicar: () => trocarModo(id),
+  });
+  const computador = botaoModo('computador', 'Computador', 'computador');
+  const celular = botaoModo('celular', 'Celular', 'celular');
+  const esconder = ui.botao({
+    texto: 'Esconder', icone: 'olho-fechado', tipo: 'fantasma', tamanho: 'pequeno', classe: 'cms-previa__esconder', rotulo: 'Esconder a prévia',
+    attrs: { 'aria-expanded': 'true' }, aoClicar: () => alternar(),
+  });
+  const elemento = el('section', { class: 'cartao cms-previa', 'aria-label': 'Prévia ao vivo' },
+    el('div', { class: 'cms-previa__barra' },
+      el('p', { class: 'cms-previa__titulo' }, ui.icone('olho'), 'Prévia ao vivo'),
+      el('div', { class: 'cms-previa__acoes' }, computador, celular, esconder)),
+    janela);
+
+  const valorVisibilidade = (c) => c[chaveVisibilidade(grupoId)] !== false;
+  const alvoDoGrupo = () => doc && (doc.querySelector(`[data-cms-grupo="${grupoId}"]`) || doc.body);
+
+  function rolarPara(alvo, { suave = false } = {}) {
+    if (!doc || !alvo || !doc.defaultView) return;
+    const janelaDoc = doc.defaultView;
+    const topo = alvo.getBoundingClientRect().top + janelaDoc.scrollY;
+    // O cabeçalho do site fica fixo no alto: desconta a altura dele.
+    janelaDoc.scrollTo({ top: Math.max(0, topo - 110), behavior: suave ? 'smooth' : 'auto' });
+  }
+
+  function marcarFoco() {
+    if (!doc) return;
+    for (const antigo of doc.querySelectorAll('[data-cms-previa-foco]')) antigo.removeAttribute('data-cms-previa-foco');
+    if (!foco) return null;
+    const alvo = [...doc.querySelectorAll('[data-cms]')].find((e) => e.getAttribute('data-cms') === foco);
+    if (alvo) alvo.setAttribute('data-cms-previa-foco', '');
+    return alvo || null;
+  }
+
+  function montar() {
+    carregada = false;
+    const atual = conteudo();
+    visibilidade = valorVisibilidade(atual);
+    const rolagem = doc && doc.defaultView ? doc.defaultView.scrollY : null;
+    let html;
+    try {
+      html = htmlDaPreviaViva(template, atual, {
+        analisar: (t) => new DOMParser().parseFromString(t, 'text/html'), origem: window.location.origin, mostrarWhatsapp: grupoId === 'whatsapp',
+      });
+    } catch (erro) {
+      console.error('[conteudo] falha ao montar a prévia ao vivo:', erro);
+      return;
+    }
+    quadro.onload = () => {
+      doc = quadro.contentDocument;
+      carregada = true;
+      if (!doc) return;
+      const alvo = marcarFoco();
+      if (rolagem !== null) doc.defaultView.scrollTo(0, rolagem);
+      else rolarPara(alvo || alvoDoGrupo());
+      if (pendente) {
+        pendente = false;
+        atualizar();
+      }
+    };
+    quadro.srcdoc = html;
+  }
+
+  function atualizar() {
+    if (!carregada || !doc) {
+      pendente = true;
+      return;
+    }
+    const atual = conteudo();
+    // Ligar/desligar a seção tira ou devolve o elemento: aí monta de novo.
+    if (valorVisibilidade(atual) !== visibilidade) {
+      montar();
+      return;
+    }
+    try {
+      aplicarConteudo(doc, atual);
+    } catch (erro) {
+      console.warn('[conteudo] prévia ao vivo: montando de novo', erro);
+      montar();
+      return;
+    }
+    marcarFoco();
+  }
+
+  function focar(chave) {
+    if (chave === foco) return;
+    foco = chave;
+    const alvo = marcarFoco();
+    if (alvo) rolarPara(alvo);
+  }
+
+  function medir() {
+    const largura = janela.clientWidth;
+    if (!largura) return;
+    if (!modo) modo = largura < 700 ? 'celular' : 'computador';
+    for (const b of [computador, celular]) b.setAttribute('aria-pressed', String(b.dataset.modo === modo));
+    const virtual = modo === 'celular' ? LARGURA_CELULAR : LARGURA_COMPUTADOR;
+    const escala = Math.min(1, largura / virtual);
+    const altura = janela.clientHeight || 300;
+    quadro.style.width = `${virtual}px`;
+    quadro.style.height = `${Math.round(altura / escala)}px`;
+    quadro.style.transform = `scale(${escala})`;
+    quadro.style.left = `${Math.max(0, Math.round((largura - virtual * escala) / 2))}px`;
+  }
+
+  function trocarModo(novo) {
+    modo = novo;
+    medir();
+  }
+
+  function alternar() {
+    const escondidaAgora = !elemento.classList.contains('cms-previa--escondida');
+    elemento.classList.toggle('cms-previa--escondida', escondidaAgora);
+    const rotulo = esconder.querySelector('.botao__texto');
+    if (rotulo) rotulo.textContent = escondidaAgora ? 'Mostrar' : 'Esconder';
+    esconder.setAttribute('aria-label', escondidaAgora ? 'Mostrar a prévia' : 'Esconder a prévia');
+    esconder.setAttribute('aria-expanded', String(!escondidaAgora));
+    if (!escondidaAgora) medir();
+  }
+
+  let observador = null;
+  if (typeof ResizeObserver === 'function') {
+    observador = new ResizeObserver(() => medir());
+    observador.observe(janela);
+  }
+  recursos.limpezas.add(() => { if (observador) observador.disconnect(); });
+  // Monta depois de entrar na página (o iframe precisa estar no documento para carregar).
+  setTimeout(() => { if (ctx.ativo() && elemento.isConnected) { medir(); montar(); } }, 0);
+  return { elemento, atualizar, focar };
+}
+
+// Google não mostra a página: a prévia é o resultado da busca e o cartão do link compartilhado.
+function criarPreviaGoogle(ctx, { conteudo }) {
+  const { ui } = ctx;
+  const { el } = ui;
+  const titulo = el('p', { class: 'cms-google__titulo' });
+  const descricao = el('p', { class: 'cms-google__descricao' });
+  const imagem = el('div', { class: 'cms-google__imagem' });
+  const ogTitulo = el('p', { class: 'cms-google__og-titulo' });
+  const ogDescricao = el('p', { class: 'cms-google__og-descricao' });
+  const endereco = window.location.host || 'ama.org.br';
+  const elemento = el('section', { class: 'cartao cms-previa cms-previa--google', 'aria-label': 'Prévia ao vivo' },
+    el('div', { class: 'cms-previa__barra' }, el('p', { class: 'cms-previa__titulo' }, ui.icone('olho'), 'Prévia ao vivo')),
+    el('div', { class: 'cms-google' },
+      el('div', { class: 'cms-google__resultado' }, el('p', { class: 'cms-google__url' }, endereco), titulo, descricao),
+      el('div', { class: 'cms-google__cartao' }, imagem,
+        el('div', { class: 'cms-google__cartao-texto' }, el('p', { class: 'cms-google__url' }, endereco), ogTitulo, ogDescricao))));
+  function atualizar() {
+    const c = conteudo();
+    const txt = (chave) => (typeof c[chave] === 'string' ? c[chave].trim() : '');
+    titulo.textContent = txt('seo.titulo');
+    descricao.textContent = txt('seo.descricao');
+    ogTitulo.textContent = txt('seo.og-titulo') || txt('seo.titulo');
+    ogDescricao.textContent = txt('seo.og-descricao') || txt('seo.descricao');
+    const src = urlSegura(txt('seo.og-imagem'));
+    imagem.replaceChildren(src ? el('img', { src, alt: '', loading: 'lazy' }) : ui.icone('imagem'));
+  }
+  atualizar();
+  return { elemento, atualizar, focar() {} };
+}
+
+// ---------------------------------------------------------------------------
 // #/conteudo/<grupo> — formulário do grupo
 
 function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
@@ -1620,11 +1817,25 @@ function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
     acoes: [ui.botao({ texto: 'Ver no site', iconeDireita: 'externo', href: enderecoSite, classe: 'cms-ver-site', attrs: { target: '_blank', rel: 'noopener' } })],
   }));
 
+  // Tudo o que o site mostraria agora: o que está salvo + o rascunho deste grupo.
+  const conteudoAtual = () => {
+    const conteudo = {};
+    for (const [chave, linha] of salvos) conteudo[chave] = linha.valor;
+    for (const campo of campos) conteudo[campo.chave] = normalizarValor(campo, rascunho.get(campo.chave), document);
+    return conteudo;
+  };
+  const previaViva = grupo.id === 'seo'
+    ? criarPreviaGoogle(ctx, { conteudo: conteudoAtual })
+    : criarPreviaAoVivo(ctx, { template: dados.template, grupoId: grupo.id, conteudo: conteudoAtual, recursos });
+  const atualizarPreviaDepois = ui.debounce(() => previaViva.atualizar(), 200);
+  recursos.limpezas.add(() => atualizarPreviaDepois.cancelar());
+
   const aoMudar = (chave, valor) => {
     rascunho.set(chave, valor);
     acabouDeSalvar = false;
     ctx.marcarAlterado(true);
     atualizarDepois();
+    atualizarPreviaDepois();
   };
 
   // --- cartões dos campos
@@ -1674,10 +1885,16 @@ function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
   const previa = ui.botao({ texto: 'Pré-visualizar', tipo: 'secundario', icone: 'olho', classe: 'cms-previsualizar', aoClicar: () => previsualizar() });
   const salvarBotao = ui.botao({ texto: 'Salvar', tipo: 'primario', icone: 'check', classe: 'cms-salvar', aoClicar: () => salvar() });
   const form = el('form', { class: 'pilha cms-formulario', novalidate: true, 'aria-label': `Conteúdo: ${grupo.rotulo}` },
+    previaViva.elemento,
     grupo.campos.length ? null : ui.aviso('Esta parte não tem textos para editar: aqui você só escolhe se ela aparece no site.', 'info'),
     Array.from(controles.values(), (c) => c.cartao),
     el('div', { class: 'barra-acoes cms-barra' }, info, previa, salvarBotao));
   form.addEventListener('submit', (evento) => evento.preventDefault());
+  // Campo em foco: a prévia vai até ele e o marca.
+  form.addEventListener('focusin', (evento) => {
+    const cartao = evento.target.closest('[data-chave]');
+    if (cartao) previaViva.focar(cartao.dataset.chave);
+  });
   corpo.replaceChildren(form);
 
   // --- estado (selos, aviso de alterações, texto da barra)
@@ -1777,15 +1994,14 @@ function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
     desenharEditor(controle);
     acabouDeSalvar = temLinha;
     atualizarEstado();
+    previaViva.atualizar();
     controle.editor.focar();
     ui.toast(temLinha ? 'Padrão restaurado.' : 'Mudanças desfeitas.', 'sucesso');
   }
 
   // --- pré-visualizar (template + tudo o que está salvo + o rascunho deste grupo)
   function previsualizar() {
-    const conteudo = {};
-    for (const [chave, linha] of salvos) conteudo[chave] = linha.valor;
-    for (const campo of campos) conteudo[campo.chave] = normalizarValor(campo, rascunho.get(campo.chave), document);
+    const conteudo = conteudoAtual();
     const pendente = montarAlteracoes({ campos, rascunho, salvos, documento: document }).total > 0;
     let html;
     try {

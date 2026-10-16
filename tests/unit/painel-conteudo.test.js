@@ -12,7 +12,7 @@ import * as conteudo from '../../public/admin/js/paginas/conteudo.js';
 
 const {
   LIMITE_ITENS, adicionarItem, chaveVisibilidade, clonarValor, ehMetaDeImagem,
-  htmlDaPrevia, limiteIdeal, mapaDeLinhas, montarAlteracoes, moverItem, nomeDoArquivo, normalizarEndereco,
+  htmlDaPrevia, htmlDaPreviaViva, limiteIdeal, mapaDeLinhas, montarAlteracoes, moverItem, nomeDoArquivo, normalizarEndereco,
   normalizarHtml, normalizarValor, ordenarGrupos, removerItem, resumirGrupos, resumoDoItem, textoDoHtml,
   validarEndereco, validarValor, valorEfetivo, valoresDoMolde, valoresIguais,
 } = conteudo;
@@ -491,6 +491,19 @@ describe('visão geral dos grupos', () => {
     assert.equal(doc.querySelector('#depoimentos'), null);
     assert.equal(doc.querySelector('[data-previa-painel]').textContent, 'Pré-visualização: as mudanças ainda não foram salvas');
     assert.equal(doc.querySelectorAll('script:not([src])').length, analisar(HOME).querySelectorAll('script:not([src])').length);
+  });
+
+  test('prévia ao vivo: sem scripts, animações já visíveis, marca do campo em foco; WhatsApp só no grupo dele', () => {
+    const html = htmlDaPreviaViva(HOME, { 'historia.coragem-titulo': 'Coragem' }, { analisar, origem: '' });
+    const doc = analisar(html);
+    assert.equal(doc.querySelectorAll('script').length, 0);
+    const estilo = doc.querySelector('head style[data-previa-viva]').textContent;
+    assert.match(estilo, /\.reveal\{opacity:1!important/);
+    assert.match(estilo, /\[data-cms-previa-foco\]/);
+    assert.match(estilo, /\.wa-flutuante\{display:none!important\}/);
+    assert.equal(doc.querySelector('[data-cms="historia.coragem-titulo"]').textContent, 'Coragem');
+    const doWhatsapp = analisar(htmlDaPreviaViva(HOME, {}, { analisar, origem: '', mostrarWhatsapp: true }));
+    assert.doesNotMatch(doWhatsapp.querySelector('head style[data-previa-viva]').textContent, /wa-flutuante/);
   });
 
   test('pré-visualização sem aviso não tem a faixa', () => {

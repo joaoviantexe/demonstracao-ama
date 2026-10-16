@@ -530,6 +530,17 @@ async function rodarLargura(navegador, url, largura) {
 
     // Outras telas só para conferir o visual.
     await irPara(pagina, '#/conteudo/historia', '[data-chave="historia.trechos"] .cms-item');
+    // Prévia ao vivo: digitar no título do quadro "Palavra de coragem" muda a prévia na hora e marca o campo.
+    const quadroPrevia = pagina.frameLocator('.cms-previa__quadro');
+    await quadroPrevia.locator('[data-cms="historia.coragem-titulo"]').waitFor({ state: 'attached', timeout: 20_000 });
+    const tituloQuadro = `Coragem ${sufixo}`;
+    await pagina.locator('[data-chave="historia.coragem-titulo"] input').fill(tituloQuadro);
+    await pagina.waitForTimeout(600);
+    const naPrevia = await quadroPrevia.locator('[data-cms="historia.coragem-titulo"]').evaluate((e) => ({ texto: e.textContent.trim(), foco: e.hasAttribute('data-cms-previa-foco') }));
+    conferir(naPrevia.texto === tituloQuadro && naPrevia.foco, 'prévia ao vivo: o título digitado aparece na hora e o campo fica marcado',
+      `prévia ao vivo: ${JSON.stringify(naPrevia)}`);
+    await capturar(pagina, `previa-ao-vivo-${largura}`, { inteira: false });
+    await pagina.locator('[data-chave="historia.coragem-titulo"] input').fill('Palavra de coragem');
     await pagina.locator('[data-chave="historia.trechos"] .cms-item__alternar').first().click();
     await pagina.waitForSelector('[data-chave="historia.trechos"] .cms-item__corpo .cms-rico__area');
     await capturar(pagina, `historia-${largura}`);
