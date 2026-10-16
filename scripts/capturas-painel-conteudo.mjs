@@ -280,14 +280,14 @@ async function cartaoDoGrupo(pagina, id) {
 async function salvar(pagina, onde) {
   await limparToasts(pagina);
   await pagina.locator('.cms-salvar').click();
-  await esperarToast(pagina, 'Salvo! O site mostra as mudanças em até 15 segundos');
+  await esperarToast(pagina, 'Salvo!');
   await pagina.waitForSelector('.cms-salvar:not([aria-busy="true"])');
   await pagina.waitForTimeout(300); // passa o atraso (150 ms) da atualização dos selos
   const info = (await pagina.locator('.cms-barra__info').textContent()).trim();
   const pendentes = await pagina.evaluate(() => [...document.querySelectorAll('.cms-campo')]
     .filter((c) => c.querySelector('.selo--ambar:not([hidden])')).map((c) => c.dataset.chave));
-  conferir(/^Salvo! O site mostra as mudanças em até 15 segundos/.test(info) && await pagina.locator('.cms-barra__info a', { hasText: 'Ver no site' }).count() === 1,
-    `${onde}: depois de salvar, "Salvo! O site mostra as mudanças em até 15 segundos" + "Ver no site"`,
+  conferir(/^Salvo\./.test(info) && !/15 segundos/.test(info) && await pagina.locator('.cms-barra__info a', { hasText: 'Ver no site' }).count() === 1,
+    `${onde}: depois de salvar, "Salvo." + "Ver no site"`,
     `${onde}: barra depois de salvar: "${info}" (não salvos: ${pendentes.join(', ')})`);
   const alterado = await pagina.isVisible('.topo__alterado');
   conferir(!alterado, 'aviso de alterações não salvas sumiu depois de salvar', 'aviso de alterações continuou depois de salvar');
@@ -441,7 +441,7 @@ async function rodarLargura(navegador, url, largura) {
     const primeiro = (await itens().nth(0).locator('.lista-ordenavel__titulo').textContent()).trim();
     conferir(primeiro === nomeNovo, '"Subir" levou o depoimento para o 1º lugar', `1º item depois de subir: ${primeiro}`);
 
-    // Adiciona (nasce igual ao molde), duplica e remove com confirmação.
+    // Adiciona (nasce igual ao molde) e remove com confirmação; não há mais "Duplicar".
     await pagina.locator('[data-chave="depoimentos.itens"]').getByRole('button', { name: 'Adicionar depoimento' }).click();
     await pagina.waitForFunction(() => document.querySelectorAll('[data-chave="depoimentos.itens"] .cms-item').length === 4);
     const novo = itens().nth(3);
@@ -450,14 +450,11 @@ async function rodarLargura(navegador, url, largura) {
       'depoimento novo nasce com os valores do molde e explica isso', `item novo: nome "${nomeMolde}"`);
     await capturar(pagina, `depoimentos-${largura}`);
     await semRolagemHorizontal(pagina, 'Depoimentos');
-    await novo.locator('[data-acao="duplicar"]').click();
-    await pagina.waitForFunction(() => document.querySelectorAll('[data-chave="depoimentos.itens"] .cms-item').length === 5);
-    for (const indice of [4, 3]) {
-      await itens().nth(indice).locator('[data-acao="remover"]').click();
-      const msg = await responderConfirmacao(pagina, 'Remover', { capturaComo: indice === 4 ? `remover-item-${largura}` : null });
-      if (indice === 4) conferir(/Remover "Doraci Silva" da lista\?/.test(msg), 'remover pede confirmação com o nome do item', `confirmação: ${msg}`);
-    }
-    conferir(await itens().count() === 3, 'adicionar, duplicar e remover voltaram a 3 itens', `itens depois: ${await itens().count()}`);
+    conferir(await pagina.locator('[data-chave="depoimentos.itens"] [data-acao="duplicar"]').count() === 0, 'sem botão "Duplicar"', 'a lista ainda tem "Duplicar"');
+    await itens().nth(3).locator('[data-acao="remover"]').click();
+    const msg = await responderConfirmacao(pagina, 'Remover', { capturaComo: `remover-item-${largura}` });
+    conferir(/Remover "Doraci Silva" da lista\?/.test(msg), 'remover pede confirmação com o nome do item', `confirmação: ${msg}`);
+    conferir(await itens().count() === 3, 'adicionar e remover voltaram a 3 itens', `itens depois: ${await itens().count()}`);
     await salvar(pagina, 'Depoimentos');
     const salvos = (await linhas(['depoimentos.itens'])).get('depoimentos.itens');
     conferir(Array.isArray(salvos) && salvos.length === 3 && salvos[0].nome === nomeNovo && salvos[0].foto.src === srcNovo

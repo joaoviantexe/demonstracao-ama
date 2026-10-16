@@ -11,7 +11,7 @@ import { aplicarConteudo, extrairEsquema, lerValor } from '../../public/js/cms/a
 import * as conteudo from '../../public/admin/js/paginas/conteudo.js';
 
 const {
-  LIMITE_ITENS, adicionarItem, chaveVisibilidade, clonarValor, duplicarItem, ehMetaDeImagem, enderecoDeTeste,
+  LIMITE_ITENS, adicionarItem, chaveVisibilidade, clonarValor, ehMetaDeImagem,
   htmlDaPrevia, limiteIdeal, mapaDeLinhas, montarAlteracoes, moverItem, nomeDoArquivo, normalizarEndereco,
   normalizarHtml, normalizarValor, ordenarGrupos, removerItem, resumirGrupos, resumoDoItem, textoDoHtml,
   validarEndereco, validarValor, valorEfetivo, valoresDoMolde, valoresIguais,
@@ -117,12 +117,6 @@ describe('endereços de links', () => {
     }
   });
 
-  test('enderecoDeTeste: âncora da home vira /#secao; inseguro → null', () => {
-    assert.equal(enderecoDeTeste('#sobre'), '/#sobre');
-    assert.equal(enderecoDeTeste('www.ama.org.br'), 'https://www.ama.org.br');
-    assert.equal(enderecoDeTeste('javascript:alert(1)'), null);
-    assert.equal(enderecoDeTeste(''), null);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -402,14 +396,6 @@ describe('operações de lista', () => {
     assert.equal(molde.foto.src, '/a.jpg');
     assert.equal(base.length, 3);
     assert.deepEqual(adicionarItem(undefined, { a: 1 }), [{ a: 1 }]);
-  });
-
-  test('duplicar põe a cópia logo depois, independente do original', () => {
-    const lista = duplicarItem(base, 1);
-    assert.deepEqual(lista.map((i) => i.n), [1, 2, 2, 3]);
-    lista[2].n = 9;
-    assert.equal(lista[1].n, 2);
-    assert.deepEqual(duplicarItem(base, 7), base);
   });
 
   test('remover e mover devolvem listas novas', () => {

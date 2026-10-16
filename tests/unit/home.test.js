@@ -67,7 +67,6 @@ describe('templates/home.html — esquema do CMS', () => {
         assert.ok(campo.chave.startsWith(`${grupo.id}.`), `${campo.chave} começa com ${grupo.id}.`);
         assert.ok(TIPOS_VALIDOS.includes(campo.tipo), `${campo.chave}: tipo ${campo.tipo}`);
         assert.ok(campo.rotulo, `${campo.chave}: rótulo`);
-        assert.ok(campo.ajuda, `${campo.chave}: ajuda`);
         if (campo.tipo === 'lista') {
           assert.ok(campo.itemRotulo && campo.itemRotulo !== 'Item', `${campo.chave}: rótulo do item`);
           assert.ok(campo.campos.length > 0, `${campo.chave}: campos do item`);

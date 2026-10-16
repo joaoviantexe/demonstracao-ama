@@ -112,13 +112,6 @@ export function validarEndereco(valor, { obrigatorio = true } = {}) {
   return null;
 }
 
-/** Endereço para testar um link no navegador (âncoras da home viram "/#secao"). null se não for seguro. */
-export function enderecoDeTeste(valor) {
-  const v = normalizarEndereco(valor);
-  if (!v || validarEndereco(v)) return null;
-  return v.startsWith('#') ? `/${v}` : v;
-}
-
 // ---------------------------------------------------------------------------
 // Normalização e valores efetivos
 
@@ -414,13 +407,6 @@ export function adicionarItem(lista, item) {
   return [...(lista || []), clonarValor(item)];
 }
 
-export function duplicarItem(lista, indice) {
-  const copia = [...(lista || [])];
-  if (indice < 0 || indice >= copia.length) return copia;
-  copia.splice(indice + 1, 0, clonarValor(copia[indice]));
-  return copia;
-}
-
 export function removerItem(lista, indice) {
   return (lista || []).filter((_, i) => i !== indice);
 }
@@ -669,7 +655,6 @@ function montarVisaoGeral(ctx, dados, corpo) {
       ui.icone('avancar', { classe: 'cms-grupo__seta' }));
   };
   corpo.replaceChildren(
-    ui.aviso('Escolha a parte da página inicial que você quer mudar. Depois de salvar, o site mostra as mudanças em até 15 segundos.', 'info'),
     el('ul', { class: 'cms-grupos', 'aria-label': 'Partes da página inicial' }, resumos.map((r) => el('li', {}, cartao(r)))),
   );
 }
@@ -1122,7 +1107,6 @@ function editorVideo(ctx, campo, valor, aoMudar, { idRotulo }) {
       arquivo,
       el('div', { class: 'grupo-botoes' }, trocar),
       erroGeral,
-      ui.aviso('Vídeos pesados deixam o site lento no celular. Prefira vídeos curtos, de até 20 MB. Vídeos longos ficam melhores no YouTube ou no Instagram.', 'info'),
       el('div', { class: 'cms-video__linha-capa' },
         capa,
         el('div', { class: 'pilha pilha--estreita' },
@@ -1147,7 +1131,7 @@ function esconderRotulo(campo) {
   if (rotulo) rotulo.classList.add('sr-only');
 }
 
-// Campo de endereço com "completar" ao sair (https://, mailto:, tel:) e link para testar.
+// Campo de endereço com "completar" ao sair (https://, mailto:, tel:).
 function campoEndereco(ctx, { rotulo, valor, ajuda, aoMudar }) {
   const { ui } = ctx;
   const { el } = ui;
@@ -1155,17 +1139,9 @@ function campoEndereco(ctx, { rotulo, valor, ajuda, aoMudar }) {
     rotulo, nome: 'endereco', valor: texto(valor), placeholder: 'https://…', ajuda,
     attrs: { inputmode: 'url', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'off' },
   });
-  const testar = el('a', { class: 'botao-link cms-endereco__testar', target: '_blank', rel: 'noopener' }, ui.icone('externo'), 'Testar o link');
   const dica = el('p', { class: 'cms-dica', hidden: true, 'aria-live': 'polite' });
-  const atualizarTeste = () => {
-    const destino = enderecoDeTeste(campo.entrada.value);
-    testar.hidden = !destino;
-    if (destino) testar.href = destino; // já conferido por urlSegura
-  };
-  atualizarTeste();
   campo.entrada.addEventListener('input', () => {
     dica.hidden = true;
-    atualizarTeste();
     aoMudar(campo.entrada.value);
   });
   campo.entrada.addEventListener('change', () => {
@@ -1175,12 +1151,11 @@ function campoEndereco(ctx, { rotulo, valor, ajuda, aoMudar }) {
       campo.entrada.value = completo;
       dica.textContent = `Completamos o endereço: ${completo}`;
       dica.hidden = false;
-      atualizarTeste();
       aoMudar(completo);
     }
     campo.definirErro(validarEndereco(completo));
   });
-  campo.elemento.append(dica, testar);
+  campo.elemento.append(dica);
   return campo;
 }
 
@@ -1240,7 +1215,6 @@ function editorInstagram(ctx, campo, valor, aoMudar, { idRotulo }) {
   });
   esconderRotulo(endereco);
   const estado = el('p', { class: 'cms-instagram__estado', 'aria-live': 'polite' });
-  const abrir = el('a', { class: 'botao-link', target: '_blank', rel: 'noopener' }, ui.icone('externo'), 'Abrir no Instagram');
   const previa = el('div', { class: 'cms-instagram__previa', hidden: true });
   const mostrar = ui.botao({
     texto: 'Mostrar prévia', tipo: 'secundario', tamanho: 'pequeno', icone: 'olho',
@@ -1269,12 +1243,10 @@ function editorInstagram(ctx, campo, valor, aoMudar, { idRotulo }) {
     if (publicacao) {
       estado.className = 'cms-instagram__estado cms-instagram__estado--ok';
       estado.append(ui.icone('sucesso'), 'Publicação reconhecida.');
-      abrir.href = publicacao;
     } else {
       estado.className = 'cms-instagram__estado';
       estado.append(ui.icone('info'), v ? 'Endereço ainda não reconhecido como publicação do Instagram.' : 'Cole aqui o endereço da publicação.');
     }
-    abrir.hidden = !publicacao;
     mostrar.hidden = !publicacao;
     if (!publicacao && !previa.hidden) {
       previa.hidden = true;
@@ -1288,7 +1260,7 @@ function editorInstagram(ctx, campo, valor, aoMudar, { idRotulo }) {
     aoMudar(endereco.entrada.value);
   });
   const elemento = el('div', { class: 'pilha pilha--estreita cms-instagram', role: 'group', 'aria-labelledby': idRotulo },
-    endereco.elemento, estado, el('div', { class: 'linha' }, abrir, mostrar), previa);
+    endereco.elemento, estado, el('div', { class: 'linha' }, mostrar), previa);
   return {
     elemento,
     mostrarErros(erros) {
@@ -1343,6 +1315,8 @@ function subcampo(ctx, sub, valor, aoMudar, recursos, padrao) {
   };
 }
 
+const LISTAS_SEM_ADICIONAR = new Set(['cabecalho.menu']);
+
 function editorLista(ctx, campo, valor, aoMudar, { idRotulo, recursos }) {
   const { ui } = ctx;
   const { el } = ui;
@@ -1363,8 +1337,10 @@ function editorLista(ctx, campo, valor, aoMudar, { idRotulo, recursos }) {
   const anuncio = el('p', { class: 'sr-only', 'aria-live': 'polite' });
   const erroGeral = el('p', { class: 'campo__erro', id: ui.novoId('cms-erro'), hidden: true });
   const adicionar = ui.botao({ texto: `Adicionar ${minusculo}`, icone: 'mais', tipo: 'secundario', aoClicar: () => adicionarNovo() });
+  // Os itens do menu são fixos (as seções da página): dá para mudar, subir/descer e tirar, mas não criar novos.
+  const podeAdicionar = !LISTAS_SEM_ADICIONAR.has(campo.chave);
   const elemento = el('div', { class: 'cms-lista-editor', role: 'group', 'aria-labelledby': idRotulo },
-    lista, vazio, erroGeral, el('div', { class: 'cms-lista__rodape' }, adicionar), anuncio);
+    lista, vazio, erroGeral, podeAdicionar ? el('div', { class: 'cms-lista__rodape' }, adicionar) : null, anuncio);
 
   const emitir = () => aoMudar(itens.map((i) => i.valores));
   const anunciar = (mensagem) => { anuncio.textContent = mensagem; };
@@ -1421,7 +1397,6 @@ function editorLista(ctx, campo, valor, aoMudar, { idRotulo, recursos }) {
     const acoes = el('div', { class: 'lista-ordenavel__acoes' },
       acao('subir', 'Subir', 'subir', i === 0, () => mover(i, i - 1, 'subir')),
       acao('descer', 'Descer', 'descer', i === itens.length - 1, () => mover(i, i + 1, 'descer')),
-      acao('duplicar', 'Duplicar', 'duplicar', itens.length >= LIMITE_ITENS, () => duplicar(i)),
       acao('lixeira', 'Remover', 'remover', false, () => remover(i)));
     const li = el('li', {
       class: ['lista-ordenavel__item', 'cms-item', aberto && 'lista-ordenavel__item--aberto', temErro && 'cms-item--erro'],
@@ -1476,16 +1451,6 @@ function editorLista(ctx, campo, valor, aoMudar, { idRotulo, recursos }) {
     emitir();
     desenhar({ id: itens[para].id, alvo });
     anunciar(`${itemRotulo} movido para a posição ${para + 1} de ${itens.length}.`);
-  }
-
-  function duplicar(i) {
-    if (itens.length >= LIMITE_ITENS) return;
-    const copia = embrulhar(itens[i].valores);
-    itens = [...itens.slice(0, i + 1), copia, ...itens.slice(i + 1)];
-    abertos.add(copia.id);
-    emitir();
-    desenhar({ id: copia.id, alvo: 'primeiro' });
-    anunciar(`Cópia criada na posição ${i + 2}.`);
   }
 
   async function remover(i) {
@@ -1627,7 +1592,6 @@ function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
   function cartaoVisibilidade(campo) {
     const interruptor = ui.campo({
       tipo: 'interruptor', nome: 'visivel', rotulo: campo.rotulo, valor: rascunho.get(campo.chave) !== false,
-      ajuda: 'Desligado, esta seção some da página inicial. Nada é apagado: ligue de novo quando quiser.',
     });
     interruptor.entrada.addEventListener('change', () => aoMudar(campo.chave, interruptor.ler()));
     const seloPendente = el('span', { class: 'selo selo--ambar', hidden: true }, 'Não salvo');
@@ -1664,10 +1628,10 @@ function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
     if (alteradas.size) {
       info.textContent = alteradas.size === 1 ? '1 campo mudou e ainda não foi salvo.' : `${alteradas.size} campos mudaram e ainda não foram salvos.`;
     } else if (acabouDeSalvar) {
-      info.replaceChildren('Salvo! O site mostra as mudanças em até 15 segundos. ',
+      info.replaceChildren('Salvo. ',
         el('a', { href: enderecoSite, target: '_blank', rel: 'noopener', class: 'cms-barra__link' }, 'Ver no site'));
     } else {
-      info.textContent = 'Depois de salvar, o site mostra as mudanças em até 15 segundos.';
+      info.textContent = '';
     }
     return alteracoes;
   }
@@ -1720,7 +1684,7 @@ function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
       }
       acabouDeSalvar = true;
       const restante = atualizarEstado();
-      if (!restante.total) ui.toast('Salvo! O site mostra as mudanças em até 15 segundos.', 'sucesso');
+      if (!restante.total) ui.toast('Salvo!', 'sucesso');
     });
   }
 
@@ -1730,7 +1694,7 @@ function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
     const temLinha = salvos.has(campo.chave);
     const mudouAgora = !valoresIguais(campo, rascunho.get(campo.chave), valorEfetivo(campo, salvos.get(campo.chave)), document);
     const mensagem = temLinha
-      ? `Voltar "${campo.rotulo}" ao conteúdo original do site? A versão salva pelo painel será apagada${mudouAgora ? ', junto com o que você mudou agora' : ''}. O site volta ao original em até 15 segundos.`
+      ? `Voltar "${campo.rotulo}" ao conteúdo original do site? A versão salva pelo painel será apagada${mudouAgora ? ', junto com o que você mudou agora' : ''}.`
       : `Desfazer o que você mudou em "${campo.rotulo}" e voltar ao conteúdo original?`;
     const sim = await ui.confirmar(mensagem, { perigo: true, titulo: 'Restaurar padrão?', textoConfirmar: 'Restaurar padrão' });
     if (!sim || !ctx.ativo()) return;
@@ -1748,7 +1712,7 @@ function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
     acabouDeSalvar = temLinha;
     atualizarEstado();
     controle.editor.focar();
-    ui.toast(temLinha ? 'Padrão restaurado. O site volta ao original em até 15 segundos.' : 'Mudanças desfeitas.', 'sucesso');
+    ui.toast(temLinha ? 'Padrão restaurado.' : 'Mudanças desfeitas.', 'sucesso');
   }
 
   // --- pré-visualizar (template + tudo o que está salvo + o rascunho deste grupo)
