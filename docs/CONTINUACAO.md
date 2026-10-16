@@ -19,11 +19,6 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
   - monica@oscama.com.br
   - rayssa@oscama.com.br
   - joao@oscama.com.br
-- **Pendente — apagar os usuários antigos do Supabase** (Authentication → Users → ⋯ → Delete user; se também
-  estiverem em `public.admins`, apague a linha de lá, ou rode `delete from public.admins where email in (…)`):
-  - monica@associacaomulheresamazonia.com.br
-  - rayssa@associacaomulheresamazonia.com.br
-  - joao@associacaomulheresamazonia.com.br
 
 ## Leia primeiro
 
