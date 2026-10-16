@@ -446,10 +446,10 @@ describe('operações de lista', () => {
 // Visão geral e pré-visualização
 
 describe('visão geral dos grupos', () => {
-  test('SEO vai para o fim; a ordem dos demais é a do template', () => {
+  test('Identidade vem primeiro, SEO vai para o fim; a ordem dos demais é a do template', () => {
     const ids = ordenarGrupos(esquemaDaHome().grupos).map((g) => g.id);
     assert.equal(ids.at(-1), 'seo');
-    assert.deepEqual(ids.slice(0, 3), ['cabecalho', 'quem-somos', 'postagens']);
+    assert.deepEqual(ids.slice(0, 4), ['identidade', 'cabecalho', 'quem-somos', 'postagens']);
   });
 
   test('resumo: campos, edições salvas e visibilidade', () => {

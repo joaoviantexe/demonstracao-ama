@@ -480,7 +480,8 @@ export function resumoDoItem(item, campos, indice, itemRotulo = 'Item') {
 /** SEO por último: é a parte que menos se edita. */
 export function ordenarGrupos(grupos) {
   const lista = grupos || [];
-  return [...lista.filter((g) => g.id !== 'seo'), ...lista.filter((g) => g.id === 'seo')];
+  const meio = lista.filter((g) => g.id !== 'seo' && g.id !== 'identidade');
+  return [...lista.filter((g) => g.id === 'identidade'), ...meio, ...lista.filter((g) => g.id === 'seo')];
 }
 
 /** Resumo de cada grupo para os cartões de #/conteudo. */

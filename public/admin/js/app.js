@@ -36,6 +36,7 @@ export const MENU = Object.freeze([
     secao: 'Site',
     // Um item por parte da página inicial; o hash é o do grupo em paginas/conteudo.js.
     itens: [
+      { id: 'conteudo-identidade', rotulo: 'Identidade', hash: '#/conteudo/identidade', icone: 'midia' },
       { id: 'conteudo-cabecalho', rotulo: 'Cabeçalho e menu', hash: '#/conteudo/cabecalho', icone: 'menu' },
       { id: 'conteudo-quem-somos', rotulo: 'Quem somos', hash: '#/conteudo/quem-somos', icone: 'info' },
       { id: 'conteudo-postagens', rotulo: 'Postagens destacadas', hash: '#/conteudo/postagens', icone: 'imagem' },

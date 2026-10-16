@@ -19,7 +19,7 @@ const MAIN_JS = readFileSync(path.join(RAIZ, 'public', 'js', 'main.js'), 'utf8')
 const ESTILO = readFileSync(path.join(RAIZ, 'public', 'css', 'estilo.css'), 'utf8');
 
 const GRUPOS = [
-  'seo', 'cabecalho', 'quem-somos', 'postagens', 'projetos', 'historia', 'loja',
+  'seo', 'cabecalho', 'identidade', 'quem-somos', 'postagens', 'projetos', 'historia', 'loja',
   'depoimentos', 'parcerias', 'rodape', 'whatsapp',
 ];
 const OCULTAVEIS = ['quem-somos', 'postagens', 'projetos', 'historia', 'loja', 'depoimentos', 'parcerias', 'whatsapp'];
@@ -111,7 +111,7 @@ describe('templates/home.html — esquema do CMS', () => {
     const chaves = new Set(camposDoEsquema(esquema).map((c) => c.chave));
     for (const chave of [
       'seo.titulo', 'seo.descricao', 'seo.og-titulo', 'seo.og-descricao', 'seo.og-imagem',
-      'cabecalho.logo', 'cabecalho.menu',
+      'identidade.logo', 'cabecalho.menu',
       'quem-somos.titulo', 'quem-somos.video', 'quem-somos.texto',
       'postagens.titulo', 'postagens.publicacoes', 'postagens.perfil',
       'projetos.titulo', 'projetos.subtitulo', 'projetos.itens',
@@ -119,7 +119,7 @@ describe('templates/home.html — esquema do CMS', () => {
       'historia.coragem-citacao', 'historia.coragem-referencia', 'historia.manifesto-titulo', 'historia.manifesto-texto',
       'loja.titulo', 'loja.texto', 'loja.botao', 'loja.imagem-1', 'loja.imagem-2', 'loja.imagem-3',
       'depoimentos.titulo', 'depoimentos.itens', 'parcerias.titulo', 'parcerias.logos',
-      'rodape.logo', 'rodape.contatos', 'rodape.copyright', 'whatsapp.link',
+      'rodape.contatos', 'rodape.copyright', 'whatsapp.link',
     ]) {
       assert.ok(chaves.has(chave), `falta ${chave}`);
     }
@@ -233,7 +233,7 @@ describe('templates/home.html — aplicação do conteúdo', () => {
       'seo.titulo': 'AMA — título editado',
       'seo.descricao': 'Descrição editada',
       'seo.og-imagem': 'https://ama.exemplo.org/img/capa.jpg',
-      'cabecalho.logo': { src: '/img/logo-nova.png', alt: 'Logo nova da AMA' },
+      'identidade.logo': { src: '/img/logo-nova.png', alt: 'Logo nova da AMA' },
       'cabecalho.menu': [
         { link: { href: '#sobre', texto: 'Quem somos' } },
         { link: { href: '/loja/', texto: 'Loja virtual' } },
@@ -266,12 +266,11 @@ describe('templates/home.html — aplicação do conteúdo', () => {
     assert.equal($(doc, 'meta[property="og:title"]').getAttribute('content'), 'Associação de Mulheres na Amazônia - AMA');
     assert.equal($(doc, 'meta[property="og:image"]').getAttribute('content'), 'https://ama.exemplo.org/img/capa.jpg');
 
-    // Espelhos: logo do topo e do menu do celular; menu do computador e do celular.
-    for (const img of $$(doc, '.marca-logo, .menu-mobile-logo')) {
+    // Espelhos: a logo da Identidade vale no topo, no menu do celular e no rodapé; menu do computador e do celular.
+    for (const img of $$(doc, '.marca-logo, .menu-mobile-logo, .rodape-logo')) {
       assert.equal(img.getAttribute('src'), '/img/logo-nova.png');
       assert.equal(img.getAttribute('alt'), 'Logo nova da AMA');
     }
-    assert.equal($(doc, '.rodape-logo').getAttribute('src'), '/img/logo-ama.png', 'logo do rodapé é outro campo');
     for (const menu of [$(doc, '.nav-desktop'), $(doc, '#menu-mobile')]) {
       const links = $$(menu, 'a[data-cms-item]').map((a) => [a.getAttribute('href'), texto(a)]);
       assert.deepEqual(links, [['#sobre', 'Quem somos'], ['/loja/', 'Loja virtual']]);
