@@ -639,7 +639,7 @@ Mercado Pago" → `/api/admin/pagamento`), linha do tempo com notas internas (`p
 envio do Melhor Envio (`/api/admin/envio`: carrinho com NF-e opcional → pagar com o saldo → gerar → imprimir →
 buscar rastreio → marcar como enviado). Pedido aguardando pagamento pode ser apagado.
 
-Configurações (`?aba=` na URL): Loja (nome, descrição, WhatsApp, e-mail de contato), Frete
+Configurações (`?aba=` na URL): Loja (nome e descrição; o WhatsApp vem de Site → Botão do WhatsApp, que vale para o site todo e a loja), Frete
 (Melhor Envio com prazo e valor a mais e seguro; frete fixo com nome, valor, prazo e estados; remetente; frete
 grátis a partir de um valor; sem retirada), Pagamento (parcelas, boleto, prazo para pagar), Avisos por e-mail
 (e-mails da equipe); não há tela de integrações (o painel mostra o mínimo). Cada aba tem o próprio

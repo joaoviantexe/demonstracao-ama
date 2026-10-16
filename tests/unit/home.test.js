@@ -112,7 +112,7 @@ describe('templates/home.html — esquema do CMS', () => {
     const chaves = new Set(camposDoEsquema(esquema).map((c) => c.chave));
     for (const chave of [
       'seo.titulo', 'seo.descricao', 'seo.og-titulo', 'seo.og-descricao', 'seo.og-imagem',
-      'cabecalho.logo', 'cabecalho.menu', 'cabecalho.whatsapp',
+      'cabecalho.logo', 'cabecalho.menu',
       'quem-somos.titulo', 'quem-somos.video', 'quem-somos.texto',
       'postagens.titulo', 'postagens.publicacoes', 'postagens.perfil',
       'projetos.titulo', 'projetos.subtitulo', 'projetos.itens',
@@ -211,6 +211,23 @@ describe('templates/home.html — aplicação do conteúdo', () => {
     assert.equal(outro.toString(), antes);
   });
 
+  test('o número do botão do WhatsApp vale para todos os links wa.me, mantendo as mensagens', () => {
+    const antes = montar();
+    const mensagens = $$(antes, 'a[href*="wa.me/"][href*="text="]').map((a) => a.getAttribute('href').split('?')[1]);
+    assert.ok(mensagens.length >= 4, 'os botões dos projetos têm mensagem');
+    const doc = montar();
+    aplicarConteudo(doc, { 'whatsapp.link': { href: 'https://wa.me/5591977776666?text=ignorado', texto: 'Oi' } });
+    const links = $$(doc, 'a[href*="wa.me/"]');
+    assert.ok(links.length >= 6);
+    for (const a of links) assert.match(a.getAttribute('href'), /^https:\/\/wa\.me\/5591977776666/, a.getAttribute('href'));
+    assert.deepEqual($$(doc, 'a[href*="wa.me/"][href*="text="]').map((a) => a.getAttribute('href').split('?')[1]).sort(),
+      [...mensagens, 'text=ignorado'].sort());
+    // Endereço que não é wa.me não muda nada.
+    const outro = montar();
+    aplicarConteudo(outro, { 'whatsapp.link': { href: 'https://exemplo.com/zap', texto: 'Oi' } });
+    assert.equal($$(outro, 'a[href*="wa.me/5591981056049"]').length, $$(antes, 'a[href*="wa.me/5591981056049"]').length - 1, 'só o próprio botão mudou');
+  });
+
   test('valores de exemplo mudam os elementos certos, inclusive espelhos e listas', () => {
     const doc = montar();
     aplicarConteudo(doc, {
@@ -222,7 +239,6 @@ describe('templates/home.html — aplicação do conteúdo', () => {
         { link: { href: '#sobre', texto: 'Quem somos' } },
         { link: { href: '/loja/', texto: 'Loja virtual' } },
       ],
-      'cabecalho.whatsapp': { href: 'https://wa.me/5591999990000', texto: 'Chamar no WhatsApp' },
       'quem-somos.titulo': 'Quem somos nós',
       'quem-somos.video': { src: '/img/outro-video.mp4', poster: '/img/outra-capa.jpg' },
       'quem-somos.texto': '<p>Texto <strong>novo</strong></p><script>alert(1)</script>',
@@ -263,8 +279,10 @@ describe('templates/home.html — aplicação do conteúdo', () => {
     }
     assert.ok($(doc, '#menu-mobile .menu-mobile-topo'), 'o topo do menu do celular continua');
     const waMenu = $(doc, '#menu-mobile a.botao');
-    assert.equal(waMenu.getAttribute('href'), 'https://wa.me/5591999990000');
-    assert.equal(texto(waMenu), 'Chamar no WhatsApp');
+    // O número do botão do WhatsApp (whatsapp.link) vale para todos os links wa.me do site.
+    assert.equal(waMenu.getAttribute('href'), 'https://wa.me/5591988887777');
+    assert.equal(texto(waMenu), 'Falar no WhatsApp');
+    for (const a of $$(doc, 'a[href*="wa.me/"]')) assert.match(a.getAttribute('href'), /^https:\/\/wa\.me\/5591988887777(\?text=.*)?$/, a.getAttribute('href'));
     assert.equal($(doc, '#menu-mobile').lastElementChild, waMenu, 'botão do WhatsApp continua no fim do menu');
 
     assert.equal(texto($(doc, '#sobre h2')), 'Quem somos nós');

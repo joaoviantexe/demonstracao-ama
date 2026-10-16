@@ -867,6 +867,26 @@ function normalizarConteudo(conteudo) {
   return valores;
 }
 
+/** Número (só dígitos, 10 a 15) de um link https://wa.me/<número>…; '' se o endereço não for desse formato. */
+function numeroDoWhatsapp(url) {
+  const m = /^https:\/\/wa\.me\/(\d{10,15})(?=$|[/?#])/i.exec(String(url ?? '').trim());
+  return m ? m[1] : '';
+}
+
+// O número do botão do WhatsApp ("whatsapp.link") vale para o site todo: todo link wa.me da página
+// (menu, projetos, rodapé) passa a usar esse número, mantendo a mensagem (?text=) de cada um.
+function aplicarWhatsappUniversal(raiz, valores) {
+  const valor = valores.get('whatsapp.link');
+  const numero = objetoSimples(valor) ? numeroDoWhatsapp(urlDoObjeto(valor, 'href')) : '';
+  if (!numero) return;
+  for (const a of raiz.querySelectorAll('a[href]')) {
+    const href = atributo(a, 'href');
+    if (typeof href !== 'string') continue;
+    const novo = href.replace(/^(https:\/\/wa\.me\/)\d{10,15}(?=$|[/?#])/i, `$1${numero}`);
+    if (novo !== href) a.setAttribute('href', novo);
+  }
+}
+
 function aplicarVisibilidade(raiz, valores) {
   for (const el of selecionar(raiz, '[data-cms-grupo]', ['data-cms-grupo'])) {
     const id = idGrupo(el);
@@ -900,6 +920,7 @@ export function aplicarConteudo(documento, conteudo) {
       }
     }
     aplicarVisibilidade(raiz, valores);
+    aplicarWhatsappUniversal(raiz, valores);
   } catch {
     // nunca quebra a página
   }

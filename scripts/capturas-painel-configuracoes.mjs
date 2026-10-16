@@ -150,29 +150,26 @@ async function rodarLargura(navegador, base, largura) {
 
     // --- Loja --------------------------------------------------------------------
     const formLoja = pagina.locator('form[aria-label="Dados da loja"]');
-    await formLoja.locator('input[name="whatsapp"]').fill('1234');
-    await salvarAba(pagina, 'Dados da loja');
-    await formLoja.locator('.campo--erro input[name="whatsapp"]').waitFor({ timeout: 10_000 });
-    ok('WhatsApp inválido mostra o erro no campo');
-    await formLoja.locator('input[name="whatsapp"]').fill('(91) 98888-7777');
+    conferir(await formLoja.locator('input[name="whatsapp"], input[name="email_contato"], input[name="aviso_topo"]').count() === 0,
+      'aba Loja sem WhatsApp, e-mail de contato nem aviso do topo', 'a aba Loja ainda tem campos de contato');
     await formLoja.locator('input[name="titulo"]').fill('Produtos AMA');
     await capturar(pagina, `loja-${largura}`);
     await salvarAba(pagina, 'Dados da loja');
     await esperarToast(pagina, 'Dados da loja salvos');
     let config = await lerConfig();
-    conferir(config.loja.valor.whatsapp === '5591988887777'
-      && config.loja.valor.titulo === 'Produtos AMA' && config.loja.publico === true && 'instagram' in config.loja.valor,
-    'loja salva no banco (WhatsApp com 55, nome; campos não mostrados mantidos)', `loja no banco: ${JSON.stringify(config.loja)}`);
-    const pronta = await pagina.locator('form[aria-label="Dados da loja"] input[name="whatsapp"]').inputValue();
-    conferir(pronta === '(91) 98888-7777', 'WhatsApp mostrado formatado', `WhatsApp no campo: ${pronta}`);
+    conferir(config.loja.valor.titulo === 'Produtos AMA' && config.loja.publico === true && 'instagram' in config.loja.valor && 'whatsapp' in config.loja.valor,
+      'loja salva no banco (nome; campos não mostrados mantidos)', `loja no banco: ${JSON.stringify(config.loja)}`);
     await fecharToasts(pagina);
 
+    // O WhatsApp do site vem do botão do WhatsApp (conteúdo do site): o banco copia o número para a loja.
+    await servico().from('conteudo_site').upsert({ chave: 'whatsapp.link', valor: { href: 'https://wa.me/5591988887777', texto: 'Falar no WhatsApp' } });
     const loja = await contexto.newPage();
     await loja.goto(`${base}/loja/`, { waitUntil: 'load' });
     await loja.waitForSelector('[data-whatsapp-loja]', { state: 'attached', timeout: 20_000 });
     const linkWa = await loja.locator('[data-whatsapp-loja]').first().getAttribute('href');
-    conferir(/5591988887777/.test(linkWa || ''), 'a loja mostra o WhatsApp novo', `loja: link ${linkWa}`);
+    conferir(/5591988887777/.test(linkWa || ''), 'a loja usa o WhatsApp do botão do WhatsApp do site', `loja: link ${linkWa}`);
     await loja.close();
+    await servico().from('conteudo_site').delete().eq('chave', 'whatsapp.link');
 
     // --- Frete -------------------------------------------------------------------
     await pagina.getByRole('tab', { name: 'Frete' }).click();

@@ -213,7 +213,7 @@ No painel (`/admin/`):
 - [ ] **Produtos**: troque os **preços e estoques de teste** (R$ 59,90, R$ 69,90… e 10 unidades) pelos reais; dê
       nome, descrição e fotos às 6 biojoias ("Nome em Produção"); confira peso e medidas. Produto sem preço não
       pode ser comprado (a lista avisa).
-- [ ] **Configurações → Loja**: nome da loja, WhatsApp e e-mail de contato.
+- [ ] **Configurações → Loja**: nome da loja e, em **Site → Botão do WhatsApp**, o número do WhatsApp (vale para o site inteiro e para a loja).
 - [ ] **Configurações → Frete**: remetente completo; Melhor Envio ligado e/ou frete fixo; frete grátis (opcional).
 - [ ] **Configurações → Pagamento**: parcelas no cartão, boleto e prazo para pagar.
 - [ ] **Configurações → Avisos por e-mail**: e-mail da equipe (se usar o Resend).

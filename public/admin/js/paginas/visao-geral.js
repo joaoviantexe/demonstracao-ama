@@ -1,5 +1,4 @@
-// #/ — Visão geral: pedidos que pedem ação, vendas do mês, situação do catálogo, últimos pedidos,
-// status das integrações (GET /api/admin/status) e atalhos.
+// #/ — Visão geral (abre pela logo do menu): pedidos que pedem ação, vendas do mês, últimos pedidos e catálogo.
 
 const STATUS_VENDIDO = ['pago', 'em_separacao', 'enviado', 'entregue'];
 const FUSO = 'America/Belem';
@@ -49,25 +48,12 @@ export async function renderizar(ctx) {
     descricao: `Resumo da loja e do site · ${ui.formatarData(agora, { hora: false })}`,
     acoes: [
       ui.botao({ texto: 'Ver loja', tipo: 'secundario', iconeDireita: 'externo', href: '/loja/', attrs: { target: '_blank', rel: 'noopener' } }),
-      ui.botao({ texto: 'Novo produto', tipo: 'primario', icone: 'mais', href: '#/produtos/novo' }),
     ],
   });
 
   const metricas = el('div', { class: 'metricas' });
   const ultimos = el('div', { class: 'cartao__corpo cartao__corpo--sem-espaco' });
   const catalogo = el('div', { class: 'cartao__corpo' });
-
-  const atalhos = el('div', { class: 'atalhos' },
-    [
-      { texto: 'Editar o site', detalhe: 'Textos, fotos e vídeos da página inicial', icone: 'conteudo', href: '#/conteudo' },
-      { texto: 'Novo produto', detalhe: 'Cadastrar um item na loja', icone: 'produtos', href: '#/produtos/novo' },
-      { texto: 'Pedidos para enviar', detalhe: 'Pagos e em separação', icone: 'caminhao', href: '#/pedidos?status=para_enviar' },
-      { texto: 'Ver a loja', detalhe: 'Abre em outra aba', icone: 'loja', href: '/loja/', externo: true },
-    ].map((a) => el('a', {
-      class: 'atalho', href: a.href, target: a.externo ? '_blank' : null, rel: a.externo ? 'noopener' : null,
-    }, el('span', { class: 'atalho__icone' }, icone(a.icone)),
-    el('span', { class: 'atalho__textos' }, el('span', { class: 'atalho__titulo' }, a.texto), el('span', { class: 'atalho__detalhe' }, a.detalhe)),
-    icone(a.externo ? 'externo' : 'avancar', { classe: 'atalho__seta' }))));
 
   ctx.raiz.append(
     cabecalho,
@@ -79,9 +65,6 @@ export async function renderizar(ctx) {
           el('a', { class: 'cartao__link', href: '#/pedidos' }, 'Ver todos', icone('avancar'))),
         ultimos),
       el('div', { class: 'pilha' },
-        el('section', { class: 'cartao', 'aria-labelledby': 'vg-atalhos' },
-          el('div', { class: 'cartao__cabecalho' }, el('h2', { class: 'cartao__titulo', id: 'vg-atalhos' }, 'Atalhos')),
-          el('div', { class: 'cartao__corpo cartao__corpo--sem-espaco' }, atalhos)),
         el('section', { class: 'cartao', 'aria-labelledby': 'vg-catalogo' },
           el('div', { class: 'cartao__cabecalho' },
             el('h2', { class: 'cartao__titulo', id: 'vg-catalogo' }, 'Catálogo'),

@@ -486,7 +486,7 @@ describe('visão geral dos grupos', () => {
     assert.equal(dep.atualizadoEm, '2026-10-13T10:00:00Z');
     assert.equal(resumos.get('cabecalho').visivel, true);
     assert.equal(resumos.get('cabecalho').ocultavel, false);
-    assert.deepEqual(resumos.get('whatsapp').rotulosCampos, ['Botão do WhatsApp']);
+    assert.deepEqual(resumos.get('whatsapp').rotulosCampos, ['WhatsApp do site']);
   });
 
   test('pré-visualização: template + <base> na origem + rascunho aplicado + faixa de aviso', () => {

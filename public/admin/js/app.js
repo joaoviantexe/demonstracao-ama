@@ -32,7 +32,6 @@ export const ROTAS = Object.freeze([
 
 /** Itens do menu lateral, em seções. */
 export const MENU = Object.freeze([
-  { secao: null, itens: [{ id: 'inicio', rotulo: 'Visão geral', hash: '#/', icone: 'inicio' }] },
   {
     secao: 'Site',
     // Um item por parte da página inicial; o hash é o do grupo em paginas/conteudo.js.
@@ -56,9 +55,9 @@ export const MENU = Object.freeze([
       { id: 'pedidos', rotulo: 'Pedidos', hash: '#/pedidos', icone: 'pedidos' },
       { id: 'produtos', rotulo: 'Produtos', hash: '#/produtos', icone: 'produtos' },
       { id: 'categorias', rotulo: 'Categorias', hash: '#/categorias', icone: 'categorias' },
+      { id: 'configuracoes', rotulo: 'Configurações', hash: '#/configuracoes', icone: 'configuracoes' },
     ],
   },
-  { secao: 'Ajustes', itens: [{ id: 'configuracoes', rotulo: 'Configurações', hash: '#/configuracoes', icone: 'configuracoes' }] },
 ]);
 
 /**
