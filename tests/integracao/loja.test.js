@@ -636,9 +636,10 @@ describe('pagamento: página do Mercado Pago, webhook e GET /api/loja/pedido', (
     const p = r.json.pedido;
     assert.deepEqual(Object.keys(p).sort(), [
       'codigo_rastreio', 'criado_em', 'entrega', 'enviado_em', 'frete_centavos', 'itens',
-      'link_pagamento', 'numero', 'pago_em', 'pode_pagar', 'primeiro_nome', 'status', 'status_pagamento',
+      'link_pagamento', 'numero', 'pagamento', 'pago_em', 'pode_pagar', 'primeiro_nome', 'status', 'status_pagamento',
       'subtotal_centavos', 'total_centavos', 'url_rastreio',
     ]);
+    assert.equal(p.pagamento, null, 'Checkout Pro: sem a seção de pagamento do site');
     assert.equal(p.numero, pedido.pedido.numero);
     assert.equal(p.status, 'aguardando_pagamento');
     assert.equal(p.primeiro_nome, 'Maria');
@@ -833,6 +834,255 @@ describe('pagamento: página do Mercado Pago, webhook e GET /api/loja/pedido', (
     assert.equal(certo.json.pedido.status, 'pago');
     assert.equal(certo.json.pedido.status_pagamento, 'approved');
     assert.equal(certo.json.pedido.pode_pagar, false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Checkout Transparente
+
+describe('Checkout Transparente: POST /api/loja/pagamento', () => {
+  const PUBLIC_KEY = 'TEST-1a2b3c4d-1111-4222-8333-123456789abc';
+  let checkoutAntes;
+
+  before(async () => {
+    process.env.MP_PUBLIC_KEY = PUBLIC_KEY;
+    const [linha] = await semErro(servico.from('configuracoes').select('valor').eq('chave', 'checkout'), 'ler checkout');
+    checkoutAntes = linha ? linha.valor : null;
+    await definirConfig('checkout', { parcelas_max: 6, aceitar_boleto: true, expiracao_horas: 72 });
+  });
+
+  after(async () => {
+    delete process.env.MP_PUBLIC_KEY;
+    if (checkoutAntes) await definirConfig('checkout', checkoutAntes);
+  });
+
+  const pagar = (pedido, corpo) => api('/api/loja/pagamento', {
+    metodo: 'POST',
+    corpo: { id: pedido.id, token: pedido.token, chave: randomUUID(), ...corpo },
+  });
+
+  async function pagarOk(pedido, corpo) {
+    const r = await pagar(pedido, corpo);
+    assert.equal(r.status, 200, r.texto);
+    assert.equal(r.cabecalhos.get('cache-control'), 'no-store');
+    return r.json.pagamento;
+  }
+
+  const cartao = (titular, extra = {}) => ({
+    token: `ccfalso_${titular}_${randomBytes(4).toString('hex')}`, payment_method_id: 'master', issuer_id: '24',
+    parcelas: 1, tipo_documento: 'CPF', documento: '12345678909', ...extra,
+  });
+
+  const ultimoPagamentoMp = () => [...mp.estado.pagamentos.values()].at(-1);
+
+  test('/api/config leva a Public Key; checkout sem preferência; pedido com métodos e parcelas', async () => {
+    const config = await api('/api/config');
+    assert.match(config.texto, new RegExp(`"mpPublicKey":"${PUBLIC_KEY}"`));
+
+    const preferencias = mp.estado.preferencias.size;
+    const novo = await checkoutOk();
+    assert.equal(novo.redirecionar, null);
+    assert.equal(mp.estado.preferencias.size, preferencias, 'não cria preferência');
+    const banco = await pedidoDoBanco(novo.pedido.id);
+    assert.equal(banco.mp_preference_id, null);
+    assert.equal(banco.status, 'aguardando_pagamento');
+
+    const r = await consultarPedido(novo.pedido.id, novo.pedido.token);
+    assert.equal(r.status, 200, r.texto);
+    assert.equal(r.json.pedido.pode_pagar, true);
+    assert.equal(r.json.pedido.link_pagamento, null);
+    assert.deepEqual(r.json.pedido.pagamento, { metodos: ['pix', 'cartao', 'boleto'], parcelas_max: 6, pendente: null });
+  });
+
+  test('Pix: QR e copia e cola; repetir não cria outro; pago pelo webhook', async () => {
+    const { pedido } = await checkoutOk({ itens: [{ produto_id: P.principal.id, quantidade: 2 }] });
+    const estoqueAntes = await estoque(P.principal.id);
+    const chave = randomUUID();
+    const pix = await pagarOk(pedido, { metodo: 'pix', chave });
+    assert.equal(pix.metodo, 'pix');
+    assert.equal(pix.status, 'pending');
+    assert.ok(pix.pix.qr_code.startsWith('000201'));
+    assert.match(pix.pix.qr_code_base64, /^[A-Za-z0-9+/]+=*$/);
+    assert.ok(Date.parse(pix.expira_em) > Date.now() + 71 * 3_600_000, 'vence com o prazo do painel (72 h)');
+
+    const noMp = mp.estado.pagamentos.get(pix.id);
+    assert.equal(noMp.corpo.transaction_amount, 105, 'total do banco: 2 × 45,00 + frete 15,00');
+    assert.equal(noMp.corpo.external_reference, pedido.id);
+    assert.equal(noMp.corpo.payment_method_id, 'pix');
+    assert.deepEqual(noMp.corpo.payer.identification, { type: 'CPF', number: CPF_DIGITOS });
+    assert.equal(noMp.corpo.payer.email, CLIENTE.email);
+    assert.equal(noMp.corpo.notification_url, undefined, 'sem https público não manda notification_url');
+    assert.equal(noMp.cabecalhos['x-idempotency-key'], `${pedido.id}:${chave}`);
+
+    let banco = await pedidoDoBanco(pedido.id);
+    assert.equal(banco.status, 'pagamento_em_analise');
+    assert.equal(banco.mp_payment_id, pix.id);
+    assert.equal(banco.metodo_pagamento, 'bank_transfer');
+
+    const consulta = await consultarPedido(pedido.id, pedido.token);
+    assert.equal(consulta.json.pedido.pode_pagar, true);
+    assert.equal(consulta.json.pedido.pagamento.pendente.id, pix.id);
+    assert.equal(consulta.json.pedido.pagamento.pendente.pix.qr_code, pix.pix.qr_code);
+    assert.ok(!consulta.texto.includes(CPF_DIGITOS));
+
+    const total = mp.estado.pagamentos.size;
+    const deNovo = await pagarOk(pedido, { metodo: 'pix' });
+    assert.equal(deNovo.id, pix.id, 'devolve o mesmo Pix');
+    assert.equal(mp.estado.pagamentos.size, total);
+
+    const { webhook } = await mp.estado.aprovarPagamento(pix.id);
+    assert.equal(webhook.status, 200);
+    banco = await pedidoDoBanco(pedido.id);
+    assert.equal(banco.status, 'pago');
+    assert.equal(await estoque(P.principal.id), estoqueAntes - 2);
+    const pago = await consultarPedido(pedido.id, pedido.token);
+    assert.equal(pago.json.pedido.pode_pagar, false);
+    assert.equal(pago.json.pedido.pagamento, null);
+
+    const dePois = await pagar(pedido, { metodo: 'pix' });
+    assert.equal(dePois.status, 409);
+    assert.equal(dePois.json.erro, 'pedido_pago');
+  });
+
+  test('trocar o Pix pelo boleto cancela o Pix; o boleto leva o endereço completo', async () => {
+    const { pedido } = await checkoutOk();
+    const pix = await pagarOk(pedido, { metodo: 'pix' });
+    const boleto = await pagarOk(pedido, { metodo: 'boleto' });
+    assert.notEqual(boleto.id, pix.id);
+    assert.equal(mp.estado.pagamentos.get(pix.id).status, 'cancelled');
+    assert.equal(boleto.metodo, 'boleto');
+    assert.match(boleto.boleto.url, /\/boleto\/\d+$/);
+    assert.ok(boleto.boleto.linha_digitavel);
+
+    const corpo = mp.estado.pagamentos.get(boleto.id).corpo;
+    assert.equal(corpo.payment_method_id, 'bolbradesco');
+    assert.deepEqual(corpo.payer.address, {
+      zip_code: '66010000', street_name: 'Avenida Presidente Vargas', street_number: '100',
+      neighborhood: 'Campina', city: 'Belém', federal_unit: 'PA',
+    });
+    assert.equal(corpo.payer.first_name, 'Maria');
+    assert.equal(corpo.payer.last_name, 'da Silva Teste');
+
+    const banco = await pedidoDoBanco(pedido.id);
+    assert.equal(banco.mp_payment_id, boleto.id);
+    assert.equal(banco.metodo_pagamento, 'ticket');
+    assert.equal(banco.status, 'pagamento_em_analise');
+    const consulta = await consultarPedido(pedido.id, pedido.token);
+    assert.equal(consulta.json.pedido.pagamento.pendente.boleto.url, boleto.boleto.url);
+  });
+
+  test('Pix vencido no Mercado Pago: a página do pedido sincroniza e volta a aguardar', async () => {
+    const { pedido } = await checkoutOk();
+    const pix = await pagarOk(pedido, { metodo: 'pix' });
+    await semWebhook(() => mp.estado.alterarStatus(pix.id, 'cancelled'));
+    assert.equal((await pedidoDoBanco(pedido.id)).status, 'pagamento_em_analise', 'webhook não chegou');
+
+    const r = await consultarPedido(pedido.id, pedido.token);
+    assert.equal(r.json.pedido.status, 'aguardando_pagamento');
+    assert.equal(r.json.pedido.pode_pagar, true);
+    assert.equal(r.json.pedido.pagamento.pendente, null);
+    const novo = await pagarOk(pedido, { metodo: 'pix' });
+    assert.notEqual(novo.id, pix.id);
+  });
+
+  test('cartão: recusado mostra o motivo e continua aguardando; aprovado paga', async () => {
+    const { pedido } = await checkoutOk();
+    const recusado = await pagarOk(pedido, { metodo: 'cartao', cartao: cartao('FUND') });
+    assert.equal(recusado.status, 'rejected');
+    assert.equal(recusado.metodo, 'cartao');
+    assert.match(recusado.mensagem, /limite/);
+    let banco = await pedidoDoBanco(pedido.id);
+    assert.equal(banco.status, 'aguardando_pagamento');
+    assert.equal(banco.status_pagamento, 'rejected');
+
+    const aprovado = await pagarOk(pedido, {
+      metodo: 'cartao', cartao: cartao('APRO', { parcelas: 3 }), dispositivo: 'armor.0123456789abcdef',
+    });
+    assert.equal(aprovado.status, 'approved');
+    const noMp = mp.estado.pagamentos.get(aprovado.id);
+    assert.equal(noMp.corpo.installments, 3);
+    assert.equal(noMp.corpo.issuer_id, 24);
+    assert.equal(noMp.corpo.payment_method_id, 'master');
+    assert.deepEqual(noMp.corpo.payer.identification, { type: 'CPF', number: '12345678909' });
+    assert.equal(noMp.corpo.transaction_amount, 60);
+    assert.equal(noMp.cabecalhos['x-meli-session-id'], 'armor.0123456789abcdef');
+    banco = await pedidoDoBanco(pedido.id);
+    assert.equal(banco.status, 'pago');
+    assert.equal(banco.metodo_pagamento, 'credit_card');
+  });
+
+  test('cartão em análise bloqueia outro pagamento', async () => {
+    const { pedido } = await checkoutOk();
+    const analise = await pagarOk(pedido, { metodo: 'cartao', cartao: cartao('CONT') });
+    assert.equal(analise.status, 'in_process');
+    assert.equal((await pedidoDoBanco(pedido.id)).status, 'pagamento_em_analise');
+    const outro = await pagar(pedido, { metodo: 'pix' });
+    assert.equal(outro.status, 409);
+    assert.equal(outro.json.erro, 'pagamento_em_analise');
+    const consulta = await consultarPedido(pedido.id, pedido.token);
+    assert.equal(consulta.json.pedido.pode_pagar, false);
+  });
+
+  test('validações: parcelas, CPF do titular, método, chave, boleto desligado, pedido errado', async () => {
+    const { pedido } = await checkoutOk();
+    const antes = mp.estado.pagamentos.size;
+    const casos = [
+      [{ metodo: 'cartao', cartao: cartao('APRO', { parcelas: 7 }) }, 400, 'cartao.parcelas'],
+      [{ metodo: 'cartao', cartao: cartao('APRO', { documento: '11111111111' }) }, 400, 'cartao.documento'],
+      [{ metodo: 'cartao', cartao: { ...cartao('APRO'), token: '<script>' } }, 400, 'cartao'],
+      [{ metodo: 'dinheiro' }, 400, 'metodo'],
+      [{ metodo: 'pix', chave: 'repetida' }, 400, 'chave'],
+    ];
+    for (const [corpo, status, campo] of casos) {
+      const r = await pagar(pedido, corpo);
+      assert.equal(r.status, status, `${JSON.stringify(corpo)} → ${r.texto}`);
+      assert.equal(r.json.campo, campo);
+    }
+    const tokenErrado = await pagar({ ...pedido, token: `${pedido.token.slice(0, -1)}x` }, { metodo: 'pix' });
+    assert.equal(tokenErrado.status, 404);
+    const idErrado = await pagar({ ...pedido, id: randomUUID() }, { metodo: 'pix' });
+    assert.equal(idErrado.status, 404);
+    const get = await api('/api/loja/pagamento');
+    assert.equal(get.status, 405);
+
+    await definirConfig('checkout', { parcelas_max: 1, aceitar_boleto: false, expiracao_horas: 72 });
+    try {
+      const boleto = await pagar(pedido, { metodo: 'boleto' });
+      assert.equal(boleto.status, 400);
+      assert.equal(boleto.json.erro, 'metodo_indisponivel');
+      const parcelado = await pagar(pedido, { metodo: 'cartao', cartao: cartao('APRO', { parcelas: 2 }) });
+      assert.equal(parcelado.status, 400);
+      assert.match(parcelado.json.mensagem, /à vista/);
+      const consulta = await consultarPedido(pedido.id, pedido.token);
+      assert.deepEqual(consulta.json.pedido.pagamento, { metodos: ['pix', 'cartao'], parcelas_max: 1, pendente: null });
+    } finally {
+      await definirConfig('checkout', { parcelas_max: 6, aceitar_boleto: true, expiracao_horas: 72 });
+    }
+    assert.equal(mp.estado.pagamentos.size, antes, 'nada chegou ao Mercado Pago');
+  });
+
+  test('Mercado Pago fora do ar → 502; dados recusados → 400; sem Public Key → 503', async (t) => {
+    const { pedido } = await checkoutOk();
+    t.after(() => { mp.estado.falhas.criarPagamento = null; process.env.MP_PUBLIC_KEY = PUBLIC_KEY; });
+    mp.estado.falhas.criarPagamento = 500;
+    const fora = await pagar(pedido, { metodo: 'pix' });
+    assert.equal(fora.status, 502);
+    assert.equal(fora.json.erro, 'falha_mercado_pago');
+    mp.estado.falhas.criarPagamento = 400;
+    const recusado = await pagar(pedido, { metodo: 'cartao', cartao: cartao('APRO') });
+    assert.equal(recusado.status, 400);
+    assert.equal(recusado.json.erro, 'pagamento_nao_processado');
+    mp.estado.falhas.criarPagamento = null;
+    assert.equal((await pedidoDoBanco(pedido.id)).status, 'aguardando_pagamento');
+
+    process.env.MP_PUBLIC_KEY = 'APP_USR-1234567890123456-101710-0123456789abcdef0123456789abcdef-123456789';
+    const semChave = await pagar(pedido, { metodo: 'pix' });
+    assert.equal(semChave.status, 503, 'Access Token no lugar da Public Key é ignorado');
+    const config = await api('/api/config');
+    assert.ok(!config.texto.includes('mpPublicKey'));
+    const consulta = await consultarPedido(pedido.id, pedido.token);
+    assert.equal(consulta.json.pedido.pagamento, null);
+    assert.ok(ultimoPagamentoMp());
   });
 });
 

@@ -4,6 +4,9 @@
 // validação → recotação no servidor (itens e frete) → criar_pedido → preferência → grava
 // mp_preference_id/mp_init_point → { ok, pedido: { id, numero, token }, redirecionar }.
 //
+// Checkout Transparente (MP_ACCESS_TOKEN + MP_PUBLIC_KEY): não há preferência. Devolve redirecionar null e o
+// navegador abre a página do pedido, onde a cliente paga com Pix, cartão ou boleto (api/loja/pagamento.js).
+//
 // Falha ao criar a preferência: o pedido é CANCELADO automaticamente (evento de status com a nota e um
 // alerta com o motivo) e a resposta é 502. Escolha: sem link de pagamento o cliente não consegue pagar
 // aquele pedido e, ao tentar de novo, cria outro; deixá-lo "aguardando pagamento" só poluiria o painel.
@@ -100,6 +103,15 @@ export default async function handler(req, res) {
         throw erroDaLoja(erro, { itens: nova ? nova.itens : undefined });
       }
       throw erro;
+    }
+
+    if (obterAmbiente().checkoutTransparente) {
+      responderJson(res, 200, {
+        ok: true,
+        pedido: { id: pedido.id, numero: pedido.numero, token: pedido.token_acesso },
+        redirecionar: null,
+      }, CABECALHOS_SEM_CACHE);
+      return;
     }
 
     let preferencia;
