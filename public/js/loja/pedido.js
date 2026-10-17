@@ -1,5 +1,7 @@
 // Pedido /loja/pedido?id=&token=[&payment_id=&status=…] — acompanhamento do pedido.
 // Sem parâmetros: "Meus pedidos neste aparelho" (localStorage ama_pedidos_v1).
+// Checkout Transparente: com pedido.pagamento, a seção "Pagamento" (pagamento.js) vem primeiro; Pix em aberto
+// faz a página conferir o pedido a cada 5 s (só redesenha quando algo muda).
 
 import { consultarPedido } from './api.js';
 import { guardarPedido, lerPedidosGuardados, limparCarrinho } from './carrinho.js';
@@ -9,6 +11,7 @@ import {
 import {
   formatarData, formatarNumeroPedido, formatarPreco, pluralizar, urlSegura,
 } from './formatos.js';
+import { montarPagamento } from './pagamento.js';
 
 iniciarPagina();
 
@@ -29,6 +32,14 @@ const pagamentoFalhou = /^(rejected|null|failure|cancelled)$/i.test(statusRetorn
 
 let tentativas = 0;
 let timerAtualizacao = null;
+let secaoPagamento = null;
+let assinaturaDesenhada = '';
+let rolarParaPagamento = location.hash === '#pagamento';
+
+const INTERVALO_PIX_MS = 5000;
+const LIMITE_PIX = 360; // 30 minutos conferindo o Pix
+
+const pendenteDe = (pedido) => (pedido.pagamento && pedido.pagamento.pendente) || null;
 
 // ---------------------------------------------------------------------------
 // Textos
@@ -46,7 +57,9 @@ function rotuloEtapa(etapa) {
 
 function situacao(pedido) {
   const nome = pedido.primeiro_nome ? `, ${pedido.primeiro_nome}` : '';
-  switch (pedido.status) {
+  // Pix ou boleto gerado e ainda não pago: para a cliente, o pedido continua esperando o pagamento.
+  const status = pendenteDe(pedido) ? 'aguardando_pagamento' : pedido.status;
+  switch (status) {
     case 'aguardando_pagamento':
       return {
         titulo: `Olá${nome}!`,
@@ -82,6 +95,7 @@ function situacao(pedido) {
 // Blocos
 
 function linhaDoTempo(pedido) {
+  const emAnalise = pedido.status === 'pagamento_em_analise' && !pendenteDe(pedido);
   const indice = pedido.status === 'pagamento_em_analise' ? 0 : ETAPAS.indexOf(pedido.status);
   const datas = { aguardando_pagamento: pedido.criado_em, pago: pedido.pago_em, enviado: pedido.enviado_em };
   return el('ol', { class: 'linha-tempo', 'aria-label': 'Andamento do pedido' },
@@ -97,7 +111,7 @@ function linhaDoTempo(pedido) {
       if (i <= indice) classes.push('etapa--alcancada');
       if (i < indice) classes.push('etapa--antes');
       let detalhe = datas[etapa] && (feito || atual) ? formatarData(datas[etapa]) : '';
-      if (atual && pedido.status === 'pagamento_em_analise') detalhe = 'Pagamento em análise';
+      if (atual && emAnalise) detalhe = 'Pagamento em análise';
       return el('li', { class: classes.join(' '), 'aria-current': atual ? 'step' : null },
         el('span', { class: 'etapa-marca', 'aria-hidden': 'true' }, feito ? icone('check') : atual ? icone('relogio') : String(i + 1)),
         el('span', { class: 'etapa-texto' },
@@ -161,6 +175,21 @@ function blocoEntrega(pedido) {
 // ---------------------------------------------------------------------------
 // Página do pedido
 
+// O que muda a página: com a assinatura igual, a conferência silenciosa não redesenha (o formulário do
+// cartão e o que a cliente digitou continuam lá).
+function assinaturaDe(pedido) {
+  const pendente = pendenteDe(pedido);
+  return JSON.stringify([pedido.status, pedido.status_pagamento, pedido.pode_pagar, pendente && pendente.id,
+    pedido.codigo_rastreio, pedido.pago_em, pedido.enviado_em, pedido.pagamento && pedido.pagamento.metodos]);
+}
+
+function aoPagar(pagamento) {
+  if (pagamento) limparCarrinho();
+  rolarParaPagamento = Boolean(pagamento) && pagamento.status === 'pending';
+  if (!rolarParaPagamento) window.scrollTo({ top: 0, behavior: 'smooth' });
+  carregar({ silencioso: true, forcar: true });
+}
+
 function renderizarPedido(pedido) {
   const numero = formatarNumeroPedido(pedido.numero);
   const info = situacao(pedido);
@@ -177,10 +206,16 @@ function renderizarPedido(pedido) {
   if (voltouDoPagamento && pedido.status === 'aguardando_pagamento' && pagamentoFalhou) {
     avisoRetorno = el('p', { class: 'pedido-aviso pedido-aviso--erro', role: 'alert' }, icone('alerta'),
       'O pagamento não foi concluído. Nenhum valor foi cobrado: você pode tentar de novo com outra forma de pagamento.');
-  } else if (timerAtualizacao) {
+  } else if (timerAtualizacao && voltouDoPagamento) {
     avisoRetorno = el('p', { class: 'pedido-aviso' }, el('span', { class: 'girando', 'aria-hidden': 'true' }),
       'Estamos acompanhando a confirmação do pagamento. Esta página se atualiza sozinha.');
   }
+
+  if (secaoPagamento) secaoPagamento.destruir();
+  secaoPagamento = pedido.pode_pagar && pedido.pagamento
+    ? montarPagamento({ pedido, id, token, aoPagar })
+    : null;
+  const emAnalise = pedido.status === 'pagamento_em_analise' && !pendenteDe(pedido);
 
   trocarConteudo(raiz,
     el('header', { class: `pedido-cabecalho pedido-cabecalho--${info.tom}` },
@@ -191,9 +226,10 @@ function renderizarPedido(pedido) {
         el('p', { class: 'pedido-texto', texto: info.texto }),
         avisoRetorno,
         el('div', { class: 'pedido-acoes' }, ...acoes)),
-      el('span', { class: 'pedido-selo-status', texto: pedido.status === 'pagamento_em_analise' ? 'Pagamento em análise' : rotuloEtapa(pedido.status) })),
+      el('span', { class: 'pedido-selo-status', texto: emAnalise ? 'Pagamento em análise' : rotuloEtapa(pendenteDe(pedido) ? 'aguardando_pagamento' : pedido.status) })),
     el('div', { class: 'pedido-layout' },
       el('div', { class: 'pedido-principal' },
+        secaoPagamento ? secaoPagamento.elemento : null,
         ['cancelado', 'reembolsado'].includes(pedido.status)
           ? el('section', { class: 'cartao-pedido cartao-pedido--cancelado' },
             el('h2', { class: 'cartao-pedido-titulo', texto: 'Andamento' }),
@@ -208,6 +244,12 @@ function renderizarPedido(pedido) {
       el('a', { class: 'link-seta link-seta--voltar', href: '/loja/' }, icone('voltar'), 'Voltar à loja'),
       el('a', { class: 'link-seta', href: '/loja/pedido' }, 'Meus pedidos neste aparelho')));
   raiz.setAttribute('aria-busy', 'false');
+  assinaturaDesenhada = assinaturaDe(pedido);
+  if (rolarParaPagamento && secaoPagamento) {
+    rolarParaPagamento = false;
+    secaoPagamento.elemento.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    secaoPagamento.elemento.querySelector('h2')?.focus({ preventScroll: true });
+  }
 }
 
 function renderizarNaoEncontrado() {
@@ -255,6 +297,15 @@ function esqueleto() {
 function agendarAtualizacao(pedido) {
   clearTimeout(timerAtualizacao);
   timerAtualizacao = null;
+  const pendente = pendenteDe(pedido);
+  if (pendente && pendente.metodo === 'pix') {
+    if (tentativas >= LIMITE_PIX) return;
+    timerAtualizacao = setTimeout(() => {
+      tentativas += 1;
+      carregar({ silencioso: true });
+    }, INTERVALO_PIX_MS);
+    return;
+  }
   if (!voltouDoPagamento || pagamentoFalhou || !AGUARDANDO.includes(pedido.status) || tentativas >= 10) return;
   timerAtualizacao = setTimeout(() => {
     tentativas += 1;
@@ -262,7 +313,7 @@ function agendarAtualizacao(pedido) {
   }, 6000);
 }
 
-async function carregar({ silencioso = false } = {}) {
+async function carregar({ silencioso = false, forcar = false } = {}) {
   if (!silencioso) {
     raiz.setAttribute('aria-busy', 'true');
     trocarConteudo(raiz, esqueleto());
@@ -280,7 +331,7 @@ async function carregar({ silencioso = false } = {}) {
       history.replaceState(null, '', `/loja/pedido?id=${encodeURIComponent(id)}&token=${encodeURIComponent(token)}`);
     }
     agendarAtualizacao(pedido);
-    renderizarPedido(pedido);
+    if (!silencioso || forcar || assinaturaDe(pedido) !== assinaturaDesenhada) renderizarPedido(pedido);
   } catch (erro) {
     if (erro.status === 404) renderizarNaoEncontrado();
     else if (!silencioso) renderizarErro(erro);

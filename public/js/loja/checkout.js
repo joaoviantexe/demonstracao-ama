@@ -1,5 +1,5 @@
 // Checkout /loja/checkout — dados, entrega (CEP com ViaCEP), frete e resumo.
-// "Ir para o pagamento" → POST /api/loja/checkout → Mercado Pago (window.location = redirecionar).
+// "Ir para o pagamento" → POST /api/loja/checkout → Mercado Pago (redirecionar) ou, no Checkout Transparente, a página do pedido.
 // O navegador só envia produto, quantidade, frete escolhido e dados do cliente: valores
 // cobrados são sempre calculados no servidor.
 
@@ -490,8 +490,8 @@ form.addEventListener('submit', async (evento) => {
     const pedido = resposta.pedido || {};
     guardarPedido({ id: pedido.id, token: pedido.token, numero: pedido.numero, criado_em: new Date().toISOString() });
     if (!destino) {
-      // Sem link de pagamento: mostra o pedido, que tem o botão "Pagar agora" quando possível.
-      location.assign(`/loja/pedido?id=${encodeURIComponent(pedido.id || '')}&token=${encodeURIComponent(pedido.token || '')}`);
+      // Checkout Transparente (ou preferência sem link): a cliente paga na página do pedido.
+      location.assign(`/loja/pedido?id=${encodeURIComponent(pedido.id || '')}&token=${encodeURIComponent(pedido.token || '')}#pagamento`);
       return;
     }
     location.assign(destino);

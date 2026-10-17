@@ -50,6 +50,13 @@ export function lojaConfigurada() {
   return obterConfig().configurado;
 }
 
+/** Public Key do Mercado Pago para o formulário do cartão (Checkout Transparente) ou ''. */
+export function chavePublicaPagamento() {
+  const c = globalThis.AMA_CONFIG;
+  const chave = c && typeof c.mpPublicKey === 'string' ? c.mpPublicKey.trim() : '';
+  return /^(?:APP_USR|TEST)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(chave) ? chave : '';
+}
+
 /** GET <supabaseUrl>/rest/v1/<caminho> com apikey e tempo-limite. Devolve o JSON. */
 export async function restGet(caminho, { timeoutMs = 12000 } = {}) {
   const { supabaseUrl, supabaseAnonKey, configurado } = obterConfig();

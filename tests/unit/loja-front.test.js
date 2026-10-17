@@ -11,6 +11,7 @@ import * as carrinho from '../../public/js/loja/carrinho.js';
 import * as config from '../../public/js/loja/config.js';
 import * as api from '../../public/js/loja/api.js';
 import { opcaoEscolhida, totalExibido } from '../../public/js/loja/resumo.js';
+import { mensagemDoCartao } from '../../public/js/loja/pagamento.js';
 import * as servidor from '../../lib/validacao.js';
 
 const ID_A = '11111111-1111-4111-8111-111111111111';
@@ -608,9 +609,31 @@ describe('textos da loja para a cliente', () => {
       'templates/home.html', 'public/js/main.js',
     ];
     for (const arquivo of arquivos) {
+      // O SDK do cartão (pagamento.js) só existe com estes nomes: o global MercadoPago e o endereço do script.
       const semComentarios = readFileSync(new URL(arquivo, raiz), 'utf8')
-        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '').replace(/^\s*\/\/.*$/gm, '');
+        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '').replace(/^\s*\/\/.*$/gm, '')
+        .replace(/\bMercadoPago\b/g, '').replace(/https:\/\/sdk\.mercadopago\.com\/js\/v2/g, '');
       assert.doesNotMatch(semComentarios, /mercado ?pago/i, arquivo);
     }
+  });
+});
+
+describe('pagamento.js (Checkout Transparente)', () => {
+  test('mensagemDoCartao: erros do MercadoPago.js viram uma frase em português', () => {
+    assert.equal(mensagemDoCartao([{ message: 'parameter cardNumber can not be null/empty' }]), 'Confira o número do cartão.');
+    assert.equal(mensagemDoCartao([{ field: 'expirationDate', message: 'invalid' }]), 'Confira a validade do cartão.');
+    assert.equal(mensagemDoCartao([{ field: 'securityCode', message: 'invalid' }]), 'Confira o código de segurança do cartão.');
+    assert.equal(mensagemDoCartao([{ message: 'parameter cardholderName can not be null/empty' }]), 'Escreva o nome como está no cartão.');
+    assert.equal(mensagemDoCartao({ cause: 'E324' }), 'Confira o CPF do titular do cartão.');
+    assert.equal(mensagemDoCartao(null), 'Confira os dados do cartão.');
+  });
+
+  test('config: só uma Public Key válida vai para o formulário do cartão', () => {
+    globalThis.AMA_CONFIG = { mpPublicKey: 'APP_USR-1a2b3c4d-1111-4222-8333-123456789abc' };
+    assert.equal(config.chavePublicaPagamento(), 'APP_USR-1a2b3c4d-1111-4222-8333-123456789abc');
+    globalThis.AMA_CONFIG = { mpPublicKey: 'APP_USR-123-456' };
+    assert.equal(config.chavePublicaPagamento(), '');
+    delete globalThis.AMA_CONFIG;
+    assert.equal(config.chavePublicaPagamento(), '');
   });
 });
