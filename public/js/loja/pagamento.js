@@ -2,9 +2,10 @@
 // - Pix e boleto: gerados no servidor (POST /api/loja/pagamento); o Pix mostra o QR e o copia e cola.
 // - Cartão: MercadoPago.js (https://sdk.mercadopago.com/js/v2) com os campos seguros em iframe. O número,
 //   a validade e o código do cartão nunca passam pela loja: o navegador manda só o token gerado pelo SDK.
-// montarPagamento devolve { elemento, destruir }; aoPagar(pagamento) é chamado quando o pagamento foi criado
-// (aprovado, em análise ou Pix/boleto gerado) para a página recarregar o pedido; aoPagar(null) quando o
-// pedido mudou por outro caminho (409: já pago, em análise ou cancelado).
+// montarPagamento devolve { elemento, estado(), ocupado(), destruir() }; aoPagar(pagamento) é chamado quando o
+// pagamento foi criado (aprovado, em análise ou Pix/boleto gerado) para a página recarregar o pedido;
+// aoPagar(null) quando o pedido mudou por outro caminho (409: já pago, em análise ou cancelado).
+// estado() = { metodo, erro } é passado como `inicial` quando a página redesenha, para não perder a aba e o aviso.
 
 import { pagar } from './api.js';
 import { chavePublicaPagamento } from './config.js';
@@ -26,12 +27,13 @@ export function carregarSdk() {
       const script = document.createElement('script');
       script.src = SDK_URL;
       script.async = true;
-      script.onload = () => (globalThis.MercadoPago ? resolve(globalThis.MercadoPago) : reject(new Error('sdk')));
-      script.onerror = () => {
+      const falhar = () => {
         promessaSdk = null;
         script.remove();
         reject(new Error('sdk'));
       };
+      script.onload = () => (globalThis.MercadoPago ? resolve(globalThis.MercadoPago) : falhar());
+      script.onerror = falhar;
       document.head.append(script);
     });
   }
@@ -115,19 +117,26 @@ function blocoBoleto(pendente) {
     validade(pendente.expira_em));
 }
 
+// Chave de idempotência por método: repetida enquanto a resposta não chega (rede, tempo esgotado, 5xx), para a
+// nova tentativa devolver o mesmo pagamento em vez de cobrar de novo; trocada depois de qualquer resposta.
+const chaves = {};
+
 /**
  * Seção "Pagamento" da página do pedido.
- * { pedido (saída de /api/loja/pedido), id, token, aoPagar(pagamento) } → { elemento, destruir() }.
+ * { pedido (saída de /api/loja/pedido), id, token, aoPagar(pagamento), inicial?: { metodo, erro } }
+ * → { elemento, estado(), ocupado(), destruir() }.
  */
-export function montarPagamento({ pedido, id, token, aoPagar }) {
+export function montarPagamento({ pedido, id, token, aoPagar, inicial = {} }) {
   const info = pedido.pagamento;
   const pendente = info.pendente && (info.pendente.pix || info.pendente.boleto) ? info.pendente : null;
   const metodos = info.metodos.filter((m) => ROTULOS[m]);
   // Boleto gerado antes de o painel desligar o boleto: continua aparecendo até vencer.
   if (pendente && ROTULOS[pendente.metodo] && !metodos.includes(pendente.metodo)) metodos.push(pendente.metodo);
-  let escolhido = pendente ? pendente.metodo : metodos[0];
+  let escolhido = metodos.includes(inicial.metodo) ? inicial.metodo : (pendente ? pendente.metodo : metodos[0]);
   let formularioCartao = null;
   let destruido = false;
+  let enviandoAgora = false;
+  const limpezas = [];
 
   const paineis = {};
   const erroGeral = el('p', { class: 'pagamento-erro', role: 'alert', hidden: true });
@@ -141,15 +150,21 @@ export function montarPagamento({ pedido, id, token, aoPagar }) {
     mostrarErro('');
     botao.disabled = true;
     botao.classList.add('botao--carregando');
+    enviandoAgora = true;
+    if (!chaves[metodo]) chaves[metodo] = novaChave();
     try {
-      const { pagamento } = await pagar({ id, token, metodo, chave: novaChave(), dispositivo: dispositivo(), ...extra });
+      const { pagamento } = await pagar({ id, token, metodo, chave: chaves[metodo], dispositivo: dispositivo(), ...extra });
+      delete chaves[metodo];
       if (destruido) return;
       if (pagamento.status === 'rejected') {
         mostrarErro(pagamento.mensagem || 'O pagamento foi recusado. Tente outra forma de pagamento.');
+        // O Pix/boleto em aberto foi cancelado antes da tentativa: a página atualiza (mantendo aba e aviso).
+        if (pendente) aoPagar(null);
         return;
       }
       aoPagar(pagamento);
     } catch (erro) {
+      if (erro.status !== 0 && !(erro.status >= 500)) delete chaves[metodo];
       if (destruido) return;
       if (erro.status === 409) {
         aoPagar(null);
@@ -157,6 +172,7 @@ export function montarPagamento({ pedido, id, token, aoPagar }) {
       }
       mostrarErro(erro.mensagem || 'Não foi possível concluir o pagamento. Tente de novo.');
     } finally {
+      enviandoAgora = false;
       botao.disabled = false;
       botao.classList.remove('botao--carregando');
     }
@@ -196,7 +212,11 @@ export function montarPagamento({ pedido, id, token, aoPagar }) {
     } catch {
       if (destruido) return;
       const tentar = el('button', { type: 'button', class: 'botao botao--fantasma botao--sm' }, 'Tentar de novo');
-      tentar.addEventListener('click', () => { trocarConteudo(area, painelCartao()); });
+      tentar.addEventListener('click', () => {
+        trocarConteudo(area, el('p', { class: 'pagamento-carregando', role: 'status' },
+          el('span', { class: 'girando girando--escuro', 'aria-hidden': 'true' }), 'Carregando…'));
+        montarCartao(area);
+      });
       trocarConteudo(area, el('div', { class: 'pagamento-indisponivel' },
         el('p', { texto: 'O pagamento com cartão não carregou. Tente de novo ou pague com Pix.' }), chave ? tentar : null));
       return;
@@ -242,6 +262,7 @@ export function montarPagamento({ pedido, id, token, aoPagar }) {
     });
     observador.observe(parcelas, { childList: true });
     observador.observe(emissor, { childList: true });
+    limpezas.push(() => observador.disconnect());
 
     let enviando = false;
     const ocupar = (sim) => {
@@ -314,18 +335,21 @@ export function montarPagamento({ pedido, id, token, aoPagar }) {
     } catch {
       mostrarErro('O pagamento com cartão não carregou. Recarregue a página ou pague com Pix.');
     }
-    area.addEventListener('ama:destruir', () => observador.disconnect(), { once: true });
   }
 
-  // --- abas
+  // --- abas: cada painel é montado uma vez e só escondido (tirar do DOM recarregaria os iframes do cartão)
   const MONTAR = { pix: painelPix, cartao: painelCartao, boleto: painelBoleto };
   const conteudo = el('div', { class: 'pagamento-painel' });
 
   function mostrar(metodo) {
     escolhido = metodo;
     mostrarErro('');
-    if (!paineis[metodo]) paineis[metodo] = MONTAR[metodo]();
-    trocarConteudo(conteudo, paineis[metodo]);
+    if (!paineis[metodo]) {
+      paineis[metodo] = el('div', { class: 'pagamento-aba', dataset: { metodo } });
+      conteudo.append(paineis[metodo]);
+      paineis[metodo].append(MONTAR[metodo]());
+    }
+    for (const [nome, painel] of Object.entries(paineis)) painel.hidden = nome !== metodo;
   }
 
   const opcoes = el('div', { class: 'pagamento-metodos', role: 'radiogroup', 'aria-label': 'Forma de pagamento' },
@@ -339,14 +363,17 @@ export function montarPagamento({ pedido, id, token, aoPagar }) {
     el('h2', { class: 'cartao-pedido-titulo', id: 'pagamento-titulo', tabindex: '-1', texto: 'Pagamento' }),
     opcoes, conteudo, erroGeral);
   mostrar(escolhido);
+  if (inicial.erro) mostrarErro(inicial.erro);
   // O antifraude do Mercado Pago (device id) roda junto com o SDK: carrega já, sem esperar o cartão.
   if (chavePublicaPagamento()) carregarSdk().catch(() => {});
 
   return {
     elemento,
+    estado: () => ({ metodo: escolhido, erro: erroGeral.hidden ? '' : erroGeral.textContent }),
+    ocupado: () => enviandoAgora,
     destruir() {
       destruido = true;
-      if (paineis.cartao) paineis.cartao.dispatchEvent(new Event('ama:destruir'));
+      for (const limpar of limpezas.splice(0)) limpar();
       try {
         if (formularioCartao && typeof formularioCartao.unmount === 'function') formularioCartao.unmount();
       } catch {

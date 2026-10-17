@@ -186,6 +186,10 @@ describe('Checkout Transparente na loja', { concurrency: false }, () => {
     await loja.fill('#mp-documento', '123.456.789-09');
     assert.equal(await loja.inputValue('#mp-documento'), '12345678909', 'só dígitos');
     await loja.selectOption('#mp-parcelas', '3');
+    await loja.locator('.pagamento-metodo', { hasText: 'Pix' }).click();
+    await loja.locator('.pagamento-metodo', { hasText: 'Cartão' }).click();
+    assert.equal(await loja.inputValue('#mp-numero input'), '5031 4332 1540 6351', 'trocar de aba não refaz o formulário do cartão');
+    assert.equal(await loja.locator('#mp-form-cartao').count(), 1);
     await capturar(loja, '3-cartao');
     await loja.getByRole('button', { name: /^Pagar R\$/ }).click();
     await loja.waitForFunction(() => /limite/.test(document.querySelector('.pagamento-erro')?.textContent || ''), null, { timeout: 20_000 });

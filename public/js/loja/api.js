@@ -96,5 +96,6 @@ export function consultarPedido({ id, token, paymentId } = {}) {
  * Devolve { pagamento: { id, status, metodo, pix?, boleto?, mensagem? } }.
  */
 export function pagar(dados) {
-  return chamar('/api/loja/pagamento', { metodo: 'POST', corpo: dados, timeoutMs: 45000 });
+  // Mais que o pior caso do servidor (consultas, cancelamento e criação no Mercado Pago).
+  return chamar('/api/loja/pagamento', { metodo: 'POST', corpo: dados, timeoutMs: 70000 });
 }

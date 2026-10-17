@@ -201,6 +201,7 @@ describe('lerCartao e pedidoPublico', () => {
     assert.deepEqual(erroDe(() => lerCartao(cartao({ token: 'x y' }), 6)), [400, 'cartao']);
     assert.deepEqual(erroDe(() => lerCartao(cartao({ issuer_id: 'abc' }), 6)), [400, 'cartao']);
     assert.deepEqual(erroDe(() => lerCartao(null, 6)), [400, 'cartao']);
+    assert.deepEqual(erroDe(() => lerCartao(cartao({ payment_method_id: 'bolbradesco' }), 6)), [400, 'cartao']);
   });
 
   test('pagamentoEmAberto: só Pix/boleto pendente de pedido não pago', () => {
@@ -225,6 +226,9 @@ describe('lerCartao e pedidoPublico', () => {
     assert.equal(emAnalise.pode_pagar, true);
     assert.deepEqual(emAnalise.pagamento.pendente, pendente);
     assert.deepEqual(emAnalise.pagamento.metodos, ['pix', 'cartao', 'boleto']);
+    const semLer = pedidoPublico({ ...linha, status: 'pagamento_em_analise' },
+      { transparente: true, pendente: { id: '1', metodo: 'pix', status: 'pending', indisponivel: true } });
+    assert.equal(semLer.pode_pagar, true, 'consulta que falhou não tira o Pix da página');
     const cartaoEmAnalise = pedidoPublico({ ...linha, status: 'pagamento_em_analise' }, { transparente: true });
     assert.equal(cartaoEmAnalise.pode_pagar, false);
     assert.equal(cartaoEmAnalise.pagamento, null);

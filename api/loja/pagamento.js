@@ -6,31 +6,43 @@
 // (os dados do cartão vêm do MercadoPago.js: o número do cartão nunca passa por aqui, só o token).
 //
 // 1. Sem MP_ACCESS_TOKEN + MP_PUBLIC_KEY → 503. Id ou token errados → o mesmo 404 da página do pedido.
-// 2. Pedido pago, cancelado ou com cartão em análise → 409. Boleto desligado no painel ou parcelas acima do
-//    máximo → 400.
-// 3. Pix ou boleto em aberto do mesmo método: devolve o mesmo, sem criar outro. De outro método: cancela o que
-//    está em aberto antes (para a cliente não pagar duas vezes).
-// 4. POST /v1/payments com o total do banco e X-Idempotency-Key = <pedido>:<chave>; sincroniza o pedido
+// 2. Pedido pago, cancelado ou com cartão em análise (no banco) → 409. Boleto desligado no painel ou parcelas
+//    acima do máximo → 400. Cartão com 5 recusas no pedido → 429 (freia teste de cartões roubados).
+// 3. Antes de cobrar, confere no Mercado Pago todos os pagamentos do pedido (a busca + o que o banco aponta):
+//    aprovado ou em análise → sincroniza e 409 (nunca cobra de novo). Pix ou boleto em aberto do mesmo método →
+//    devolve o mesmo, sem criar outro; de outro método → cancela antes, e se não conseguir cancelar, não cobra
+//    (502), para a cliente não pagar duas vezes.
+// 4. POST /v1/payments com o total do banco e X-Idempotency-Key = sha256(<pedido>:<chave>): a mesma chave
+//    (o navegador repete a chave quando a resposta não chegou) devolve o mesmo pagamento. Sincroniza o pedido
 //    (confirmar_pagamento, e-mails) e devolve { ok, pagamento: resumoDoPagamento(...) }.
 // Cartão recusado não é erro: volta 200 com pagamento.status 'rejected' e a mensagem para a cliente.
 
+import { createHash } from 'node:crypto';
 import { obterAmbiente } from '../../lib/ambiente.js';
 import { ErroHttp, exigirMetodo, lerCorpo, responderJson, tratarErro, urlBase } from '../../lib/http.js';
 import {
-  buscarPedido, CABECALHOS_SEM_CACHE, erroDaLoja, lerConfiguracoes, registrarEvento, sincronizarPagamento,
+  buscarPedido, CABECALHOS_SEM_CACHE, erroDaLoja, lerConfiguracoes, sincronizarPagamento,
 } from '../../lib/loja.js';
 import {
-  cancelarPagamento, configuracaoCheckout, criarPagamento, METODOS_PAGAMENTO, montarPagamento, obterPagamento,
-  resumoDoPagamento,
+  buscarPagamentosPorReferencia, cancelarPagamento, configuracaoCheckout, criarPagamento, METODOS_PAGAMENTO,
+  montarPagamento, obterPagamento, resumoDoPagamento,
 } from '../../lib/mercadopago.js';
+import { servico } from '../../lib/supabase.js';
 import { somenteDigitos, validarCpf, validarUuid } from '../../lib/validacao.js';
 import { pagamentoEmAberto, tokenConfere } from './pedido.js';
 
 const SELECT = '*,pedido_itens(produto_id,nome,imagem,quantidade,preco_unitario_centavos,total_centavos)';
 const PAGOS = new Set(['pago', 'em_separacao', 'enviado', 'entregue']);
+const APROVADOS = new Set(['approved', 'authorized']);
+const EM_ANALISE = new Set(['in_process', 'in_mediation']);
+// Meios que não são cartão: com metodo 'cartao' eles não passam.
+const NAO_CARTAO = new Set(['pix', 'bolbradesco', 'pec', 'account_money', 'consumer_credits']);
 const TIMEOUT_CONSULTA_MS = 8_000;
+const TIMEOUT_CANCELAR_MS = 10_000;
+const LIMITE_RECUSAS = 5;
 
 const MSG_SEM_PAGAMENTO = 'O pagamento online ainda não está disponível. Tente novamente mais tarde ou fale com a AMA pelo WhatsApp.';
+const MSG_TROCA = 'Não foi possível trocar a forma de pagamento agora. Tente de novo em instantes.';
 
 const ehObjeto = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const texto = (v) => (typeof v === 'string' ? v.trim() : (typeof v === 'number' && Number.isFinite(v) ? String(v) : ''));
@@ -45,7 +57,7 @@ export function lerCartao(bruto, parcelasMax) {
   const token = texto(c.token);
   if (!/^[A-Za-z0-9_-]{8,200}$/.test(token)) throw invalido('cartao', 'Confira os dados do cartão.');
   const meio = texto(c.payment_method_id).toLowerCase();
-  if (!/^[a-z0-9_]{2,40}$/.test(meio)) throw invalido('cartao', 'Confira o número do cartão.');
+  if (!/^[a-z0-9_]{2,40}$/.test(meio) || NAO_CARTAO.has(meio)) throw invalido('cartao', 'Confira o número do cartão.');
   const emissor = texto(c.issuer_id);
   if (emissor && !/^\d{1,15}$/.test(emissor)) throw invalido('cartao', 'Confira os dados do cartão.');
   const parcelas = Number(c.parcelas);
@@ -81,31 +93,86 @@ async function sincronizar(pagamento, siteUrl) {
   }
 }
 
-/**
- * Pix ou boleto em aberto: devolve o resumo para reaproveitar (mesmo método e ainda pendente) ou cancela
- * e devolve null. Também sincroniza o pedido quando o Mercado Pago já tem outra situação (ex.: pago).
- */
-async function tratarEmAberto(pedido, metodo, siteUrl) {
-  const aberto = pagamentoEmAberto(pedido);
-  if (!aberto) return null;
-  const atual = await obterPagamento(aberto.id, { timeoutMs: TIMEOUT_CONSULTA_MS });
-  if (!atual) return null;
-  if (atual.status !== 'pending') {
-    await sincronizar(atual, siteUrl);
-    return null;
+const pedidoPago = () => new ErroHttp(409, 'pedido_pago', 'Este pedido já foi pago.');
+const emAnalise = () => new ErroHttp(409, 'pagamento_em_analise', 'O pagamento deste pedido está em análise. Aguarde o resultado.');
+
+/** Pagamentos do pedido no Mercado Pago: a busca por external_reference + o que o banco aponta (a busca atrasa). */
+async function pagamentosDoPedido(pedido) {
+  const lista = await buscarPagamentosPorReferencia(pedido.id, { timeoutMs: TIMEOUT_CONSULTA_MS });
+  const apontado = typeof pedido.mp_payment_id === 'string' ? pedido.mp_payment_id : '';
+  if (/^\d{1,20}$/.test(apontado) && !lista.some((p) => String(p.id) === apontado)) {
+    const atual = await obterPagamento(apontado, { timeoutMs: TIMEOUT_CONSULTA_MS });
+    if (atual && String(atual.external_reference ?? '').toLowerCase() === pedido.id) lista.unshift(atual);
   }
-  const resumo = resumoDoPagamento(atual);
-  if (aberto.metodo === metodo && (resumo.pix || resumo.boleto)) return resumo;
+  return lista;
+}
+
+/** Cancela um Pix/boleto em aberto. Sem conseguir (ou se ele já foi pago), não deixa cobrar de novo. */
+async function cancelarEmAberto(pedido, pagamento, siteUrl) {
+  let cancelado = null;
   try {
-    await sincronizar(await cancelarPagamento(aberto.id), siteUrl);
+    cancelado = await cancelarPagamento(pagamento.id, { timeoutMs: TIMEOUT_CANCELAR_MS });
   } catch (erro) {
-    console.error(`[pagamento] pedido #${pedido.numero}: não foi possível cancelar o pagamento ${aberto.id}:`,
+    console.error(`[pagamento] pedido #${pedido.numero}: não foi possível cancelar o pagamento ${pagamento.id}:`,
       erro && (erro.mensagem || erro.message));
-    await registrarEvento(pedido.id, 'alerta',
-      `Não foi possível cancelar o ${aberto.metodo === 'pix' ? 'Pix' : 'boleto'} anterior: confira se a cliente não pagou duas vezes`,
-      { mp_payment_id: aberto.id });
   }
-  return null;
+  if (cancelado && cancelado.status === 'cancelled') {
+    await sincronizar(cancelado, siteUrl);
+    return;
+  }
+  const agora = await obterPagamento(pagamento.id, { timeoutMs: TIMEOUT_CONSULTA_MS }).catch(() => null);
+  if (agora && agora.status !== 'pending') await sincronizar(agora, siteUrl);
+  if (agora && APROVADOS.has(agora.status)) throw pedidoPago();
+  if (agora && EM_ANALISE.has(agora.status)) throw emAnalise();
+  if (agora && (agora.status === 'cancelled' || agora.status === 'rejected')) return;
+  throw new ErroHttp(502, 'falha_mercado_pago', MSG_TROCA);
+}
+
+/**
+ * Confere no Mercado Pago antes de cobrar (ver o cabeçalho). Devolve o resumo do Pix/boleto em aberto do mesmo
+ * método para reaproveitar, ou null para criar um pagamento novo. Lança 409 se já foi pago ou está em análise.
+ */
+async function conferirNoMercadoPago(pedido, metodo, siteUrl) {
+  const pagamentos = await pagamentosDoPedido(pedido);
+  const aprovado = pagamentos.find((p) => APROVADOS.has(p.status));
+  if (aprovado) {
+    await sincronizar(aprovado, siteUrl);
+    throw pedidoPago();
+  }
+  const analise = pagamentos.find((p) => EM_ANALISE.has(p.status));
+  if (analise) {
+    await sincronizar(analise, siteUrl);
+    throw emAnalise();
+  }
+  let reaproveitado = null;
+  for (const pendente of pagamentos.filter((p) => p.status === 'pending')) {
+    let resumo = resumoDoPagamento(pendente);
+    if (!reaproveitado && metodo !== 'cartao' && resumo.metodo === metodo) {
+      // A busca pode vir sem o QR/linha digitável: lê o pagamento completo.
+      const completo = resumo.pix || resumo.boleto ? pendente : await obterPagamento(pendente.id, { timeoutMs: TIMEOUT_CONSULTA_MS });
+      resumo = completo ? resumoDoPagamento(completo) : resumo;
+      if (completo && completo.status === 'pending' && (resumo.pix || resumo.boleto)) {
+        if (String(completo.id) !== pedido.mp_payment_id) await sincronizar(completo, siteUrl);
+        reaproveitado = resumo;
+        continue;
+      }
+    }
+    await cancelarEmAberto(pedido, pendente, siteUrl);
+  }
+  return reaproveitado;
+}
+
+/** Recusas de cartão já registradas no pedido (eventos de pagamento do Mercado Pago). */
+async function recusasDoPedido(pedidoId) {
+  try {
+    const linhas = await servico().select('pedido_eventos', {
+      select: 'id', pedido_id: `eq.${pedidoId}`, tipo: 'eq.pagamento', autor: 'eq.mercadopago',
+      'dados->>status': 'eq.rejected', limit: LIMITE_RECUSAS,
+    });
+    return Array.isArray(linhas) ? linhas.length : 0;
+  } catch (erro) {
+    throw erroDaLoja(erro);
+  }
 }
 
 export default async function handler(req, res) {
@@ -132,22 +199,28 @@ export default async function handler(req, res) {
     }
     const cartao = metodo === 'cartao' ? lerCartao(c.cartao, regras.parcelas) : null;
     conferirSituacao(pedido);
-
-    const siteUrl = urlBase(req);
-    if (pagamentoEmAberto(pedido)) {
-      const reaproveitado = await tratarEmAberto(pedido, metodo, siteUrl);
-      if (reaproveitado) {
-        responderJson(res, 200, { ok: true, pagamento: reaproveitado }, CABECALHOS_SEM_CACHE);
-        return;
-      }
-      pedido = (await buscarPedido(id, SELECT)) || pedido;
-      conferirSituacao(pedido);
+    if (cartao && await recusasDoPedido(pedido.id) >= LIMITE_RECUSAS) {
+      throw new ErroHttp(429, 'tentativas_excedidas', 'Muitas tentativas recusadas com cartão neste pedido. Pague com Pix ou boleto.');
     }
 
+    const siteUrl = urlBase(req);
+    const reaproveitado = await conferirNoMercadoPago(pedido, metodo, siteUrl);
+    if (reaproveitado) {
+      responderJson(res, 200, { ok: true, pagamento: reaproveitado }, CABECALHOS_SEM_CACHE);
+      return;
+    }
+    pedido = (await buscarPedido(id, SELECT)) || pedido;
+    conferirSituacao(pedido);
+
     const pagamento = await criarPagamento(montarPagamento({ pedido, metodo, cartao, config, siteUrl }), {
-      chaveIdempotencia: `${pedido.id}:${chave}`,
+      // 64 caracteres; a mesma chave do navegador (nova tentativa sem resposta) devolve o mesmo pagamento.
+      chaveIdempotencia: createHash('sha256').update(`${pedido.id}:${chave}`).digest('hex'),
       sessaoDispositivo: texto(c.dispositivo),
     });
+    if (String(pagamento.external_reference ?? '').toLowerCase() !== pedido.id) {
+      console.error(`[pagamento] pedido #${pedido.numero}: o Mercado Pago devolveu o pagamento ${pagamento.id} de outra referência`);
+      throw new ErroHttp(502, 'falha_mercado_pago', 'Não foi possível concluir o pagamento. Tente de novo.');
+    }
     await sincronizar(pagamento, siteUrl);
     responderJson(res, 200, { ok: true, pagamento: resumoDoPagamento(pagamento) }, CABECALHOS_SEM_CACHE);
   } catch (erro) {

@@ -633,17 +633,29 @@ cartao?: { token, payment_method_id, issuer_id, parcelas, tipo_documento, docume
   (`bolbradesco`) leva nome, CPF e endereço completo do comprador; desligado no painel → 400 `metodo_indisponivel`.
 - `POST /v1/payments` (`montarPagamento` em `lib/mercadopago.js`): `transaction_amount` = total do **banco**,
   `external_reference = pedido.id`, `statement_descriptor: "AMA"`, itens/comprador/endereço em `additional_info`,
-  `notification_url` só com https público, `X-Idempotency-Key = <pedido>:<chave>`.
-- Pix ou boleto em aberto do mesmo método → devolve o mesmo (não cria outro). Trocar de método cancela o que estava em
-  aberto (`PUT /v1/payments/{id}` `status: cancelled`); se não der, registra um alerta no pedido.
+  `notification_url` só com https público, `X-Idempotency-Key = sha256(<pedido>:<chave>)` (64 caracteres). O
+  navegador repete a mesma `chave` quando a resposta não chegou (rede, tempo esgotado, 5xx): a nova tentativa devolve o
+  mesmo pagamento em vez de cobrar de novo. Resposta com `external_reference` de outro pedido → 502.
+- Antes de cobrar, confere no Mercado Pago **todos** os pagamentos do pedido (`/v1/payments/search` + o que o banco
+  aponta, porque a busca atrasa): aprovado → sincroniza e 409 `pedido_pago`; em análise → sincroniza e 409
+  `pagamento_em_analise`. Pix ou boleto em aberto do mesmo método → devolve o mesmo (não cria outro). De outro método →
+  cancela (`PUT /v1/payments/{id}` `status: cancelled`); se não conseguir cancelar e ele não estiver cancelado/recusado,
+  **não cobra** (502) — se já tiver sido pago, sincroniza e 409.
 - Pedido pago → 409 `pedido_pago`; cancelado/reembolsado → 409 `pedido_cancelado`; cartão em análise → 409
-  `pagamento_em_analise`. Id ou token errado → o mesmo 404 da §6.4. HTTP 400 do Mercado Pago (ex.: token vencido) →
-  400 `pagamento_nao_processado`; falha de rede/5xx → 502.
+  `pagamento_em_analise`. Cartão com 5 recusas registradas no pedido → 429 `tentativas_excedidas` (Pix e boleto
+  continuam). Bandeira que não é cartão (`pix`, `bolbradesco`…) → 400. Id ou token errado → o mesmo 404 da §6.4.
+  HTTP 400 do Mercado Pago (ex.: token vencido) → 400 `pagamento_nao_processado`; falha de rede/5xx → 502.
+- `confirmar_pagamento` não troca o pagamento apontado pelo pedido quando chega um evento de **outro** pagamento
+  pendente, recusado ou cancelado enquanto o atual está vivo (aprovado ou em aberto): o webhook atrasado do Pix
+  cancelado não esconde o boleto gerado depois.
 - Depois de criar: `confirmar_pagamento` (mesmo caminho do webhook, que também chega). Saída
   `{ ok, pagamento: resumoDoPagamento(...) }`; cartão recusado é 200 com `status: 'rejected'` e `mensagem` em português
   (`mensagemDaRecusa`, por `status_detail`).
-- Na página: Pix mostra o QR e o copia e cola e a página consulta o pedido a cada 5 s (até 30 min), redesenhando só
-  quando algo muda; aprovado, o carrinho é limpo e o pedido aparece como pago.
+- Na página: Pix mostra o QR e o copia e cola e a página consulta o pedido (5 s nos primeiros 5 minutos, depois 15 s,
+  por até 1 hora), redesenhando só quando algo muda e nunca no meio de um pagamento; ao redesenhar mantém a aba e o
+  aviso. Se a consulta ao Mercado Pago falhar, `pendente` vem com `indisponivel: true` (sem QR) e a página mantém o que
+  mostrava. As abas são montadas uma vez e só escondidas (tirar do DOM recarregaria os iframes do cartão). Aprovado, o
+  carrinho é limpo e o pedido aparece como pago.
 
 ## 7. Loja (`/loja/…`)
 

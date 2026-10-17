@@ -8,7 +8,7 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { AMBIENTE_VAZIO, subirServidor } from '../apoio/servidor.js';
 import { ambienteLocal, cliente, clienteServico, criarUsuario, removerUsuario } from '../apoio/supabase-local.js';
 import { assinarNotificacao, iniciar as iniciarMercadoPago } from '../apoio/mercadopago-falso.js';
@@ -912,7 +912,7 @@ describe('Checkout Transparente: POST /api/loja/pagamento', () => {
     assert.deepEqual(noMp.corpo.payer.identification, { type: 'CPF', number: CPF_DIGITOS });
     assert.equal(noMp.corpo.payer.email, CLIENTE.email);
     assert.equal(noMp.corpo.notification_url, undefined, 'sem https público não manda notification_url');
-    assert.equal(noMp.cabecalhos['x-idempotency-key'], `${pedido.id}:${chave}`);
+    assert.equal(noMp.cabecalhos['x-idempotency-key'], createHash('sha256').update(`${pedido.id}:${chave}`).digest('hex'));
 
     let banco = await pedidoDoBanco(pedido.id);
     assert.equal(banco.status, 'pagamento_em_analise');
@@ -969,6 +969,53 @@ describe('Checkout Transparente: POST /api/loja/pagamento', () => {
     assert.equal(banco.status, 'pagamento_em_analise');
     const consulta = await consultarPedido(pedido.id, pedido.token);
     assert.equal(consulta.json.pedido.pagamento.pendente.boleto.url, boleto.boleto.url);
+
+    // Webhooks atrasados do Pix (criado e cancelado) chegam depois do boleto: o pedido continua no boleto.
+    assert.equal((await enviarWebhook({ dataId: pix.id })).status, 200);
+    const depois = await pedidoDoBanco(pedido.id);
+    assert.equal(depois.mp_payment_id, boleto.id, 'webhook atrasado não troca o pagamento em aberto');
+    assert.equal(depois.status_pagamento, 'pending');
+    assert.equal(depois.status, 'pagamento_em_analise');
+    const ainda = await consultarPedido(pedido.id, pedido.token);
+    assert.equal(ainda.json.pedido.pode_pagar, true);
+    assert.equal(ainda.json.pedido.pagamento.pendente.id, boleto.id);
+  });
+
+  test('não cancela o Pix em aberto → não cobra de novo; Pix pago sem webhook → 409 e o pedido sincroniza', async (t) => {
+    t.after(() => { mp.estado.falhas.cancelar = null; });
+    const { pedido } = await checkoutOk();
+    const pix = await pagarOk(pedido, { metodo: 'pix' });
+    const antes = mp.estado.pagamentos.size;
+    mp.estado.falhas.cancelar = 500;
+    const troca = await pagar(pedido, { metodo: 'cartao', cartao: cartao('APRO') });
+    assert.equal(troca.status, 502);
+    assert.equal(mp.estado.pagamentos.size, antes, 'nenhum pagamento novo');
+    mp.estado.falhas.cancelar = null;
+
+    await semWebhook(() => mp.estado.aprovarPagamento(pix.id));
+    const depois = await pagar(pedido, { metodo: 'cartao', cartao: cartao('APRO') });
+    assert.equal(depois.status, 409);
+    assert.equal(depois.json.erro, 'pedido_pago');
+    assert.equal(mp.estado.pagamentos.size, antes, 'não cobrou o cartão');
+    assert.equal((await pedidoDoBanco(pedido.id)).status, 'pago', 'sincronizou pelo Mercado Pago');
+  });
+
+  test('cartão: a mesma chave devolve o mesmo pagamento; 5 recusas → 429; meio que não é cartão → 400', async () => {
+    const { pedido } = await checkoutOk();
+    const chave = randomUUID();
+    const primeiro = await pagarOk(pedido, { metodo: 'cartao', chave, cartao: cartao('OTHE') });
+    const repetido = await pagarOk(pedido, { metodo: 'cartao', chave, cartao: cartao('APRO') });
+    assert.equal(repetido.id, primeiro.id, 'nova tentativa sem resposta não cobra de novo');
+    assert.equal(repetido.status, 'rejected');
+
+    const pixComoCartao = await pagar(pedido, { metodo: 'cartao', cartao: cartao('APRO', { payment_method_id: 'pix' }) });
+    assert.equal(pixComoCartao.status, 400);
+    for (let i = 0; i < 4; i += 1) assert.equal((await pagarOk(pedido, { metodo: 'cartao', cartao: cartao('FUND') })).status, 'rejected');
+    const bloqueado = await pagar(pedido, { metodo: 'cartao', cartao: cartao('APRO') });
+    assert.equal(bloqueado.status, 429);
+    assert.equal(bloqueado.json.erro, 'tentativas_excedidas');
+    const pix = await pagarOk(pedido, { metodo: 'pix' });
+    assert.equal(pix.metodo, 'pix', 'Pix continua liberado');
   });
 
   test('Pix vencido no Mercado Pago: a página do pedido sincroniza e volta a aguardar', async () => {

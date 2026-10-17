@@ -65,7 +65,8 @@ export function pagamentoEmAberto(p) {
  */
 export function pedidoPublico(p, { transparente = false, checkout = null, pendente = null } = {}) {
   const entrega = p.entrega && typeof p.entrega === 'object' ? p.entrega : {};
-  const emAberto = pendente && (pendente.pix || pendente.boleto) ? pendente : null;
+  // pendente sem pix/boleto = Pix ou boleto em aberto que não deu para ler agora (a página mantém o que mostrava).
+  const emAberto = pendente && (pendente.pix || pendente.boleto || pendente.indisponivel) ? pendente : null;
   const podePagar = transparente
     ? p.status === 'aguardando_pagamento' || (p.status === 'pagamento_em_analise' && Boolean(emAberto))
     : p.status === 'aguardando_pagamento' && typeof p.mp_init_point === 'string' && p.mp_init_point !== '';
@@ -125,7 +126,8 @@ async function sincronizarRetorno(pedidoId, paymentId, siteUrl) {
 }
 
 // Pix ou boleto em aberto: consulta o Mercado Pago, sincroniza se a situação mudou e devolve
-// { pedido, pendente } (pendente = resumo do pagamento se ele continua em aberto). Nunca lança.
+// { pedido, pendente } (pendente = resumo do pagamento se ele continua em aberto). Nunca lança: se a consulta
+// falhar, pendente = { id, metodo, status: 'pending', indisponivel: true } (o banco ainda diz que está em aberto).
 async function conferirEmAberto(pedido, select, siteUrl) {
   const aberto = pagamentoEmAberto(pedido);
   if (!aberto) return { pedido, pendente: null };
@@ -140,7 +142,7 @@ async function conferirEmAberto(pedido, select, siteUrl) {
     return { pedido: atual, pendente: pagamento.status === 'pending' ? resumoDoPagamento(pagamento) : null };
   } catch (erro) {
     console.error(`[pedido] falha ao consultar o pagamento ${aberto.id}:`, erro && (erro.mensagem || erro.message));
-    return { pedido, pendente: null };
+    return { pedido, pendente: { id: aberto.id, metodo: aberto.metodo, status: 'pending', indisponivel: true } };
   }
 }
 

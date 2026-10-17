@@ -1,7 +1,8 @@
 // Pedido /loja/pedido?id=&token=[&payment_id=&status=…] — acompanhamento do pedido.
 // Sem parâmetros: "Meus pedidos neste aparelho" (localStorage ama_pedidos_v1).
 // Checkout Transparente: com pedido.pagamento, a seção "Pagamento" (pagamento.js) vem primeiro; Pix em aberto
-// faz a página conferir o pedido a cada 5 s (só redesenha quando algo muda).
+// faz a página conferir o pedido (a cada 5 s nos primeiros 5 minutos, depois a cada 15 s, por até 1 hora). Só
+// redesenha quando algo muda e nunca no meio de um pagamento; ao redesenhar, mantém a aba e o aviso.
 
 import { consultarPedido } from './api.js';
 import { guardarPedido, lerPedidosGuardados, limparCarrinho } from './carrinho.js';
@@ -36,8 +37,8 @@ let secaoPagamento = null;
 let assinaturaDesenhada = '';
 let rolarParaPagamento = location.hash === '#pagamento';
 
-const INTERVALO_PIX_MS = 5000;
-const LIMITE_PIX = 360; // 30 minutos conferindo o Pix
+const LIMITE_PIX = 280; // 60 × 5 s + 220 × 15 s ≈ 1 hora conferindo o Pix
+const intervaloPix = () => (tentativas < 60 ? 5000 : 15000);
 
 const pendenteDe = (pedido) => (pedido.pagamento && pedido.pagamento.pendente) || null;
 
@@ -183,10 +184,13 @@ function assinaturaDe(pedido) {
     pedido.codigo_rastreio, pedido.pago_em, pedido.enviado_em, pedido.pagamento && pedido.pagamento.metodos]);
 }
 
+// pagamento = o que foi criado (o carrinho é limpo); null = só atualizar o pedido, sem rolar a página.
 function aoPagar(pagamento) {
-  if (pagamento) limparCarrinho();
-  rolarParaPagamento = Boolean(pagamento) && pagamento.status === 'pending';
-  if (!rolarParaPagamento) window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (pagamento) {
+    limparCarrinho();
+    rolarParaPagamento = pagamento.status === 'pending';
+    if (!rolarParaPagamento) window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
   carregar({ silencioso: true, forcar: true });
 }
 
@@ -211,9 +215,10 @@ function renderizarPedido(pedido) {
       'Estamos acompanhando a confirmação do pagamento. Esta página se atualiza sozinha.');
   }
 
+  const inicial = secaoPagamento ? secaoPagamento.estado() : {};
   if (secaoPagamento) secaoPagamento.destruir();
   secaoPagamento = pedido.pode_pagar && pedido.pagamento
-    ? montarPagamento({ pedido, id, token, aoPagar })
+    ? montarPagamento({ pedido, id, token, aoPagar, inicial })
     : null;
   const emAnalise = pedido.status === 'pagamento_em_analise' && !pendenteDe(pedido);
 
@@ -303,7 +308,7 @@ function agendarAtualizacao(pedido) {
     timerAtualizacao = setTimeout(() => {
       tentativas += 1;
       carregar({ silencioso: true });
-    }, INTERVALO_PIX_MS);
+    }, intervaloPix());
     return;
   }
   if (!voltouDoPagamento || pagamentoFalhou || !AGUARDANDO.includes(pedido.status) || tentativas >= 10) return;
@@ -331,7 +336,9 @@ async function carregar({ silencioso = false, forcar = false } = {}) {
       history.replaceState(null, '', `/loja/pedido?id=${encodeURIComponent(id)}&token=${encodeURIComponent(token)}`);
     }
     agendarAtualizacao(pedido);
-    if (!silencioso || forcar || assinaturaDe(pedido) !== assinaturaDesenhada) renderizarPedido(pedido);
+    // No meio de um pagamento, a conferência não redesenha (o resultado dele chama carregar de novo).
+    const pagando = secaoPagamento && secaoPagamento.ocupado();
+    if (!silencioso || forcar || (!pagando && assinaturaDe(pedido) !== assinaturaDesenhada)) renderizarPedido(pedido);
   } catch (erro) {
     if (erro.status === 404) renderizarNaoEncontrado();
     else if (!silencioso) renderizarErro(erro);
