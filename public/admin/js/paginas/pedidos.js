@@ -203,6 +203,14 @@ export function proximaAcao(pedido) {
         conferir: true,
       };
     case 'pagamento_em_analise':
+      // Pix ou boleto gerado e ainda não pago também fica "em análise" (status do pagamento: pendente).
+      if (p.status_pagamento === 'pending' && (p.metodo_pagamento === 'bank_transfer' || p.metodo_pagamento === 'ticket')) {
+        return {
+          tipo: 'info', titulo: 'Aguardando o pagamento',
+          texto: `A cliente gerou ${p.metodo_pagamento === 'ticket' ? 'o boleto' : 'o Pix'} e ainda não pagou. Quando pagar, o pedido muda para "Pago" sozinho.`,
+          conferir: true,
+        };
+      }
       return {
         tipo: 'info', titulo: 'Pagamento em análise',
         texto: 'O Mercado Pago está analisando o pagamento. Quando aprovar, o pedido muda para "Pago" sozinho.',

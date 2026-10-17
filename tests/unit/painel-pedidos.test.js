@@ -151,6 +151,9 @@ describe('situação do pedido', () => {
   test('proximaAcao sugere o próximo status na ordem do trabalho', () => {
     assert.equal(proximaAcao({ status: 'aguardando_pagamento' }).conferir, true);
     assert.equal(proximaAcao({ status: 'pagamento_em_analise' }).conferir, true);
+    assert.match(proximaAcao({ status: 'pagamento_em_analise', status_pagamento: 'pending', metodo_pagamento: 'bank_transfer' }).texto, /gerou o Pix/);
+    assert.match(proximaAcao({ status: 'pagamento_em_analise', status_pagamento: 'pending', metodo_pagamento: 'ticket' }).texto, /gerou o boleto/);
+    assert.match(proximaAcao({ status: 'pagamento_em_analise', status_pagamento: 'in_process', metodo_pagamento: 'credit_card' }).texto, /analisando/);
     assert.equal(proximaAcao({ status: 'pago' }).proximo, 'em_separacao');
     const separacaoMe = proximaAcao({ status: 'em_separacao', entrega: { tipo: 'melhor_envio' } });
     assert.equal(separacaoMe.proximo, 'enviado');

@@ -12,7 +12,7 @@ encaixem sem retrabalho.
 | Hospedagem | Cloudflare Workers com arquivos estáticos (sem build) | Estático em `public/`; funções de `api/` (estilo Node `handler(req, res)`) rodando num Worker (`worker/`) |
 | Banco e login | Supabase (Postgres + Auth) | RLS em todas as tabelas |
 | Fotos, vídeos e a home publicada | Cloudflare R2 (bucket `ama-midia`, binding `MIDIA`) | Servidos pelo Worker em `/midia/…` |
-| Pagamento | Mercado Pago Checkout Pro (API REST, sem SDK) | Pix, cartão, boleto |
+| Pagamento | Mercado Pago (API REST, sem SDK no servidor): Checkout Transparente no próprio site, ou Checkout Pro sem `MP_PUBLIC_KEY` | Pix, cartão (MercadoPago.js), boleto |
 | Frete | Melhor Envio (API REST, token pessoal) + frete fixo | Sem Melhor Envio, o frete fixo precisa estar ligado (não há retirada na sede) |
 | E-mail (opcional) | Resend (API REST) | Sem chave, os e-mails são simplesmente pulados |
 
@@ -124,6 +124,7 @@ wrangler.jsonc  package.json  .env.example
 | `SUPABASE_SERVICE_ROLE_KEY` | chave secreta (só servidor) | `SUPABASE_SECRET_KEY` |
 | `SITE_URL` | URL pública (back_urls, webhooks, e-mails, og:image) | `VERCEL_PROJECT_PRODUCTION_URL` (prefixar https://), depois host da requisição |
 | `MP_ACCESS_TOKEN` | Mercado Pago | — |
+| `MP_PUBLIC_KEY` | Public Key do Mercado Pago (vai ao navegador): liga o Checkout Transparente (§6.7). Só aceita `APP_USR-<uuid>`/`TEST-<uuid>`; um Access Token colado aqui é ignorado e logado | — |
 | `MP_WEBHOOK_SECRET` | assinatura secreta dos webhooks MP | — |
 | `MELHOR_ENVIO_TOKEN` | token pessoal Melhor Envio | — |
 | `MELHOR_ENVIO_AMBIENTE` | `producao` (padrão) ou `sandbox` | — |
@@ -523,6 +524,7 @@ e redireciona para a `back_urls.success|pending|failure` com `payment_id`, `stat
 ### 6.1 `GET /api/config`
 `Content-Type: application/javascript`; corpo: `window.AMA_CONFIG = {"supabaseUrl":"…","supabaseAnonKey":"…","configurado":true};`
 `Cache-Control: public, max-age=300`. Sem Supabase: `configurado:false` e strings vazias.
+Com o Checkout Transparente (`MP_ACCESS_TOKEN` + `MP_PUBLIC_KEY`), acrescenta `"mpPublicKey":"APP_USR-…"`.
 
 ### 6.2 `POST /api/loja/cotacao`
 Entrada `{ "itens": [{ "produto_id", "quantidade" }], "cep": "66000-000"? }`.
@@ -558,6 +560,8 @@ cria a preferência no Mercado Pago, grava `mp_preference_id` e `mp_init_point`,
 `{ "ok": true, "pedido": { "id", "numero", "token" }, "redirecionar": "<init_point>" }`.
 Sem Mercado Pago configurado → 503 `pagamento_indisponivel` **antes** de criar o pedido.
 Item indisponível → 409 `item_indisponivel` com `itens` atualizados.
+**Checkout Transparente:** não cria preferência; devolve `"redirecionar": null` e o navegador abre
+`/loja/pedido?id=&token=#pagamento`, onde a cliente paga (§6.7).
 
 Preferência (`lib/mercadopago.js`): itens com `unit_price` em reais (se os itens não fecharem com o total, um único
 item "Pedido #N — AMA" com o valor dos produtos); frete como item separado "Frete — <nome>" quando > 0;
@@ -577,6 +581,12 @@ Saída `{ "ok": true, "pedido": { numero, status, status_pagamento, criado_em, p
 quantidade, preco_unitario_centavos, total_centavos}], subtotal_centavos, frete_centavos, total_centavos,
 entrega:{tipo, nome, empresa, prazo_dias}, codigo_rastreio, url_rastreio, primeiro_nome, pode_pagar, link_pagamento } }`.
 `pode_pagar` = status `aguardando_pagamento` e há `mp_init_point`. `Cache-Control: no-store`.
+Também `pagamento`: `null` no Checkout Pro ou quando não dá para pagar; no Checkout Transparente
+`{ metodos: ['pix','cartao','boleto'?], parcelas_max, pendente }`, com `pode_pagar` = `aguardando_pagamento` ou
+`pagamento_em_analise` com Pix/boleto em aberto, e `link_pagamento: null`. `pendente` = o Pix ou boleto em aberto
+(`resumoDoPagamento`: `{ id, status, metodo, expira_em, pix: { qr_code, qr_code_base64 } | boleto: { url,
+linha_digitavel } }`), consultado no Mercado Pago a cada visita; se lá a situação mudou (pago, vencido), sincroniza
+antes de responder.
 
 ### 6.5 `POST /api/webhooks/mercadopago`
 1. Aceita os dois formatos: Webhooks (`?data.id=123&type=payment`, corpo `{type, action, data:{id}}`) e IPN
@@ -610,6 +620,31 @@ com a chave de serviço. Sem token/inválido → 401; não admin → 403. Devolv
 - `POST /api/admin/pagamento` `{ pedido_id }` → `GET /v1/payments/search?external_reference=<id>`; escolhe o aprovado
   mais recente, senão o mais recente; `confirmar_pagamento`; devolve o resultado.
 
+### 6.7 `POST /api/loja/pagamento` (Checkout Transparente)
+Liga com `MP_ACCESS_TOKEN` + `MP_PUBLIC_KEY` (sem a Public Key: 503 e a loja segue no Checkout Pro). A cliente paga na
+página do pedido (`js/loja/pagamento.js`), sem sair do site.
+Entrada `{ id, token, metodo: 'pix'|'boleto'|'cartao', chave (UUID novo por tentativa), dispositivo?,
+cartao?: { token, payment_method_id, issuer_id, parcelas, tipo_documento, documento } }`.
+- **Cartão:** o MercadoPago.js (`https://sdk.mercadopago.com/js/v2`, `cardForm` com `iframe: true`) cria o token no
+  navegador; número, validade e código nunca passam pela loja. As parcelas oferecidas são cortadas em `parcelas_max`
+  e o servidor confere de novo; CPF/CNPJ do titular conferido. `dispositivo` = `MP_DEVICE_SESSION_ID` do SDK
+  (antifraude) → cabeçalho `X-Meli-Session-Id`.
+- **Pix e boleto:** gerados no servidor, vencem em `expiracao_horas` (72–720 h, aba Pagamento do painel). Boleto
+  (`bolbradesco`) leva nome, CPF e endereço completo do comprador; desligado no painel → 400 `metodo_indisponivel`.
+- `POST /v1/payments` (`montarPagamento` em `lib/mercadopago.js`): `transaction_amount` = total do **banco**,
+  `external_reference = pedido.id`, `statement_descriptor: "AMA"`, itens/comprador/endereço em `additional_info`,
+  `notification_url` só com https público, `X-Idempotency-Key = <pedido>:<chave>`.
+- Pix ou boleto em aberto do mesmo método → devolve o mesmo (não cria outro). Trocar de método cancela o que estava em
+  aberto (`PUT /v1/payments/{id}` `status: cancelled`); se não der, registra um alerta no pedido.
+- Pedido pago → 409 `pedido_pago`; cancelado/reembolsado → 409 `pedido_cancelado`; cartão em análise → 409
+  `pagamento_em_analise`. Id ou token errado → o mesmo 404 da §6.4. HTTP 400 do Mercado Pago (ex.: token vencido) →
+  400 `pagamento_nao_processado`; falha de rede/5xx → 502.
+- Depois de criar: `confirmar_pagamento` (mesmo caminho do webhook, que também chega). Saída
+  `{ ok, pagamento: resumoDoPagamento(...) }`; cartão recusado é 200 com `status: 'rejected'` e `mensagem` em português
+  (`mensagemDaRecusa`, por `status_detail`).
+- Na página: Pix mostra o QR e o copia e cola e a página consulta o pedido a cada 5 s (até 30 min), redesenhando só
+  quando algo muda; aprovado, o carrinho é limpo e o pedido aparece como pago.
+
 ## 7. Loja (`/loja/…`)
 
 Páginas estáticas com o cabeçalho e rodapé da AMA (mesmas classes de `estilo.css`), mais `public/css/loja.css`.
@@ -627,7 +662,8 @@ Módulos de apoio: `js/loja/config.js` (lê `window.AMA_CONFIG`, `restGet(caminh
 `js/loja/formatos.js` (`formatarPreco`, máscaras de CEP/CPF/telefone, `validarCpf`, `escaparHtml`, `slugify`),
 `js/loja/carrinho.js` (estado no `localStorage` `ama_carrinho_v1` = `[{ produto_id, quantidade, nome, preco_centavos, imagem, slug }]`
 — os dados extras são só para exibir rápido; o servidor sempre recota; evento `window` `carrinho:mudou`),
-`js/loja/api.js` (`cotar`, `finalizar`, `consultarPedido`), `js/loja/comum.js` (contador do carrinho no cabeçalho,
+`js/loja/api.js` (`cotar`, `finalizar`, `consultarPedido`, `pagar`), `js/loja/pagamento.js` (seção "Pagamento" do
+Checkout Transparente, §6.7), `js/loja/comum.js` (contador do carrinho no cabeçalho,
 toasts, rodapé com dados de `configuracoes.loja`, aviso de loja em configuração).
 
 Leitura de produtos pelo navegador (RLS garante só ativos):
@@ -715,12 +751,17 @@ grátis a partir de um valor; sem retirada), Pagamento (parcelas, boleto, prazo 
 - `npm run test:e2e` — Playwright (`tests/e2e/`), exige o Supabase local com o seed: admin edita o site (e a home
   sai publicada, `X-AMA-CMS: publicado`); cliente
   compra; pagamento aprovado no MP falso (webhook assinado); estoque baixa; admin envia pelo Melhor Envio falso
-  (carrinho → pagar → gerar → imprimir → rastreio → enviado); cliente vê o rastreio.
+  (carrinho → pagar → gerar → imprimir → rastreio → enviado); cliente vê o rastreio. `checkout-transparente.test.js`:
+  com `MP_PUBLIC_KEY`, a cliente paga na página do pedido com Pix (aprovado pelo webhook, a página vê sozinha),
+  cartão (recusado e aprovado, com o MercadoPago.js falso de `tests/apoio/mercadopago-js-falso.js`) e boleto;
+  celular sem rolagem horizontal. `CAPTURAS_DIR=<pasta>` salva as telas.
 
 ## 10. Segurança (revisão final)
 
-- **Segredos:** só a URL e a chave pública do Supabase chegam ao navegador (`/api/config`, que recusa uma chave
-  secreta colada no lugar da pública). Tokens do Mercado Pago, do Melhor Envio, do Resend e a chave de serviço
+- **Segredos:** só a URL e a chave pública do Supabase (e, no Checkout Transparente, a Public Key do Mercado Pago)
+  chegam ao navegador (`/api/config`, que recusa uma chave secreta colada no lugar da pública e um Access Token no
+  lugar da Public Key). Os dados do cartão vão do navegador direto ao Mercado Pago (campos em iframe); a loja recebe só
+  o token, e o valor cobrado é sempre o total do pedido no banco. Tokens do Mercado Pago, do Melhor Envio, do Resend e a chave de serviço
   ficam só no Worker (segredos do Cloudflare); o painel mostra apenas se cada uma está configurada.
 - **RLS:** ligada em todas as tabelas; visitante e usuário comum leem só o que é público; escrita só para admin
   (`eh_admin()`); as RPCs de pedido e pagamento só rodam com a chave de serviço (testado em `banco.test.js`).

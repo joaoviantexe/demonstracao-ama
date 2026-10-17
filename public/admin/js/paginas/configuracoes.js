@@ -570,7 +570,7 @@ export async function renderizar(ctx) {
     const prazo = ui.campo({
       rotulo: 'Prazo para pagar', nome: 'prazo_dias', tipo: 'select', valor: String(diasDoPrazo(v.expiracao_horas)),
       opcoes: PRAZOS_PAGAMENTO_DIAS.map((d) => ({ valor: String(d), rotulo: `${d} dias` })),
-      ajuda: 'Depois disso o link de pagamento do pedido vence. O Mercado Pago pede no mínimo 3 dias por causa do Pix e do boleto.',
+      ajuda: 'Depois disso o Pix e o boleto do pedido vencem.',
     });
     const c = { parcelas_max: parcelas, prazo_dias: prazo };
     return montarFormulario('pagamento', 'Pagamento', [

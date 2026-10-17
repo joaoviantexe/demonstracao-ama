@@ -183,17 +183,26 @@ Se algo não funcionar, veja os erros em **Workers & Pages** → `ama-site` → 
 
 ### Passo 9 (opcional). Pagamento em modo teste no Mercado Pago
 
+A cliente paga **no próprio site** (Checkout Transparente): depois de preencher os dados, ela cai na página do pedido
+e escolhe **Pix** (QR Code e copia e cola), **Cartão** ou **Boleto**, sem ir para o site do Mercado Pago.
+
 1. Entre em [mercadopago.com.br/developers](https://www.mercadopago.com.br/developers) com a conta que vai receber
-   as vendas → **Suas integrações** → **Criar aplicação** → produto **Checkout Pro** (pagamentos on-line).
-2. Na aplicação, abra **Credenciais de teste** e copie o **Access Token**.
-3. No Cloudflare, cadastre os segredos `MP_ACCESS_TOKEN` (o token de teste) e `MP_MODO` = `teste` (passo 5) e
-   clique em **Deploy**.
+   as vendas → **Suas integrações** → **Criar aplicação** → pagamentos on-line, produto **Checkout Transparente**
+   (pode aparecer como *Checkout API*; o nome muda de vez em quando).
+2. Na aplicação, abra **Credenciais de teste** e copie a **Public Key** e o **Access Token**.
+3. No Cloudflare, cadastre os segredos `MP_PUBLIC_KEY` (a Public Key), `MP_ACCESS_TOKEN` (o Access Token) e
+   `MP_MODO` = `teste` (passo 5) e clique em **Deploy**. Sem a `MP_PUBLIC_KEY` a loja continua funcionando, mas
+   a cliente paga na página do Mercado Pago (Checkout Pro).
 4. Ainda na aplicação do Mercado Pago, **Webhooks** → **Configurar notificações**:
    - URL de produção: `https://seudominio.com.br/api/webhooks/mercadopago`
    - Evento: **Pagamentos**. Salve e copie a **Assinatura secreta** → cadastre no Cloudflare como
      `MP_WEBHOOK_SECRET` e clique em **Deploy**.
-5. Para pagar em teste, use as contas de teste do Mercado Pago (comprador de teste) e o cartão de teste com o nome
-   do titular **APRO** (aprova o pagamento). Pix e boleto em teste ficam "pendentes".
+5. Para pagar em teste, use um cartão de teste no próprio site: Mastercard **5031 4332 1540 6351**, validade
+   **11/30**, código **123**, CPF **123.456.789-09**. O **nome no cartão** decide o resultado: **APRO** aprova,
+   **FUND** recusa por falta de limite, **OTHE** recusa por erro geral, **CONT** fica em análise. Pix e boleto
+   gerados em teste ficam "aguardando pagamento" (não dá para pagar de verdade em teste).
+   Se o pagamento de teste for recusado com erro de usuário, use no pedido o e-mail de um **comprador de teste**
+   (na aplicação: **Contas de teste**).
 
 ---
 
@@ -202,11 +211,10 @@ Se algo não funcionar, veja os erros em **Workers & Pages** → `ama-site` → 
 Faça quando a AMA aprovar o site e definir preços.
 
 1. **Mercado Pago em produção.** Na aplicação: ative as **Credenciais de produção** (pede ramo de atividade, site e
-   aceite dos termos), troque `MP_ACCESS_TOKEN` pelo token de produção, apague `MP_MODO` (ou ponha `producao`),
-   confira a URL de Webhooks com o domínio definitivo e atualize `MP_WEBHOOK_SECRET`. Cadastre uma **chave Pix**
-   na conta recebedora (sem ela o Pix não aparece). Confira as taxas em *Seu negócio → Custos*.
-   Se o Mercado Pago não conseguir criar o link de pagamento, o pedido é cancelado sozinho, com uma nota na linha
-   do tempo, e o cliente pode tentar de novo.
+   aceite dos termos), troque `MP_PUBLIC_KEY` e `MP_ACCESS_TOKEN` pelas de produção (as duas da mesma aplicação),
+   apague `MP_MODO` (ou ponha `producao`), confira a URL de Webhooks com o domínio definitivo e atualize
+   `MP_WEBHOOK_SECRET`. Cadastre uma **chave Pix** na conta recebedora (sem ela o Pix não é gerado). Confira as
+   taxas em *Seu negócio → Custos*.
 2. **Entrega: Melhor Envio e/ou frete fixo.** Não há retirada na sede, então pelo menos um dos dois precisa estar
    ligado para a loja vender.
    - **Melhor Envio (Correios e transportadoras, com etiqueta pelo painel).** Em
@@ -248,14 +256,15 @@ Faça quando a AMA aprovar o site e definir preços.
 No painel (`/admin/`):
 
 - [ ] **Variáveis no Cloudflare** (o painel não mostra a situação delas, confira lá): Supabase, `SITE_URL` com o
-      domínio, Mercado Pago em **produção** com `MP_WEBHOOK_SECRET`, e o Melhor Envio (ou o frete fixo ligado).
+      domínio, Mercado Pago em **produção** (`MP_PUBLIC_KEY`, `MP_ACCESS_TOKEN`) com `MP_WEBHOOK_SECRET`, e o
+      Melhor Envio (ou o frete fixo ligado).
 - [ ] **Produtos**: troque os **preços e estoques de teste** (R$ 59,90, R$ 69,90… e 10 unidades) pelos reais; dê
       nome, descrição e fotos às 6 biojoias ("Nome em Produção"). Produto sem preço não pode ser comprado (a lista
       avisa).
 - [ ] **Loja → Configurações → Loja**: nome e descrição da loja.
 - [ ] **Site → WhatsApp**: o número com DDD (vale para o site inteiro e para a loja).
 - [ ] **Loja → Configurações → Frete**: remetente completo e embalagem padrão; Melhor Envio ligado e/ou frete fixo.
-- [ ] **Loja → Configurações → Pagamento**: parcelas no cartão.
+- [ ] **Loja → Configurações → Pagamento**: parcelas no cartão, boleto ligado ou não e prazo para pagar o Pix/boleto.
 - [ ] **Loja → Configurações → Avisos por e-mail**: e-mail da equipe (se usar o Resend).
 - [ ] **Compra de verdade**: faça um pedido pequeno com Pix pelo domínio definitivo e confira: o pedido vira
       "Pago" sozinho (sem o webhook ele fica esperando), o estoque baixa, o e-mail chega (se configurado) e o envio
@@ -274,7 +283,7 @@ Todas estão explicadas em [`.env.example`](../.env.example). No Cloudflare fica
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | Sim | Banco e login |
 | `SITE_URL` | Sim | Endereço público (links de pagamento, e-mails, imagem do link no WhatsApp) |
 | `CRON_SECRET` | Recomendada | Protege a consulta diária que evita a pausa do Supabase |
-| `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET`, `MP_MODO` | Para vender | Mercado Pago |
+| `MP_PUBLIC_KEY`, `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET`, `MP_MODO` | Para vender | Mercado Pago (com a Public Key, o pagamento é no próprio site) |
 | `MELHOR_ENVIO_TOKEN`, `MELHOR_ENVIO_EMAIL`, `MELHOR_ENVIO_AMBIENTE` | Para vender (ou o frete fixo ligado no painel) | Frete calculado e etiquetas |
 | `RESEND_API_KEY`, `EMAIL_REMETENTE` | Opcional | E-mails de pedido |
 
