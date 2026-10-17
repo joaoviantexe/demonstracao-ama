@@ -680,7 +680,7 @@ Ao voltar do pagamento aprovado o carrinho é limpo.
 Editor de conteúdo: grupos vindos de `extrairEsquema` (template de `/api/render?modelo=1`); editores por tipo
 (texto, textarea, editor rico com barra Negrito/Itálico/Link/Lista/Parágrafo + `sanitizarHtml`, imagem com prévia,
 upload, biblioteca e texto alternativo, vídeo com upload e capa, link, URL, Instagram, listas com adicionar/remover/
-subir/descer; o menu do cabeçalho não cria itens novos), "Restaurar padrão" por campo (apaga a linha), "Salvar"
+subir/descer; o menu do cabeçalho não cria itens novos), "Salvar"
 (upsert só do que mudou, depois publica a home; se a publicação falhar, "Salvar" sem mudanças tenta de novo) e
 "Ver no site".
 Os editores do site não têm prévia (nem botão "Pré-visualizar" nem prévia ao vivo); "Ver no site" abre a página.

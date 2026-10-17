@@ -9,15 +9,15 @@
 // o painel publica; depois de cada "Salvar", GET / vem com X-AMA-CMS: publicado e o conteúdo novo.
 //
 // Em cada largura, com dados próprios (sufixo aleatório):
-// - #/conteudo: cartões dos grupos (quantos campos, visível/oculta, editado ou original);
-// - "Quem somos": editor rico (Negrito, Link com javascript: recusado, Lista e Parágrafo) desfeito com
-//   "Restaurar padrão"; título novo e aviso ao sair sem salvar; sem prévia; "Salvar" grava só a chave
+// - #/conteudo: cartões dos grupos (quantos campos, visível/oculta);
+// - "Quem somos": editor rico (Negrito, Link com javascript: recusado, Lista e Parágrafo) desfeito ao sair
+//   com "Descartar e sair"; título novo e aviso ao sair sem salvar; sem prévia; "Salvar" grava só a chave
 //   mudada e GET / mostra o título novo;
 // - "Depoimentos": abre um item, muda o nome, troca a foto por upload (seletor de mídia → /midia/site/...),
 //   sobe o item, adiciona um item (nasce igual ao molde) e remove com confirmação; salva e confere em GET /;
 // - "Parcerias": desliga "Mostrar esta seção no site" (some de GET /) e liga de novo (a linha é apagada);
 // - "Banner da Loja" (foto escolhida entre os produtos) e "WhatsApp" (número + mensagem): conferidos em GET /;
-// - "Restaurar padrão" do título e da lista de depoimentos: as linhas somem e GET / volta ao original;
+// - título salvo igual ao original: a linha some e GET / volta ao original;
 // - parte inexistente, História, SEO (prévia do Google) e Postagens (endereço do Instagram inválido não grava).
 // No fim apaga as chaves de conteudo_site criadas (e devolve as que já existiam) e a pasta temporária.
 // Falha (código 1) com erro no console/página, rolagem horizontal ou verificação errada.
@@ -333,7 +333,7 @@ async function rodarLargura(navegador, url, largura) {
     const grupos = await pagina.locator('.cms-grupo').count();
     conferir(grupos === 11, `#/conteudo lista os 11 grupos (com Identidade, sem Cabeçalho e menu)`, `#/conteudo mostrou ${grupos} grupos`);
     const qs = await cartaoDoGrupo(pagina, 'quem-somos');
-    conferir(qs.titulo === 'Quem somos' && /Visível no site/.test(qs.selos) && /Conteúdo original/.test(qs.selos) && /3 campos/.test(qs.selos),
+    conferir(qs.titulo === 'Quem somos' && /Visível no site/.test(qs.selos) && /3 campos/.test(qs.selos),
       `cartão "Quem somos": ${qs.selos}`, `cartão "Quem somos" inesperado: ${JSON.stringify(qs)}`);
     const verSite = await pagina.locator('.pagina-cabecalho a', { hasText: 'Ver o site' }).getAttribute('href');
     conferir(verSite === '/', 'botão "Ver o site" leva para /', `"Ver o site" com href ${verSite}`);
@@ -349,7 +349,7 @@ async function rodarLargura(navegador, url, largura) {
     await capturar(pagina, `quem-somos-${largura}`);
     await semRolagemHorizontal(pagina, 'Quem somos');
 
-    // Editor rico: Negrito numa palavra, depois "Restaurar padrão" (sem linha no banco = desfaz).
+    // Editor rico: Negrito numa palavra, Link, Lista e Parágrafo; depois sai descartando.
     const seletorRico = '[data-chave="quem-somos.texto"] .cms-rico__area';
     if (!(await selecionarTexto(pagina, seletorRico, 'Associação'))) falhar('não achei o texto para selecionar no editor rico');
     await pagina.locator('[data-chave="quem-somos.texto"] .cms-rico__botao--negrito').click();
@@ -378,13 +378,13 @@ async function rodarLargura(navegador, url, largura) {
     conferir(/<ul><li>Com uma história/.test(await pagina.locator(seletorRico).innerHTML()), 'editor rico: Lista transforma o parágrafo em lista', 'a lista não foi criada');
     await pagina.locator('[data-chave="quem-somos.texto"] .cms-rico__botao--paragrafo').click();
     conferir(!/<ul>/.test(await pagina.locator(seletorRico).innerHTML()), 'editor rico: Parágrafo tira a lista', 'a lista continuou depois de "Parágrafo"');
-    await limparToasts(pagina);
-    await pagina.locator('[data-chave="quem-somos.texto"] .cms-campo__restaurar').click();
-    const msgDesfazer = await responderConfirmacao(pagina, 'Restaurar padrão');
-    conferir(/Desfazer o que você mudou/.test(msgDesfazer), 'restaurar sem linha no banco só desfaz o rascunho', `mensagem de restaurar: ${msgDesfazer}`);
+    await pagina.locator('.pagina-cabecalho__voltar').click();
+    await responderConfirmacao(pagina, 'Descartar e sair');
+    await pagina.waitForSelector('.pagina[data-pagina="conteudo"] .cms-grupos');
+    await pagina.locator('.cms-grupo[data-grupo="quem-somos"]').click();
+    await pagina.waitForSelector(seletorRico);
     const semNegrito = await pagina.locator(seletorRico).innerHTML();
-    conferir(!/<b>|<a /.test(semNegrito), 'editor rico voltou ao texto original', 'o negrito ou o link continuou depois de restaurar');
-    await fecharToasts(pagina);
+    conferir(!/<b>|<a /.test(semNegrito), '"Descartar e sair" desfaz o que mudou no editor rico', 'o negrito ou o link continuou depois de descartar');
 
     // Título novo + aviso ao sair sem salvar.
     const tituloNovo = `Quem somos ${sufixo}`;
@@ -406,9 +406,9 @@ async function rodarLargura(navegador, url, largura) {
     let site = await home(url);
     conferir(site.status === 200 && site.cms === 'publicado' && textoDe(site.documento, '#sobre h2') === tituloNovo,
       'GET / (X-AMA-CMS: publicado) mostra o título novo', `GET / [${site.cms}] mostrou "${textoDe(site.documento, '#sobre h2')}"`);
-    const selosTitulo = (await pagina.locator('[data-chave="quem-somos.titulo"] .cms-campo__estado').textContent()).replace(/\s+/g, ' ');
-    conferir(/Editado/.test(selosTitulo) && await pagina.isVisible('[data-chave="quem-somos.titulo"] .cms-campo__restaurar'),
-      'campo salvo ganha o selo "Editado" e "Restaurar padrão"', `selos do título: ${selosTitulo}`);
+    const selosTitulo = (await pagina.locator('[data-chave="quem-somos.titulo"] .cms-campo__estado').innerText()).trim();
+    conferir(!selosTitulo && await pagina.getByRole('button', { name: 'Restaurar padrão' }).count() === 0,
+      'campo salvo sem selo nem "Restaurar padrão"', `selos do título: ${selosTitulo}`);
 
     // --- Depoimentos (lista)
     await irPara(pagina, '#/conteudo/depoimentos', '[data-chave="depoimentos.itens"] .cms-item');
@@ -538,27 +538,18 @@ async function rodarLargura(navegador, url, largura) {
     `link salvo: ${linhaWa && linhaWa.href}; no site [${site.cms}]: ${hrefs.join(' | ')}`);
     await clienteServico().from('conteudo_site').delete().eq('chave', 'whatsapp.link');
 
-    // --- Restaurar padrão (apaga as linhas) e conferir que GET / voltou
-    await irPara(pagina, '#/conteudo/quem-somos', '[data-chave="quem-somos.titulo"] .cms-campo__restaurar');
-    await limparToasts(pagina);
-    await pagina.locator('[data-chave="quem-somos.titulo"] .cms-campo__restaurar').click();
-    const msgRestaurar = await responderConfirmacao(pagina, 'Restaurar padrão', { capturaComo: `restaurar-padrao-${largura}` });
-    conferir(/versão salva pelo painel será apagada/.test(msgRestaurar), 'restaurar com linha no banco explica que a versão salva será apagada', `mensagem: ${msgRestaurar}`);
-    await esperarToast(pagina, 'Padrão restaurado');
-    const valorTitulo = await pagina.locator('[data-chave="quem-somos.titulo"] input').inputValue();
-    conferir(valorTitulo === 'Quem Somos', 'o campo voltou ao texto original', `campo depois de restaurar: ${valorTitulo}`);
-    await irPara(pagina, '#/conteudo/depoimentos', '[data-chave="depoimentos.itens"] .cms-campo__restaurar');
-    await limparToasts(pagina);
-    await pagina.locator('[data-chave="depoimentos.itens"] .cms-campo__restaurar').click();
-    await responderConfirmacao(pagina, 'Restaurar padrão');
-    await esperarToast(pagina, 'Padrão restaurado');
+    // --- Título salvo igual ao original: a linha é apagada e a home publicada volta ao original
+    await clienteServico().from('conteudo_site').delete().eq('chave', 'depoimentos.itens');
+    await irPara(pagina, '#/conteudo/quem-somos', '[data-chave="quem-somos.titulo"] input');
+    await pagina.locator('[data-chave="quem-somos.titulo"] input').fill('Quem Somos');
+    await salvar(pagina, 'Quem somos (original)');
     const restantes = await linhas(CHAVES);
-    conferir(!restantes.size, 'restaurar padrão apagou as linhas de conteudo_site', `linhas restantes: ${[...restantes.keys()].join(', ')}`);
+    conferir(!restantes.size, 'valor igual ao original apaga a linha de conteudo_site', `linhas restantes: ${[...restantes.keys()].join(', ')}`);
     site = await home(url);
     const nomesDepois = [...site.documento.querySelectorAll('#depoimentos [data-cms-campo="nome"]')].map((e) => e.textContent.trim());
     conferir(site.cms === 'publicado' && textoDe(site.documento, '#sobre h2') === 'Quem Somos' && nomesDepois.join('|') === 'Doraci Silva|Breno Aquino|Maria Rita',
       'GET / (publicada de novo) voltou ao conteúdo original',
-      `GET / [${site.cms}] depois de restaurar: ${textoDe(site.documento, '#sobre h2')} / ${nomesDepois.join(' | ')}`);
+      `GET / [${site.cms}] depois de voltar ao original: ${textoDe(site.documento, '#sobre h2')} / ${nomesDepois.join(' | ')}`);
 
     // Grupo que não existe no template.
     await irPara(pagina, '#/conteudo/nao-existe', '.estado-vazio');
