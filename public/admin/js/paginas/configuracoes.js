@@ -1,7 +1,7 @@
 // #/configuracoes — ajustes da loja (docs/ARQUITETURA.md §4.1 → configuracoes, §6.6 e §8).
 // Abas: Loja (nome e descrição), Frete (origem, Melhor Envio, frete fixo,
 // frete grátis, embalagem padrão; não existe retirada na sede), Pagamento (parcelas, boleto, prazo),
-// Avisos por e-mail (equipe) e Integrações (situação das chaves na Vercel, via /api/admin/status).
+// Avisos por e-mail (equipe) e Integrações (situação das chaves no Cloudflare, via /api/admin/status).
 // Cada aba salva só as chaves dela, mantendo o que já existe no valor (campos que o painel não mostra).
 // As funções puras do começo do arquivo são testadas em tests/unit/painel-configuracoes.test.js.
 
@@ -222,7 +222,7 @@ export function diagnosticoEntrega(frete, melhorEnvioConfigurado) {
       : { ok: true, mensagem: null };
   }
   if (me) {
-    return { ok: false, mensagem: 'O Melhor Envio está ligado aqui, mas falta o MELHOR_ENVIO_TOKEN na Vercel. Até lá, ligue o frete fixo para a loja conseguir vender.' };
+    return { ok: false, mensagem: 'O Melhor Envio está ligado aqui, mas falta o MELHOR_ENVIO_TOKEN no Cloudflare. Até lá, ligue o frete fixo para a loja conseguir vender.' };
   }
   return { ok: false, mensagem: 'Nenhuma forma de entrega está ligada: ninguém consegue finalizar a compra. Ligue o Melhor Envio ou o frete fixo.' };
 }
@@ -570,7 +570,7 @@ export async function renderizar(ctx) {
     const prazo = ui.campo({
       rotulo: 'Prazo para pagar', nome: 'prazo_dias', tipo: 'select', valor: String(diasDoPrazo(v.expiracao_horas)),
       opcoes: PRAZOS_PAGAMENTO_DIAS.map((d) => ({ valor: String(d), rotulo: `${d} dias` })),
-      ajuda: 'Depois disso o link de pagamento do pedido vence. O Mercado Pago pede no mínimo 3 dias por causa do Pix e do boleto.',
+      ajuda: 'Depois disso o Pix e o boleto do pedido vencem.',
     });
     const c = { parcelas_max: parcelas, prazo_dias: prazo };
     return montarFormulario('pagamento', 'Pagamento', [

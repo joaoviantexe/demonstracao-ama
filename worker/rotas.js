@@ -11,6 +11,7 @@ import config from '../api/config.js';
 import cronManterAtivo from '../api/cron/manter-ativo.js';
 import lojaCheckout from '../api/loja/checkout.js';
 import lojaCotacao from '../api/loja/cotacao.js';
+import lojaPagamento from '../api/loja/pagamento.js';
 import lojaPedido from '../api/loja/pedido.js';
 import render from '../api/render.js';
 import webhookMercadoPago from '../api/webhooks/mercadopago.js';
@@ -26,6 +27,7 @@ export const ROTAS = Object.freeze({
   '/api/cron/manter-ativo': cronManterAtivo,
   '/api/loja/checkout': lojaCheckout,
   '/api/loja/cotacao': lojaCotacao,
+  '/api/loja/pagamento': lojaPagamento,
   '/api/loja/pedido': lojaPedido,
   '/api/render': render,
   '/api/webhooks/mercadopago': webhookMercadoPago,

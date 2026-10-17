@@ -3,7 +3,7 @@
 // - Grupos e campos vêm do template cru (GET /api/render?modelo=1, sem cache) lido com extrairEsquema.
 // - O valor de cada campo é a linha de conteudo_site ou, sem linha, o padrão do template.
 // - "Salvar" grava só as chaves que mudaram: upsert do valor novo ou, quando ele voltou a ser igual
-//   ao padrão do template, apaga a linha (o mesmo que "Restaurar padrão").
+//   ao padrão do template, apaga a linha.
 // - Depois de gravar, publica a home (ctx.publicarHome → publicar-home.js): o site mostra a versão publicada.
 // As funções puras exportadas rodam no Node (tests/unit/painel-conteudo.test.js).
 
@@ -19,7 +19,7 @@ export const LIMITE_ITENS = 200;
 /** conteudo_site.valor aceita até 200 000 bytes; a folga cobre a serialização do Postgres. */
 export const LIMITE_BYTES = 190_000;
 const LIMITE_TEXTO = 500;
-const VAZIO = 'Este campo não pode ficar vazio. Escreva um texto ou use "Restaurar padrão".';
+const VAZIO = 'Este campo não pode ficar vazio.';
 
 const ICONES_GRUPO = {
   seo: 'busca', cabecalho: 'menu', 'quem-somos': 'info', postagens: 'imagem', projetos: 'estrela',
@@ -494,9 +494,7 @@ export function ordenarGrupos(grupos) {
 /** Resumo de cada grupo para os cartões de #/conteudo. */
 export function resumirGrupos(esquema, salvos) {
   return ordenarGrupos((esquema && esquema.grupos) || []).map((g) => {
-    const linhas = g.campos.map((c) => salvos.get(c.chave)).filter(Boolean);
     const visibilidade = salvos.get(chaveVisibilidade(g.id));
-    const datas = [...linhas, visibilidade].filter(Boolean).map((l) => l.atualizado_em).filter(Boolean).sort();
     return {
       id: g.id,
       rotulo: g.rotulo,
@@ -504,8 +502,6 @@ export function resumirGrupos(esquema, salvos) {
       visivel: !(g.ocultavel && visibilidade && visibilidade.valor === false),
       totalCampos: g.campos.length,
       rotulosCampos: g.campos.map((c) => c.rotulo),
-      personalizados: linhas.length,
-      atualizadoEm: datas.length ? datas[datas.length - 1] : null,
     };
   });
 }
@@ -614,14 +610,9 @@ function montarVisaoGeral(ctx, dados, corpo) {
   const resumos = resumirGrupos(dados.esquema, dados.salvos);
   const cartao = (r) => {
     const nomes = r.rotulosCampos.slice(0, 3).join(' · ') + (r.rotulosCampos.length > 3 ? ` e mais ${r.rotulosCampos.length - 3}` : '');
-    const quando = r.atualizadoEm ? ui.tempoRelativo(r.atualizadoEm) : '';
-    const selos = [];
-    if (r.ocultavel) {
-      selos.push(el('span', { class: ['selo', r.visivel ? 'selo--verde' : 'selo--cinza'] }, r.visivel ? 'Visível no site' : 'Oculta no site'));
-    }
-    selos.push(r.personalizados
-      ? el('span', { class: 'selo selo--ouro' }, `Editado ${/^\d/.test(quando) ? `em ${quando}` : quando}`.trim())
-      : el('span', { class: 'selo selo--cinza selo--sem-ponto' }, 'Conteúdo original'));
+    const selos = r.ocultavel
+      ? [el('span', { class: ['selo', r.visivel ? 'selo--verde' : 'selo--cinza'] }, r.visivel ? 'Visível no site' : 'Oculta no site')]
+      : [];
     const quantidade = r.totalCampos === 1 ? '1 campo' : `${r.totalCampos} campos`;
     return el('a', { class: 'cms-grupo', href: `#/conteudo/${r.id}`, dataset: { grupo: r.id } },
       el('span', { class: 'cms-grupo__icone' }, ui.icone(ICONES_GRUPO[r.id] || 'conteudo')),
@@ -1747,18 +1738,15 @@ function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
   function cartaoDoCampo(campo) {
     const idRotulo = ui.novoId('cms-campo');
     const idAjuda = campo.ajuda ? `${idRotulo}-ajuda` : null;
-    const seloSalvo = el('span', { class: 'selo selo--ouro', hidden: true, title: 'O site mostra a versão salva pelo painel, diferente da original.' }, 'Editado');
     const seloPendente = el('span', { class: 'selo selo--ambar', hidden: true }, 'Não salvo');
-    const restaurar = ui.botao({ texto: 'Restaurar padrão', tipo: 'fantasma', tamanho: 'pequeno', icone: 'atualizar', classe: 'cms-campo__restaurar', aoClicar: () => restaurarCampo(campo) });
-    restaurar.hidden = true;
     const conteudo = el('div', { class: 'cartao__corpo' });
     const cartao = el('section', { class: ['cartao', 'cms-campo', `cms-campo--${campo.tipo}`], 'aria-labelledby': idRotulo, 'data-chave': campo.chave },
       el('div', { class: 'cartao__cabecalho' },
         el('h2', { class: 'cartao__titulo', id: idRotulo }, campo.rotulo),
-        el('div', { class: 'cms-campo__estado' }, seloSalvo, seloPendente, restaurar),
+        el('div', { class: 'cms-campo__estado' }, seloPendente),
         campo.ajuda ? el('p', { class: 'cartao__subtitulo', id: idAjuda }, campo.ajuda) : null),
       conteudo);
-    const controle = { campo, cartao, conteudo, seloSalvo, seloPendente, restaurar, idRotulo, idAjuda, editor: null };
+    const controle = { campo, cartao, conteudo, seloPendente, idRotulo, idAjuda, editor: null };
     desenharEditor(controle);
     return controle;
   }
@@ -1772,7 +1760,7 @@ function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
     const cartao = el('section', { class: 'cartao cms-campo cms-visibilidade', 'aria-label': 'Visibilidade da seção', 'data-chave': campo.chave },
       el('div', { class: 'cartao__corpo' }, el('div', { class: 'cms-visibilidade__linha' }, interruptor.elemento, seloPendente)));
     const editor = { mostrarErros() {}, focarErro: () => interruptor.entrada.focus(), focar: () => interruptor.entrada.focus() };
-    return { campo, cartao, seloSalvo: null, seloPendente, restaurar: null, editor, interruptor };
+    return { campo, cartao, seloPendente, editor, interruptor };
   }
 
   for (const campo of campos) controles.set(campo.chave, campo.tipo === 'visivel' ? cartaoVisibilidade(campo) : cartaoDoCampo(campo));
@@ -1793,10 +1781,7 @@ function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
     const alteracoes = montarAlteracoes({ campos, rascunho, salvos, documento: document });
     const alteradas = new Set([...alteracoes.salvar.map((s) => s.chave), ...alteracoes.apagar]);
     for (const c of controles.values()) {
-      const chave = c.campo.chave;
-      if (c.seloSalvo) c.seloSalvo.hidden = !salvos.has(chave);
-      c.seloPendente.hidden = !alteradas.has(chave);
-      if (c.restaurar) c.restaurar.hidden = !(salvos.has(chave) || !valoresIguais(c.campo, rascunho.get(chave), c.campo.padrao, document));
+      c.seloPendente.hidden = !alteradas.has(c.campo.chave);
     }
     ctx.marcarAlterado(alteradas.size > 0);
     if (alteradas.size) {
@@ -1881,35 +1866,5 @@ function montarGrupo(ctx, dados, { cabecalho, corpo, recursos, grupoId }) {
     if (!publicacaoPendente) return true;
     ui.toast(`Salvo, mas o site ainda não foi atualizado: ${(r && r.mensagem) || 'erro desconhecido'}. Clique em Salvar para tentar de novo.`, 'erro');
     return false;
-  }
-
-  // --- restaurar padrão de um campo
-  async function restaurarCampo(campo) {
-    const controle = controles.get(campo.chave);
-    const temLinha = salvos.has(campo.chave);
-    const mudouAgora = !valoresIguais(campo, rascunho.get(campo.chave), valorEfetivo(campo, salvos.get(campo.chave)), document);
-    const mensagem = temLinha
-      ? `Voltar "${campo.rotulo}" ao conteúdo original do site? A versão salva pelo painel será apagada${mudouAgora ? ', junto com o que você mudou agora' : ''}.`
-      : `Desfazer o que você mudou em "${campo.rotulo}" e voltar ao conteúdo original?`;
-    const sim = await ui.confirmar(mensagem, { perigo: true, titulo: 'Restaurar padrão?', textoConfirmar: 'Restaurar padrão' });
-    if (!sim || !ctx.ativo()) return;
-    if (temLinha) {
-      const r = await ui.ocupado(controle.restaurar, () => api.consultar(supabase.from('conteudo_site').delete().eq('chave', campo.chave)));
-      if (!ctx.ativo()) return;
-      if (!r || !r.ok) {
-        ui.toast(r ? r.mensagem : 'Não foi possível restaurar agora. Tente de novo.', 'erro');
-        return;
-      }
-      salvos.delete(campo.chave);
-    }
-    const publicou = temLinha ? await publicarSite() : true;
-    if (!ctx.ativo()) return;
-    rascunho.set(campo.chave, clonarValor(campo.padrao));
-    desenharEditor(controle);
-    acabouDeSalvar = temLinha && publicou;
-    atualizarEstado();
-    if (previaGoogle) previaGoogle.atualizar();
-    controle.editor.focar();
-    if (publicou) ui.toast(temLinha ? 'Padrão restaurado.' : 'Mudanças desfeitas.', 'sucesso');
   }
 }

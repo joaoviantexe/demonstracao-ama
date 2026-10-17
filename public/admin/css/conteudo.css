@@ -29,8 +29,7 @@
 .pagina[data-pagina="conteudo"] .cms-campo .cartao__cabecalho{align-items:flex-start}
 .pagina[data-pagina="conteudo"] .cms-campo .cartao__titulo{flex:1 1 200px;min-width:0;padding-top:4px}
 .pagina[data-pagina="conteudo"] .cms-campo__estado{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px 8px}
-.pagina[data-pagina="conteudo"] .cms-campo__estado .selo[hidden],
-.pagina[data-pagina="conteudo"] .cms-campo__restaurar[hidden]{display:none}
+.pagina[data-pagina="conteudo"] .cms-campo__estado .selo[hidden]{display:none}
 .pagina[data-pagina="conteudo"] .cms-campo .cartao__subtitulo{margin-top:2px;line-height:1.45}
 @media (max-width:479.98px){
   .pagina[data-pagina="conteudo"] .cms-campo__estado{flex-basis:100%;justify-content:flex-start}

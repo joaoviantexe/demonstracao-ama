@@ -90,3 +90,12 @@ export function consultarPedido({ id, token, paymentId } = {}) {
   if (paymentId) params.set('payment_id', String(paymentId));
   return chamar(`/api/loja/pedido?${params}`, { timeoutMs: 25000 });
 }
+
+/**
+ * POST /api/loja/pagamento (Checkout Transparente) — { id, token, metodo, chave, cartao?, dispositivo? }.
+ * Devolve { pagamento: { id, status, metodo, pix?, boleto?, mensagem? } }.
+ */
+export function pagar(dados) {
+  // Mais que o pior caso do servidor (consultas, cancelamento e criação no Mercado Pago).
+  return chamar('/api/loja/pagamento', { metodo: 'POST', corpo: dados, timeoutMs: 70000 });
+}

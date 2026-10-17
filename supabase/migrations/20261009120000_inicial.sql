@@ -1042,11 +1042,12 @@ begin
   v_virou_pago := v_novo = 'pago' and v_anterior <> 'pago';
 
   -- Um pagamento diferente, pendente ou recusado, não apaga os dados de um
-  -- pagamento já aprovado (ex.: webhook atrasado de uma tentativa anterior).
+  -- pagamento ainda vivo: aprovado, ou Pix/boleto/cartão em aberto (ex.: webhook
+  -- atrasado do Pix cancelado chegando depois que a cliente gerou o boleto).
   v_atualizar := not coalesce(
     v_pedido.mp_payment_id is not null
     and v_id is distinct from v_pedido.mp_payment_id
-    and v_pedido.status_pagamento in ('approved', 'authorized')
+    and v_pedido.status_pagamento in ('approved', 'authorized', 'pending', 'in_process', 'in_mediation')
     and v_status not in ('approved', 'authorized', 'refunded', 'charged_back'),
     false);
 

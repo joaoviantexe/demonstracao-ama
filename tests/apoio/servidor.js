@@ -38,6 +38,7 @@ export const AMBIENTE_VAZIO = Object.freeze({
   VERCEL_PROJECT_PRODUCTION_URL: undefined,
   MP_ACCESS_TOKEN: undefined,
   MP_WEBHOOK_SECRET: undefined,
+  MP_PUBLIC_KEY: undefined,
   MELHOR_ENVIO_TOKEN: undefined,
   MELHOR_ENVIO_AMBIENTE: undefined,
   MELHOR_ENVIO_EMAIL: undefined,

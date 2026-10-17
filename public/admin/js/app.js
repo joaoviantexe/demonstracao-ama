@@ -862,7 +862,7 @@ function iniciar() {
   if (!config.configurado || !config.supabaseUrl || !config.supabaseAnonKey) {
     telaConfiguracao({
       titulo: 'Painel em configuração',
-      texto: 'O painel ainda não está ligado ao banco de dados. Quem cuida da parte técnica precisa preencher SUPABASE_URL e SUPABASE_ANON_KEY nas variáveis de ambiente da Vercel (passo a passo em docs/CONFIGURACAO.md). O site continua funcionando normalmente.',
+      texto: 'O painel ainda não está ligado ao banco de dados. Quem cuida da parte técnica precisa preencher SUPABASE_URL e SUPABASE_ANON_KEY nas variáveis do Cloudflare (passo a passo em docs/CONFIGURACAO.md). O site continua funcionando normalmente.',
     });
     return;
   }

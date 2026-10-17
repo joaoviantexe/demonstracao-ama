@@ -12,6 +12,22 @@
  *     (desenvolvimento). Guarda e devolve 201 com id e init_point = <url>/pagar/<pref_id>.
  *     Repetir o X-Idempotency-Key devolve a mesma preferência.
  * - GET  /checkout/preferences/:id
+ * - POST /v1/payments            Checkout Transparente. Exige X-Idempotency-Key (repetir a chave devolve o mesmo
+ *     pagamento) e valida como o MP real: transaction_amount > 0 com 2 casas, payer.email, payment_method_id,
+ *     notification_url https pública, date_of_expiration ISO; boleto (bolbradesco) exige nome, CPF e endereço
+ *     completo do comprador; cartão exige token, installments 1–36 e payment_method_id.
+ *     - pix → pending/pending_waiting_transfer com point_of_interaction.transaction_data (qr_code, qr_code_base64,
+ *       ticket_url = <url>/pix/<id>)
+ *     - bolbradesco → pending/pending_waiting_payment com transaction_details (external_resource_url =
+ *       <url>/boleto/<id>, digitable_line) e barcode.content
+ *     - cartão → o resultado vem do nome do titular embutido no token "ccfalso_<NOME>_<n>" (o MercadoPago.js
+ *       falso de tests/apoio/mercadopago-js-falso.js gera assim), como os titulares de teste do MP:
+ *       APRO aprovado; CONT pendente (in_process); OTHE, CALL, FUND, SECU, EXPI, FORM recusados
+ *       (cc_rejected_*). Token em outro formato → aprovado.
+ *     Depois de responder, manda o webhook (payment.created) para a notification_url ou estado.webhookUrl.
+ *     estado.falhas.criarPagamento (status HTTP) faz a rota falhar; 400 simula dados recusados.
+ * - PUT  /v1/payments/:id        { status: 'cancelled' } cancela Pix/boleto pendente (aprovado → 400)
+ * - GET  /pix/:id, /boleto/:id   páginas simples (ticket_url e link do boleto)
  * - GET  /v1/payments/:id        404 se não existe
  * - GET  /v1/payments/search?external_reference=…   { paging: { total, limit, offset }, results } (mais recente primeiro)
  * - GET  /pagar/:pref_id         página HTML com os itens, o total e os botões Aprovar, Pendente e Recusar
@@ -31,7 +47,8 @@
  * - requisicoes: [{ metodo, caminho, cabecalhos }] (todas as chamadas recebidas)
  * - webhookUrl: destino quando a preferência não tem notification_url (pode mudar a qualquer momento)
  * - segredo, token
- * - falhas: { preferencias, pagamentos, busca } — um status HTTP (ex.: 500) faz a rota responder esse erro
+ * - falhas: { preferencias, pagamentos, busca, criarPagamento, cancelar } — um status HTTP (ex.: 500) faz a
+ *     rota responder esse erro
  * - ultimaPreferencia() → preferência | null
  * - pagar(prefId, 'aprovar'|'pendente'|'recusar', extras?) → Promise<{ pagamento, webhook, redirecionar }>
  * - alterarStatus(paymentId, status, extras?) → Promise<{ pagamento, webhook }> (ex.: 'refunded'; reenvia o webhook)
@@ -62,6 +79,21 @@ const DETALHE_PADRAO = {
   refunded: 'refunded',
   charged_back: 'settled',
 };
+
+// Titulares de teste do Mercado Pago (o nome no cartão define o resultado).
+const TITULARES = {
+  APRO: ['approved', 'accredited'],
+  CONT: ['in_process', 'pending_contingency'],
+  OTHE: ['rejected', 'cc_rejected_other_reason'],
+  CALL: ['rejected', 'cc_rejected_call_for_authorize'],
+  FUND: ['rejected', 'cc_rejected_insufficient_amount'],
+  SECU: ['rejected', 'cc_rejected_bad_filled_security_code'],
+  EXPI: ['rejected', 'cc_rejected_bad_filled_date'],
+  FORM: ['rejected', 'cc_rejected_bad_filled_other'],
+};
+
+// PNG 1×1 transparente (o QR de verdade não importa nos testes).
+const PNG_QR = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
 const ACOES = {
   aprovar: { status: 'approved', status_detail: 'accredited', payment_type_id: 'credit_card', payment_method_id: 'master' },
@@ -135,6 +167,42 @@ function validarPreferencia(corpo) {
   return erros;
 }
 
+const DATA_ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+function validarPagamento(corpo) {
+  const erros = [];
+  if (!ehObjeto(corpo)) return ['corpo inválido'];
+  const valor = corpo.transaction_amount;
+  if (typeof valor !== 'number' || !Number.isFinite(valor) || valor <= 0 || Math.round(valor * 100) / 100 !== valor) {
+    erros.push('transaction_amount invalid');
+  }
+  const pagador = ehObjeto(corpo.payer) ? corpo.payer : {};
+  if (typeof pagador.email !== 'string' || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(pagador.email)) erros.push('payer.email must be a valid email');
+  const meio = corpo.payment_method_id;
+  if (typeof meio !== 'string' || !meio) erros.push('payment_method_id is required');
+  if (corpo.notification_url !== undefined && !urlPublicaHttps(corpo.notification_url)) erros.push('notification_url precisa ser https pública');
+  if (corpo.date_of_expiration !== undefined && !(typeof corpo.date_of_expiration === 'string' && DATA_ISO.test(corpo.date_of_expiration))) {
+    erros.push('date_of_expiration invalid');
+  }
+  if (corpo.statement_descriptor !== undefined
+    && (typeof corpo.statement_descriptor !== 'string' || corpo.statement_descriptor.length > 13)) {
+    erros.push('statement_descriptor com mais de 13 caracteres');
+  }
+  if (meio === 'bolbradesco') {
+    if (!pagador.first_name || !pagador.last_name) erros.push('payer.first_name e payer.last_name obrigatórios no boleto');
+    const doc = ehObjeto(pagador.identification) ? pagador.identification : {};
+    if (doc.type !== 'CPF' || !/^\d{11}$/.test(String(doc.number ?? ''))) erros.push('payer.identification obrigatório no boleto');
+    const e = ehObjeto(pagador.address) ? pagador.address : {};
+    for (const campo of ['zip_code', 'street_name', 'street_number', 'neighborhood', 'city', 'federal_unit']) {
+      if (typeof e[campo] !== 'string' || !e[campo].trim()) erros.push(`payer.address.${campo} obrigatório no boleto`);
+    }
+  } else if (meio !== 'pix') {
+    if (typeof corpo.token !== 'string' || !corpo.token) erros.push('token is required');
+    if (!Number.isSafeInteger(corpo.installments) || corpo.installments < 1 || corpo.installments > 36) erros.push('installments invalid');
+  }
+  return erros;
+}
+
 function lerCorpo(req) {
   return new Promise((resolve, reject) => {
     const partes = [];
@@ -203,7 +271,7 @@ export async function iniciar({ porta = 0, segredo = 'segredo-teste', webhookUrl
     webhookUrl: webhookUrl || '',
     segredo,
     token,
-    falhas: { preferencias: null, pagamentos: null, busca: null },
+    falhas: { preferencias: null, pagamentos: null, busca: null, criarPagamento: null, cancelar: null },
 
     ultimaPreferencia() {
       let ultima = null;
@@ -348,6 +416,58 @@ export async function iniciar({ porta = 0, segredo = 'segredo-teste', webhookUrl
     },
   };
 
+  function criarPagamentoDireto(corpo, cabecalhos) {
+    const meio = corpo.payment_method_id;
+    const comum = {
+      transaction_amount: corpo.transaction_amount,
+      external_reference: corpo.external_reference ?? null,
+      description: corpo.description ?? '',
+      statement_descriptor: corpo.statement_descriptor ?? null,
+      metadata: corpo.metadata ?? {},
+      payer: { email: corpo.payer.email, identification: corpo.payer.identification ?? null },
+      date_of_expiration: corpo.date_of_expiration ?? null,
+      installments: corpo.installments ?? 1,
+      order: { id: Math.floor(Math.random() * 1e10), type: 'mercadopago' },
+    };
+    let pagamento;
+    if (meio === 'pix') {
+      pagamento = estado.adicionarPagamento({
+        ...comum, status: 'pending', status_detail: 'pending_waiting_transfer', payment_type_id: 'bank_transfer', payment_method_id: 'pix',
+      });
+      pagamento.point_of_interaction = {
+        type: 'PIX',
+        transaction_data: {
+          qr_code: `00020126580014br.gov.bcb.pix0136${randomUUID()}5204000053039865406${corpo.transaction_amount.toFixed(2)}5802BR5903AMA6006BELEM62070503***6304ABCD`,
+          qr_code_base64: PNG_QR,
+          ticket_url: `${url}/pix/${pagamento.id}`,
+        },
+      };
+    } else if (meio === 'bolbradesco') {
+      pagamento = estado.adicionarPagamento({
+        ...comum, status: 'pending', status_detail: 'pending_waiting_payment', payment_type_id: 'ticket', payment_method_id: 'bolbradesco',
+      });
+      const barras = `23791${String(pagamento.id).padStart(10, '0')}0000000000000000000000000000`.slice(0, 44);
+      pagamento.barcode = { content: barras };
+      pagamento.transaction_details = {
+        external_resource_url: `${url}/boleto/${pagamento.id}`,
+        digitable_line: `23790.00009 ${String(pagamento.id).padStart(10, '0').slice(0, 5)}.${String(pagamento.id).padStart(10, '0').slice(5)} 00000.000000 1 00000000000000`,
+        barcode: { content: barras },
+      };
+    } else {
+      const titular = /^ccfalso_([^_]+)_/.exec(String(corpo.token));
+      const codigo = titular ? decodeURIComponent(titular[1]).trim().toUpperCase().slice(0, 4) : 'APRO';
+      const [status, detalhe] = TITULARES[codigo] || TITULARES.APRO;
+      pagamento = estado.adicionarPagamento({
+        ...comum, status, status_detail: detalhe, payment_type_id: 'credit_card', payment_method_id: meio,
+        issuer_id: corpo.issuer_id ?? null,
+        card: { first_six_digits: '503143', last_four_digits: '6351', cardholder: { name: codigo } },
+      });
+    }
+    Object.defineProperty(pagamento, 'corpo', { value: corpo, enumerable: false });
+    Object.defineProperty(pagamento, 'cabecalhos', { value: { ...cabecalhos }, enumerable: false });
+    return pagamento;
+  }
+
   function urlDeRetorno(pref, pagamento) {
     const chave = pagamento.status === 'approved' || pagamento.status === 'authorized'
       ? 'success'
@@ -438,6 +558,52 @@ export async function iniciar({ porta = 0, segredo = 'segredo-teste', webhookUrl
       const total = lista.length;
       lista = lista.slice(deslocamento, deslocamento + limite);
       return json(res, 200, { paging: { total, limit: limite, offset: deslocamento }, results: lista });
+    }
+
+    if (caminho === '/v1/payments' && metodo === 'POST') {
+      if (!autorizado(req)) return erroMp(res, 401, 'invalid access token', 'unauthorized');
+      if (estado.falhas.criarPagamento) return erroMp(res, estado.falhas.criarPagamento, 'erro simulado', 'internal_error');
+      const chave = req.headers['x-idempotency-key'];
+      if (!chave) return erroMp(res, 400, 'X-Idempotency-Key header is required');
+      if (idempotencia.has(`pag:${chave}`)) return json(res, 201, estado.pagamentos.get(idempotencia.get(`pag:${chave}`)));
+      let corpo;
+      try {
+        corpo = JSON.parse(texto);
+      } catch {
+        return erroMp(res, 400, 'invalid json');
+      }
+      const erros = validarPagamento(corpo);
+      if (erros.length) return erroMp(res, 400, erros.join('; '));
+      const pagamento = criarPagamentoDireto(corpo, req.headers);
+      idempotencia.set(`pag:${chave}`, String(pagamento.id));
+      json(res, 201, pagamento);
+      // Como no MP real, a notificação chega logo depois (às vezes antes) da resposta.
+      setImmediate(() => { estado.enviarWebhook(pagamento.id, 'payment.created').catch(() => {}); });
+      return undefined;
+    }
+
+    if ((m = /^\/v1\/payments\/([^/]+)$/.exec(caminho)) && metodo === 'PUT') {
+      if (!autorizado(req)) return erroMp(res, 401, 'invalid access token', 'unauthorized');
+      if (estado.falhas.cancelar) return erroMp(res, estado.falhas.cancelar, 'erro simulado', 'internal_error');
+      const pagamento = estado.pagamentos.get(decodeURIComponent(m[1]));
+      if (!pagamento) return erroMp(res, 404, 'Payment not found', 'not_found');
+      let corpo;
+      try {
+        corpo = JSON.parse(texto);
+      } catch {
+        return erroMp(res, 400, 'invalid json');
+      }
+      if (!ehObjeto(corpo) || corpo.status !== 'cancelled') return erroMp(res, 400, 'only status cancelled is supported here');
+      if (!['pending', 'in_process'].includes(pagamento.status)) return erroMp(res, 400, `Payment can't be cancelled (status ${pagamento.status})`);
+      const { pagamento: cancelado } = await estado.alterarStatus(pagamento.id, 'cancelled', { status_detail: 'by_collector' });
+      return json(res, 200, cancelado);
+    }
+
+    if ((m = /^\/(pix|boleto)\/(\d+)$/.exec(caminho)) && metodo === 'GET') {
+      const pagamento = estado.pagamentos.get(m[2]);
+      res.writeHead(pagamento ? 200 : 404, { 'Content-Type': 'text/html; charset=utf-8' });
+      return res.end(`<!doctype html><title>${m[1] === 'pix' ? 'Pix' : 'Boleto'} (simulado)</title>`
+        + `<p>${pagamento ? `Pagamento ${escapar(pagamento.id)}: ${escapar(reais(Math.round(pagamento.transaction_amount * 100)))} — ${escapar(pagamento.status)}` : 'Não encontrado.'}</p>`);
     }
 
     if ((m = /^\/v1\/payments\/([^/]+)$/.exec(caminho)) && metodo === 'GET') {

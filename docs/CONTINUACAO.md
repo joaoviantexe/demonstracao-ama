@@ -43,9 +43,11 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
   - Visual idêntico ao da `main`, conferido por `scripts/comparar-home.mjs`.
 - **Servidor:**
   - Bibliotecas em `lib/`.
-  - APIs da loja: cotação, checkout, pedido e webhook do Mercado Pago.
+  - APIs da loja: cotação, checkout, pedido, pagamento (Checkout Transparente) e webhook do Mercado Pago.
+  - Pagamento no próprio site com `MP_PUBLIC_KEY` (Pix, cartão pelo MercadoPago.js e boleto na página do pedido);
+    sem ela, Checkout Pro. Ver `docs/ARQUITETURA.md` §6.7.
   - Rotas de admin: status, pedido-status, envio no Melhor Envio e conferência de pagamento.
-  - Servidores falsos do Mercado Pago e do Melhor Envio em `tests/apoio/`.
+  - Servidores falsos do Mercado Pago e do Melhor Envio em `tests/apoio/` (e o MercadoPago.js falso para o navegador).
 - **Vitrine:** `public/loja/*`, `public/js/loja/*` e `public/css/loja.css`.
   - O script `scripts/capturas-loja.mjs` percorre a compra inteira.
 - **Painel:**
@@ -53,9 +55,10 @@ Responda e comente sempre em **português do Brasil**. Não faça merge nem marq
   - Todas as páginas prontas: visão geral, conteúdo do site, mídia, produtos, categorias, pedidos e configurações.
     Conteúdo, mídia, produtos e categorias passaram pela revisão independente (scripts de capturas no celular e no computador).
 - **Testes:**
-  - `npm test`: 777 testes unitários.
-  - `npm run test:integracao`: 140 testes contra o Supabase local.
-  - `npm run test:e2e`: compra de ponta a ponta no navegador (`tests/e2e/fluxo-completo.test.js`).
+  - `npm test`: 806 testes unitários.
+  - `npm run test:integracao`: 148 testes contra o Supabase local.
+  - `npm run test:e2e`: compra de ponta a ponta no navegador (`tests/e2e/fluxo-completo.test.js`, Checkout Pro) e
+    pagamento no site (`tests/e2e/checkout-transparente.test.js`).
 
 ## Decisões do cliente que já valem (não desfazer)
 

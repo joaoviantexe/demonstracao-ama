@@ -1,6 +1,8 @@
 // GET /api/config — configuração pública para o navegador (docs/ARQUITETURA.md §6.1).
 // Só a URL e a chave PÚBLICA do Supabase; a chave de serviço nunca sai daqui. Uma chave secreta
 // colada por engano no lugar da pública vira "não configurado" (obterAmbiente já a descarta e loga).
+// Com o Checkout Transparente (MP_ACCESS_TOKEN + MP_PUBLIC_KEY), vai também a Public Key do Mercado Pago
+// (mpPublicKey), usada pelo MercadoPago.js no formulário do cartão.
 
 import { ehChaveSecreta, obterAmbiente } from '../lib/ambiente.js';
 import { exigirMetodo, tratarErro } from '../lib/http.js';
@@ -18,11 +20,14 @@ export function jsonSeguro(valor) {
 export default function handler(req, res) {
   try {
     if (!exigirMetodo(req, res, ['GET'])) return;
-    const { supabaseUrl, supabaseAnonKey, supabaseServiceKey, supabasePublicoConfigurado } = obterAmbiente();
+    const {
+      supabaseUrl, supabaseAnonKey, supabaseServiceKey, supabasePublicoConfigurado, checkoutTransparente, mpPublicKey,
+    } = obterAmbiente();
     const publicavel = supabasePublicoConfigurado && !ehChaveSecreta(supabaseAnonKey, supabaseServiceKey);
     const config = publicavel
       ? { supabaseUrl, supabaseAnonKey, configurado: true }
       : { supabaseUrl: '', supabaseAnonKey: '', configurado: false };
+    if (publicavel && checkoutTransparente) config.mpPublicKey = mpPublicKey;
     const corpo = Buffer.from(`window.AMA_CONFIG = ${jsonSeguro(config)};`, 'utf8');
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/javascript; charset=utf-8');

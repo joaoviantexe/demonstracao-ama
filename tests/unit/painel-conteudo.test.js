@@ -326,7 +326,7 @@ describe('validarValor', () => {
     assert.match(validarValor({ tipo: 'texto' }, '')[0].mensagem, /não pode ficar vazio/);
     assert.match(validarValor({ tipo: 'texto' }, 'x'.repeat(501))[0].mensagem, /no máximo 500/);
     assert.deepEqual(validarValor({ tipo: 'texto' }, 'ok'), []);
-    assert.match(validarValor({ tipo: 'html' }, '')[0].mensagem, /Restaurar padrão/);
+    assert.match(validarValor({ tipo: 'html' }, '')[0].mensagem, /não pode ficar vazio/);
   });
 
   test('imagem: precisa de endereço seguro e de texto alternativo', () => {
@@ -472,7 +472,7 @@ describe('visão geral dos grupos', () => {
     assert.deepEqual(ids.slice(0, 4), ['identidade', 'cabecalho', 'quem-somos', 'postagens']);
   });
 
-  test('resumo: campos, edições salvas e visibilidade', () => {
+  test('resumo: campos e visibilidade', () => {
     const salvos = mapaDeLinhas([
       { chave: 'quem-somos.titulo', valor: 'X', atualizado_em: '2026-10-14T10:00:00Z' },
       { chave: 'quem-somos.texto', valor: '<p>Y</p>', atualizado_em: '2026-10-15T10:00:00Z' },
@@ -482,14 +482,10 @@ describe('visão geral dos grupos', () => {
     const resumos = new Map(resumirGrupos(esquemaDaHome(), salvos).map((r) => [r.id, r]));
     const qs = resumos.get('quem-somos');
     assert.equal(qs.totalCampos, 3);
-    assert.equal(qs.personalizados, 2);
-    assert.equal(qs.atualizadoEm, '2026-10-15T10:00:00Z');
     assert.equal(qs.visivel, true);
     assert.equal(qs.ocultavel, true);
     const dep = resumos.get('depoimentos');
     assert.equal(dep.visivel, false);
-    assert.equal(dep.personalizados, 0);
-    assert.equal(dep.atualizadoEm, '2026-10-13T10:00:00Z');
     assert.equal(resumos.get('cabecalho').visivel, true);
     assert.equal(resumos.get('cabecalho').ocultavel, false);
     assert.deepEqual(resumos.get('whatsapp').rotulosCampos, ['WhatsApp do site']);
