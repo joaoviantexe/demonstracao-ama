@@ -117,9 +117,9 @@ main#topo{display:flex;flex-direction:column}
 #redes{order:2}
 #cursos{order:3}
 #biojoias{order:4}
-#historia{order:5}
-#depoimentos{order:6}
-#parcerias{order:7}
+#historia{order:6}
+#depoimentos{order:7}
+#parcerias{order:8}
 section[id],
 main#topo{
   scroll-margin-top:calc(var(--altura-topo) + 16px);
@@ -1369,8 +1369,7 @@ footer.rodape{
 .historia-galeria .historia-imagem-fixa:last-child{margin-bottom:0}
 
 /* ---------- Loja virtual — banner Ama Bioessência ---------- */
-/* Depois de História, como no documento: a ordem visual é a do Tab e a dos grupos no painel
-   (empata com #historia e o desempate segue o documento). */
+/* Antes de História, como no documento: a ordem visual é a do Tab e a dos grupos no painel. */
 #loja{order:5}
 .loja-banner{background:var(--creme-100);border-bottom:1px solid var(--linha)}
 .loja-painel{

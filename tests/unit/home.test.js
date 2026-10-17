@@ -21,10 +21,10 @@ const MAIN_JS = readFileSync(path.join(RAIZ, 'public', 'js', 'main.js'), 'utf8')
 const ESTILO = readFileSync(path.join(RAIZ, 'public', 'css', 'estilo.css'), 'utf8');
 
 const GRUPOS = [
-  'seo', 'cabecalho', 'identidade', 'quem-somos', 'postagens', 'projetos', 'historia', 'loja',
+  'seo', 'cabecalho', 'identidade', 'quem-somos', 'postagens', 'projetos', 'loja', 'historia',
   'depoimentos', 'parcerias', 'rodape', 'whatsapp',
 ];
-const OCULTAVEIS = ['quem-somos', 'postagens', 'projetos', 'historia', 'loja', 'depoimentos', 'parcerias', 'whatsapp'];
+const OCULTAVEIS = ['quem-somos', 'postagens', 'projetos', 'loja', 'historia', 'depoimentos', 'parcerias', 'whatsapp'];
 const RE_CHAVE = /^[a-z0-9][a-z0-9._-]*$/;
 const TIPOS_VALIDOS = ['texto', 'textolongo', 'html', 'imagem', 'video', 'link', 'url', 'instagram', 'meta', 'lista'];
 
@@ -432,7 +432,7 @@ describe('templates/home.html — estrutura', () => {
       ordens.set(id, Number(valor)); // a última regra vale (cascata)
     }
     const secoes = $$(doc, 'main#topo > section[id]').map((s) => s.id);
-    assert.deepEqual(secoes, ['sobre', 'redes', 'cursos', 'historia', 'loja', 'depoimentos', 'parcerias']);
+    assert.deepEqual(secoes, ['sobre', 'redes', 'cursos', 'loja', 'historia', 'depoimentos', 'parcerias']);
     for (const id of secoes) assert.ok(ordens.has(id), `#${id} tem order no estilo.css`);
     for (let i = 1; i < secoes.length; i++) {
       const [antes, depois] = [secoes[i - 1], secoes[i]];
